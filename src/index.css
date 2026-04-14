@@ -1,0 +1,28 @@
+/* src/index.css
+   ✅ Neutralise le CSS starter Vite (qui centre l'app en plein milieu)
+   ✅ On garde juste un mini reset safe
+*/
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  display: block; /* ✅ IMPORTANT: pas de flex/center */
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
