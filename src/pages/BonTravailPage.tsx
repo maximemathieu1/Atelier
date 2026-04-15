@@ -4,6 +4,7 @@ import { supabase } from "../lib/supabaseClient";
 import { type Piece } from "../components/bt/BtPiecesCard";
 import BonTravailHeaderCard from "../components/bt/BonTravailHeaderCard";
 import BonTravailOperations from "../components/bt/BonTravailOperations";
+import btPrintTemplate from "../templates/btPrintTemplate";
 
 type Unite = {
   id: string;
@@ -163,6 +164,57 @@ function minutesFromPointage(p: BtPointage) {
   const b = new Date(p.ended_at || new Date().toISOString()).getTime();
   if (!Number.isFinite(a) || !Number.isFinite(b) || b < a) return 0;
   return Math.round((b - a) / 60000);
+}
+
+function escapeHtml(value: unknown) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function formatMoney(value: number | null | undefined) {
+  const n = Number(value || 0);
+  return new Intl.NumberFormat("fr-CA", {
+    style: "currency",
+    currency: "CAD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(n);
+}
+
+function formatDateTimePrint(value: string | null | undefined) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  return new Intl.DateTimeFormat("fr-CA", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(d);
+}
+
+function formatDatePrint(value: string | null | undefined) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  return new Intl.DateTimeFormat("fr-CA", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+}
+
+function fmtHours(value: number | null | undefined) {
+  const n = Number(value || 0);
+  return new Intl.NumberFormat("fr-CA", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(n);
 }
 
 export default function BonTravailPage() {
@@ -1305,8 +1357,140 @@ export default function BonTravailPage() {
   }
 
   function handlePrint() {
-    window.open(`/bt/${id}/imprimer`, "_blank", "noopener,noreferrer");
+  if (!bt || !unite) return;
+
+  const entrepriseNom = "Atelier";
+  const entrepriseAdresse1 = "";
+  const entrepriseVille = "";
+  const entrepriseProvince = "";
+  const entrepriseCodePostal = "";
+
+  const bonCommandeRow = bt.bon_commande?.trim()
+    ? `
+      <tr>
+        <td class="k">Bon de commande</td>
+        <td class="v">${escapeHtml(bt.bon_commande)}</td>
+      </tr>
+    `
+    : "";
+
+  const tachesEffectueesRowsHtml =
+    tachesEffectuees.length > 0
+      ? tachesEffectuees.map(t => `
+          <tr>
+            <td>${escapeHtml(t.titre || "—")}</td>
+            <td class="center">${escapeHtml(formatDatePrint(t.date_effectuee))}</td>
+          </tr>
+        `).join("")
+      : `
+        <tr>
+          <td colspan="2" style="text-align:center;color:#666;">Aucun travail effectué</td>
+        </tr>
+      `;
+
+  const tachesOuvertesSection =
+    notes.length > 0
+      ? `
+      <div class="section">
+        <div class="section-h">Tâches ouvertes</div>
+        <div class="section-b">
+          <table class="tbl">
+            <thead>
+              <tr>
+                <th>Description</th>
+                <th class="center" style="width:160px;">Créée le</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${notes.map(n => `
+                <tr>
+                  <td>${escapeHtml(n.titre || "—")}</td>
+                  <td class="center">${escapeHtml(formatDatePrint(n.created_at))}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `
+      : "";
+
+  const piecesRowsHtml =
+    pieces.length > 0
+      ? pieces.map((p: any) => {
+          const sku = p.sku || p.code || "—";
+          const description = p.description || p.nom || p.titre || "—";
+          const quantite = Number(p.quantite || 0);
+          const unitePiece = p.unite || p.unite_mesure || "";
+          const prixUnitaire = getPieceFactureU(p as Piece);
+          const totalLigne = getPieceTotalFacture(p as Piece);
+
+          return `
+            <tr>
+              <td>${escapeHtml(sku)}</td>
+              <td>${escapeHtml(description)}</td>
+              <td class="center">${quantite}</td>
+              <td>${escapeHtml(unitePiece)}</td>
+              <td class="amount">${formatMoney(prixUnitaire)}</td>
+              <td class="amount">${formatMoney(totalLigne)}</td>
+            </tr>
+          `;
+        }).join("")
+      : `
+        <tr>
+          <td colspan="6" style="text-align:center;color:#666;">Aucune pièce</td>
+        </tr>
+      `;
+
+  const totalHeuresPointages = pointagesResume.reduce((s, r) => s + Number(r.heures || 0), 0);
+  const totalHeuresMainOeuvre = mainOeuvre.reduce((s, r) => s + Number(r.heures || 0), 0);
+  const totalHeuresGlobal = totalHeuresPointages + totalHeuresMainOeuvre;
+
+  let html = btPrintTemplate
+    .replace(/{{entreprise_nom_affiche}}/g, escapeHtml(entrepriseNom))
+    .replace(/{{entreprise_adresse_l1}}/g, "")
+    .replace(/{{entreprise_ville}}/g, "")
+    .replace(/{{entreprise_province}}/g, "")
+    .replace(/{{entreprise_code_postal}}/g, "")
+    .replace(/{{bt_numero}}/g, escapeHtml(bt.numero || "—"))
+    .replace(/{{date_ouverture}}/g, formatDateTimePrint(bt.date_ouverture))
+    .replace(/{{date_fermeture}}/g, formatDateTimePrint(bt.date_fermeture))
+    .replace(/{{bt_statut}}/g, "")
+    .replace(/{{bon_commande_row}}/g, bonCommandeRow)
+    .replace(/{{client_nom}}/g, escapeHtml(snapshotClientNom))
+    .replace(/{{unite_no}}/g, escapeHtml(unite.no_unite || "—"))
+    .replace(/{{unite_plaque}}/g, escapeHtml(unite.plaque || "—"))
+    .replace(/{{unite_niv}}/g, escapeHtml(unite.niv || "—"))
+    .replace(/{{bt_km}}/g, bt.km != null ? String(bt.km) : "—")
+    .replace(/{{taches_effectuees_rows}}/g, tachesEffectueesRowsHtml)
+    .replace(/{{taches_ouvertes_section}}/g, tachesOuvertesSection)
+    .replace(/{{pieces_rows}}/g, piecesRowsHtml)
+    .replace(/{{total_pieces}}/g, formatMoney(totalPiecesFacture))
+    .replace(/{{total_heures}}/g, fmtHours(totalHeuresGlobal))
+    .replace(/{{total_main_oeuvre}}/g, formatMoney(totalMainOeuvre))
+    .replace(/{{total_frais_atelier}}/g, formatMoney(totalFraisAtelier))
+    .replace(/{{total_general}}/g, formatMoney(totalGeneral));
+
+  const w = window.open("", "_blank");
+
+  if (!w) {
+    alert("Popup bloqué");
+    return;
   }
+
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+
+  // 🔥 FIX CRITIQUE
+  w.onload = () => {
+    setTimeout(() => {
+      w.focus();
+      w.print();
+      w.onafterprint = () => w.close();
+    }, 100);
+  };
+}
 
   const styles: Record<string, CSSProperties> = {
     page: {
