@@ -1360,10 +1360,10 @@ export default function BonTravailPage() {
   if (!bt || !unite) return;
 
   const entrepriseNom = "Atelier";
-  const entrepriseAdresse1 = "";
-  const entrepriseVille = "";
-  const entrepriseProvince = "";
-  const entrepriseCodePostal = "";
+ .replace(/{{entreprise_adresse_l1}}/g, entrepriseAdresse1)
+.replace(/{{entreprise_ville}}/g, entrepriseVille)
+.replace(/{{entreprise_province}}/g, entrepriseProvince)
+.replace(/{{entreprise_code_postal}}/g, entrepriseCodePostal)
 
   const bonCommandeRow = bt.bon_commande?.trim()
     ? `
