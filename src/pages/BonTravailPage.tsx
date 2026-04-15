@@ -1360,10 +1360,6 @@ export default function BonTravailPage() {
   if (!bt || !unite) return;
 
   const entrepriseNom = "Atelier";
- .replace(/{{entreprise_adresse_l1}}/g, entrepriseAdresse1)
-.replace(/{{entreprise_ville}}/g, entrepriseVille)
-.replace(/{{entreprise_province}}/g, entrepriseProvince)
-.replace(/{{entreprise_code_postal}}/g, entrepriseCodePostal)
 
   const bonCommandeRow = bt.bon_commande?.trim()
     ? `
@@ -1376,12 +1372,16 @@ export default function BonTravailPage() {
 
   const tachesEffectueesRowsHtml =
     tachesEffectuees.length > 0
-      ? tachesEffectuees.map(t => `
-          <tr>
-            <td>${escapeHtml(t.titre || "—")}</td>
-            <td class="center">${escapeHtml(formatDatePrint(t.date_effectuee))}</td>
-          </tr>
-        `).join("")
+      ? tachesEffectuees
+          .map(
+            (t) => `
+              <tr>
+                <td>${escapeHtml(t.titre || "—")}</td>
+                <td class="center">${escapeHtml(formatDatePrint(t.date_effectuee))}</td>
+              </tr>
+            `
+          )
+          .join("")
       : `
         <tr>
           <td colspan="2" style="text-align:center;color:#666;">Aucun travail effectué</td>
@@ -1391,51 +1391,57 @@ export default function BonTravailPage() {
   const tachesOuvertesSection =
     notes.length > 0
       ? `
-      <div class="section">
-        <div class="section-h">Tâches ouvertes</div>
-        <div class="section-b">
-          <table class="tbl">
-            <thead>
-              <tr>
-                <th>Description</th>
-                <th class="center" style="width:160px;">Créée le</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${notes.map(n => `
+        <div class="section">
+          <div class="section-h">Tâches ouvertes</div>
+          <div class="section-b">
+            <table class="tbl">
+              <thead>
                 <tr>
-                  <td>${escapeHtml(n.titre || "—")}</td>
-                  <td class="center">${escapeHtml(formatDatePrint(n.created_at))}</td>
+                  <th>Description</th>
+                  <th class="center" style="width:160px;">Créée le</th>
                 </tr>
-              `).join("")}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                ${notes
+                  .map(
+                    (n) => `
+                      <tr>
+                        <td>${escapeHtml(n.titre || "—")}</td>
+                        <td class="center">${escapeHtml(formatDatePrint(n.created_at))}</td>
+                      </tr>
+                    `
+                  )
+                  .join("")}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
-    `
+      `
       : "";
 
   const piecesRowsHtml =
     pieces.length > 0
-      ? pieces.map((p: any) => {
-          const sku = p.sku || p.code || "—";
-          const description = p.description || p.nom || p.titre || "—";
-          const quantite = Number(p.quantite || 0);
-          const unitePiece = p.unite || p.unite_mesure || "";
-          const prixUnitaire = getPieceFactureU(p as Piece);
-          const totalLigne = getPieceTotalFacture(p as Piece);
+      ? pieces
+          .map((p: any) => {
+            const sku = p.sku || p.code || "—";
+            const description = p.description || p.nom || p.titre || "—";
+            const quantite = Number(p.quantite || 0);
+            const unitePiece = p.unite || p.unite_mesure || "";
+            const prixUnitaire = getPieceFactureU(p as Piece);
+            const totalLigne = getPieceTotalFacture(p as Piece);
 
-          return `
-            <tr>
-              <td>${escapeHtml(sku)}</td>
-              <td>${escapeHtml(description)}</td>
-              <td class="center">${quantite}</td>
-              <td>${escapeHtml(unitePiece)}</td>
-              <td class="amount">${formatMoney(prixUnitaire)}</td>
-              <td class="amount">${formatMoney(totalLigne)}</td>
-            </tr>
-          `;
-        }).join("")
+            return `
+              <tr>
+                <td>${escapeHtml(sku)}</td>
+                <td>${escapeHtml(description)}</td>
+                <td class="center">${quantite}</td>
+                <td>${escapeHtml(unitePiece)}</td>
+                <td class="amount">${formatMoney(prixUnitaire)}</td>
+                <td class="amount">${formatMoney(totalLigne)}</td>
+              </tr>
+            `;
+          })
+          .join("")
       : `
         <tr>
           <td colspan="6" style="text-align:center;color:#666;">Aucune pièce</td>
@@ -1446,7 +1452,7 @@ export default function BonTravailPage() {
   const totalHeuresMainOeuvre = mainOeuvre.reduce((s, r) => s + Number(r.heures || 0), 0);
   const totalHeuresGlobal = totalHeuresPointages + totalHeuresMainOeuvre;
 
-  let html = btPrintTemplate
+  const html = btPrintTemplate
     .replace(/{{entreprise_nom_affiche}}/g, escapeHtml(entrepriseNom))
     .replace(/{{entreprise_adresse_l1}}/g, "")
     .replace(/{{entreprise_ville}}/g, "")
@@ -1458,6 +1464,9 @@ export default function BonTravailPage() {
     .replace(/{{bt_statut}}/g, "")
     .replace(/{{bon_commande_row}}/g, bonCommandeRow)
     .replace(/{{client_nom}}/g, escapeHtml(snapshotClientNom))
+    .replace(/{{client_adresse_l1}}/g, "")
+    .replace(/{{client_ville}}/g, "")
+    .replace(/{{client_telephone}}/g, "")
     .replace(/{{unite_no}}/g, escapeHtml(unite.no_unite || "—"))
     .replace(/{{unite_plaque}}/g, escapeHtml(unite.plaque || "—"))
     .replace(/{{unite_niv}}/g, escapeHtml(unite.niv || "—"))
@@ -1472,7 +1481,6 @@ export default function BonTravailPage() {
     .replace(/{{total_general}}/g, formatMoney(totalGeneral));
 
   const w = window.open("", "_blank");
-
   if (!w) {
     alert("Popup bloqué");
     return;
@@ -1482,7 +1490,6 @@ export default function BonTravailPage() {
   w.document.write(html);
   w.document.close();
 
-  // 🔥 FIX CRITIQUE
   w.onload = () => {
     setTimeout(() => {
       w.focus();
