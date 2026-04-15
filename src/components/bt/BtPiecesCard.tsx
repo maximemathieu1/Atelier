@@ -25,6 +25,13 @@ type InventaireItem = {
   actif?: boolean | null;
 };
 
+type ScanLookupRow = {
+  item_id: string;
+  sku: string | null;
+  nom: string | null;
+  matched_by: string;
+};
+
 type PendingPiece = {
   key: string;
   inventaire_item_id: string | null;
@@ -34,6 +41,7 @@ type PendingPiece = {
   quantite: string;
   prix_unitaire: string;
   is_manual?: boolean;
+  matched_by?: "sku" | "supersed" | null;
 };
 
 type BtPiecesCardProps = {
@@ -59,7 +67,7 @@ function pct(v: number) {
 }
 
 function toNum(value: string) {
-  const n = Number(String(value ?? "").trim());
+  const n = Number(String(value ?? "").trim().replace(",", "."));
   return Number.isFinite(n) ? n : 0;
 }
 
@@ -83,6 +91,7 @@ export default function BtPiecesCard({
   const [inventoryResults, setInventoryResults] = useState<InventaireItem[]>([]);
   const [inventoryLoading, setInventoryLoading] = useState(false);
   const [pendingPieces, setPendingPieces] = useState<PendingPiece[]>([]);
+  const [scanHint, setScanHint] = useState<string>("");
 
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -157,6 +166,7 @@ export default function BtPiecesCard({
   async function searchInventory(term: string) {
     const q = term.trim();
     setSearchTerm(term);
+    setScanHint("");
 
     if (q.length < 2) {
       setInventoryResults([]);
@@ -185,7 +195,7 @@ export default function BtPiecesCard({
     }
   }
 
-  function chooseInventoryItem(item: InventaireItem) {
+  function chooseInventoryItem(item: InventaireItem, matchedBy: "sku" | "supersed" | null = null) {
     setPendingPieces((rows) => [
       ...rows,
       {
@@ -197,14 +207,64 @@ export default function BtPiecesCard({
         quantite: "1",
         prix_unitaire: String(Number(item.cout_unitaire || 0)),
         is_manual: false,
+        matched_by: matchedBy,
       },
     ]);
+
+    if (matchedBy === "supersed") {
+      setScanHint("Code remplacé détecté — pièce courante sélectionnée.");
+    } else if (matchedBy === "sku") {
+      setScanHint("Pièce trouvée par scan.");
+    } else {
+      setScanHint("");
+    }
 
     setSearchTerm("");
     setInventoryResults([]);
     setTimeout(() => {
       searchInputRef.current?.focus();
     }, 0);
+  }
+
+  async function handleScanEnter() {
+    const code = searchTerm.trim();
+    if (!code) return;
+
+    setScanHint("");
+
+    try {
+      const { data, error } = await supabase.rpc("inventaire_trouver_par_code", {
+        p_code: code,
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      const rows = (data || []) as ScanLookupRow[];
+
+      if (rows.length > 0) {
+        const match = rows[0];
+
+        const { data: itemData, error: itemError } = await supabase
+          .from("inventaire_items")
+          .select("id, sku, nom, unite, cout_unitaire, quantite, actif")
+          .eq("id", match.item_id)
+          .single();
+
+        if (itemError) throw itemError;
+        if (!itemData) throw new Error("Pièce inventaire introuvable.");
+
+        chooseInventoryItem(itemData as InventaireItem, match.matched_by === "supersed" ? "supersed" : "sku");
+        return;
+      }
+
+      await searchInventory(code);
+      setScanHint("Aucune correspondance exacte au scan — résultats de recherche affichés.");
+    } catch (e: any) {
+      console.error("Erreur scan inventaire:", e);
+      alert(e?.message || "Erreur scan inventaire");
+    }
   }
 
   function addManualPendingPiece() {
@@ -219,6 +279,7 @@ export default function BtPiecesCard({
         quantite: "1",
         prix_unitaire: "",
         is_manual: true,
+        matched_by: null,
       },
     ]);
   }
@@ -231,6 +292,7 @@ export default function BtPiecesCard({
     setPendingPieces([]);
     setSearchTerm("");
     setInventoryResults([]);
+    setScanHint("");
   }
 
   function closePieceModal() {
@@ -500,6 +562,16 @@ export default function BtPiecesCard({
       fontSize: 13,
       marginTop: 10,
     },
+    info: {
+      background: "rgba(37,99,235,.08)",
+      border: "1px solid rgba(37,99,235,.18)",
+      borderRadius: 12,
+      padding: 10,
+      color: "#1d4ed8",
+      fontWeight: 700,
+      fontSize: 13,
+      marginTop: 10,
+    },
     resultBtn: {
       width: "100%",
       textAlign: "left" as const,
@@ -654,6 +726,18 @@ export default function BtPiecesCard({
       width: "100%",
       minWidth: 0,
     },
+    badgeSupersed: {
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 6,
+      padding: "4px 8px",
+      borderRadius: 999,
+      background: "#eff6ff",
+      color: "#1d4ed8",
+      fontSize: 12,
+      fontWeight: 900,
+      marginTop: 8,
+    },
   };
 
   return (
@@ -800,10 +884,18 @@ export default function BtPiecesCard({
                   <input
                     ref={searchInputRef}
                     style={{ ...styles.input, flex: 1, minWidth: 320 }}
-                    placeholder="Recherche par SKU, nom ou futur scan"
+                    placeholder="Scanner ou rechercher par SKU / nom"
                     value={searchTerm}
                     onChange={(e) => searchInventory(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        void handleScanEnter();
+                      }
+                    }}
                     disabled={isReadOnly || !piecesTableAvailable}
+                    autoComplete="off"
+                    spellCheck={false}
                   />
 
                   <button
@@ -834,6 +926,12 @@ export default function BtPiecesCard({
                     : "Aucune pièce sélectionnée"}
                 </div>
 
+                <div style={{ marginTop: 8, ...styles.tiny }}>
+                  Compatible scan clavier : clique dans le champ, scanne, puis Entrée.
+                </div>
+
+                {scanHint ? <div style={styles.info}>{scanHint}</div> : null}
+
                 {inventoryResults.length > 0 && (
                   <div style={{ ...styles.resultsWrap, marginTop: 10 }}>
                     {inventoryResults.map((item) => (
@@ -862,7 +960,8 @@ export default function BtPiecesCard({
 
                 {!pendingPieces.length ? (
                   <div style={styles.tiny}>
-                    Sélectionne une ou plusieurs pièces, ou clique sur + si elle n’existe pas dans l’inventaire.
+                    Sélectionne une ou plusieurs pièces, ou clique sur + si elle n’existe pas dans
+                    l’inventaire.
                   </div>
                 ) : (
                   <div style={styles.selectedList}>
@@ -925,6 +1024,10 @@ export default function BtPiecesCard({
                             ×
                           </button>
                         </div>
+
+                        {row.matched_by === "supersed" && (
+                          <div style={styles.badgeSupersed}>Supersed détecté</div>
+                        )}
                       </div>
                     ))}
                   </div>

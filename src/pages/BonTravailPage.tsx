@@ -527,6 +527,20 @@ export default function BonTravailPage() {
     }
   }
 
+  async function syncInventaireInstallationsForBt(btId: string) {
+    try {
+      const { error } = await supabase.rpc("atelier_sync_installations_bt", {
+        p_bt_id: btId,
+      });
+
+      if (error) {
+        console.error("Sync inventaire_installations BT:", error);
+      }
+    } catch (e) {
+      console.error("Sync inventaire_installations BT:", e);
+    }
+  }
+
   async function recalcAndPersistTotals(btId: string) {
     const { data: btRaw, error: eBt } = await supabase
       .from("bons_travail")
@@ -709,6 +723,7 @@ export default function BonTravailPage() {
 
   async function reloadPiecesAndRecalc(btId: string) {
     await loadPieces(btId);
+    await syncInventaireInstallationsForBt(btId);
     const totals = await recalcAndPersistTotals(btId);
     setBt((prev) => (prev ? { ...prev, ...totals } : prev));
   }
@@ -861,6 +876,7 @@ export default function BonTravailPage() {
       setTachesEffectuees((teData || []) as TacheEffectuee[]);
 
       await Promise.all([loadPieces(id), loadMainOeuvre(id), loadPointages(id)]);
+      await syncInventaireInstallationsForBt(btRow.id);
 
       const persistedTotals = await recalcAndPersistTotals(btRow.id);
 
@@ -1357,40 +1373,40 @@ export default function BonTravailPage() {
   }
 
   function handlePrint() {
-  if (!bt || !unite) return;
+    if (!bt || !unite) return;
 
-  const entrepriseNom = "Atelier";
+    const entrepriseNom = "Atelier";
 
-  const bonCommandeRow = bt.bon_commande?.trim()
-    ? `
+    const bonCommandeRow = bt.bon_commande?.trim()
+      ? `
       <tr>
         <td class="k">Bon de commande</td>
         <td class="v">${escapeHtml(bt.bon_commande)}</td>
       </tr>
     `
-    : "";
+      : "";
 
-  const tachesEffectueesRowsHtml =
-    tachesEffectuees.length > 0
-      ? tachesEffectuees
-          .map(
-            (t) => `
+    const tachesEffectueesRowsHtml =
+      tachesEffectuees.length > 0
+        ? tachesEffectuees
+            .map(
+              (t) => `
               <tr>
                 <td>${escapeHtml(t.titre || "—")}</td>
                 <td class="center">${escapeHtml(formatDatePrint(t.date_effectuee))}</td>
               </tr>
             `
-          )
-          .join("")
-      : `
+            )
+            .join("")
+        : `
         <tr>
           <td colspan="2" style="text-align:center;color:#666;">Aucun travail effectué</td>
         </tr>
       `;
 
-  const tachesOuvertesSection =
-    notes.length > 0
-      ? `
+    const tachesOuvertesSection =
+      notes.length > 0
+        ? `
         <div class="section">
           <div class="section-h">Tâches ouvertes</div>
           <div class="section-b">
@@ -1417,20 +1433,20 @@ export default function BonTravailPage() {
           </div>
         </div>
       `
-      : "";
+        : "";
 
-  const piecesRowsHtml =
-    pieces.length > 0
-      ? pieces
-          .map((p: any) => {
-            const sku = p.sku || p.code || "—";
-            const description = p.description || p.nom || p.titre || "—";
-            const quantite = Number(p.quantite || 0);
-            const unitePiece = p.unite || p.unite_mesure || "";
-            const prixUnitaire = getPieceFactureU(p as Piece);
-            const totalLigne = getPieceTotalFacture(p as Piece);
+    const piecesRowsHtml =
+      pieces.length > 0
+        ? pieces
+            .map((p: any) => {
+              const sku = p.sku || p.code || "—";
+              const description = p.description || p.nom || p.titre || "—";
+              const quantite = Number(p.quantite || 0);
+              const unitePiece = p.unite || p.unite_mesure || "";
+              const prixUnitaire = getPieceFactureU(p as Piece);
+              const totalLigne = getPieceTotalFacture(p as Piece);
 
-            return `
+              return `
               <tr>
                 <td>${escapeHtml(sku)}</td>
                 <td>${escapeHtml(description)}</td>
@@ -1440,64 +1456,64 @@ export default function BonTravailPage() {
                 <td class="amount">${formatMoney(totalLigne)}</td>
               </tr>
             `;
-          })
-          .join("")
-      : `
+            })
+            .join("")
+        : `
         <tr>
           <td colspan="6" style="text-align:center;color:#666;">Aucune pièce</td>
         </tr>
       `;
 
-  const totalHeuresPointages = pointagesResume.reduce((s, r) => s + Number(r.heures || 0), 0);
-  const totalHeuresMainOeuvre = mainOeuvre.reduce((s, r) => s + Number(r.heures || 0), 0);
-  const totalHeuresGlobal = totalHeuresPointages + totalHeuresMainOeuvre;
+    const totalHeuresPointages = pointagesResume.reduce((s, r) => s + Number(r.heures || 0), 0);
+    const totalHeuresMainOeuvre = mainOeuvre.reduce((s, r) => s + Number(r.heures || 0), 0);
+    const totalHeuresGlobal = totalHeuresPointages + totalHeuresMainOeuvre;
 
-  const html = btPrintTemplate
-    .replace(/{{entreprise_nom_affiche}}/g, escapeHtml(entrepriseNom))
-    .replace(/{{entreprise_adresse_l1}}/g, "")
-    .replace(/{{entreprise_ville}}/g, "")
-    .replace(/{{entreprise_province}}/g, "")
-    .replace(/{{entreprise_code_postal}}/g, "")
-    .replace(/{{bt_numero}}/g, escapeHtml(bt.numero || "—"))
-    .replace(/{{date_ouverture}}/g, formatDateTimePrint(bt.date_ouverture))
-    .replace(/{{date_fermeture}}/g, formatDateTimePrint(bt.date_fermeture))
-    .replace(/{{bt_statut}}/g, "")
-    .replace(/{{bon_commande_row}}/g, bonCommandeRow)
-    .replace(/{{client_nom}}/g, escapeHtml(snapshotClientNom))
-    .replace(/{{client_adresse_l1}}/g, "")
-    .replace(/{{client_ville}}/g, "")
-    .replace(/{{client_telephone}}/g, "")
-    .replace(/{{unite_no}}/g, escapeHtml(unite.no_unite || "—"))
-    .replace(/{{unite_plaque}}/g, escapeHtml(unite.plaque || "—"))
-    .replace(/{{unite_niv}}/g, escapeHtml(unite.niv || "—"))
-    .replace(/{{bt_km}}/g, bt.km != null ? String(bt.km) : "—")
-    .replace(/{{taches_effectuees_rows}}/g, tachesEffectueesRowsHtml)
-    .replace(/{{taches_ouvertes_section}}/g, tachesOuvertesSection)
-    .replace(/{{pieces_rows}}/g, piecesRowsHtml)
-    .replace(/{{total_pieces}}/g, formatMoney(totalPiecesFacture))
-    .replace(/{{total_heures}}/g, fmtHours(totalHeuresGlobal))
-    .replace(/{{total_main_oeuvre}}/g, formatMoney(totalMainOeuvre))
-    .replace(/{{total_frais_atelier}}/g, formatMoney(totalFraisAtelier))
-    .replace(/{{total_general}}/g, formatMoney(totalGeneral));
+    const html = btPrintTemplate
+      .replace(/{{entreprise_nom_affiche}}/g, escapeHtml(entrepriseNom))
+      .replace(/{{entreprise_adresse_l1}}/g, "")
+      .replace(/{{entreprise_ville}}/g, "")
+      .replace(/{{entreprise_province}}/g, "")
+      .replace(/{{entreprise_code_postal}}/g, "")
+      .replace(/{{bt_numero}}/g, escapeHtml(bt.numero || "—"))
+      .replace(/{{date_ouverture}}/g, formatDateTimePrint(bt.date_ouverture))
+      .replace(/{{date_fermeture}}/g, formatDateTimePrint(bt.date_fermeture))
+      .replace(/{{bt_statut}}/g, "")
+      .replace(/{{bon_commande_row}}/g, bonCommandeRow)
+      .replace(/{{client_nom}}/g, escapeHtml(snapshotClientNom))
+      .replace(/{{client_adresse_l1}}/g, "")
+      .replace(/{{client_ville}}/g, "")
+      .replace(/{{client_telephone}}/g, "")
+      .replace(/{{unite_no}}/g, escapeHtml(unite.no_unite || "—"))
+      .replace(/{{unite_plaque}}/g, escapeHtml(unite.plaque || "—"))
+      .replace(/{{unite_niv}}/g, escapeHtml(unite.niv || "—"))
+      .replace(/{{bt_km}}/g, bt.km != null ? String(bt.km) : "—")
+      .replace(/{{taches_effectuees_rows}}/g, tachesEffectueesRowsHtml)
+      .replace(/{{taches_ouvertes_section}}/g, tachesOuvertesSection)
+      .replace(/{{pieces_rows}}/g, piecesRowsHtml)
+      .replace(/{{total_pieces}}/g, formatMoney(totalPiecesFacture))
+      .replace(/{{total_heures}}/g, fmtHours(totalHeuresGlobal))
+      .replace(/{{total_main_oeuvre}}/g, formatMoney(totalMainOeuvre))
+      .replace(/{{total_frais_atelier}}/g, formatMoney(totalFraisAtelier))
+      .replace(/{{total_general}}/g, formatMoney(totalGeneral));
 
-  const w = window.open("", "_blank");
-  if (!w) {
-    alert("Popup bloqué");
-    return;
+    const w = window.open("", "_blank");
+    if (!w) {
+      alert("Popup bloqué");
+      return;
+    }
+
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
+
+    w.onload = () => {
+      setTimeout(() => {
+        w.focus();
+        w.print();
+        w.onafterprint = () => w.close();
+      }, 100);
+    };
   }
-
-  w.document.open();
-  w.document.write(html);
-  w.document.close();
-
-  w.onload = () => {
-    setTimeout(() => {
-      w.focus();
-      w.print();
-      w.onafterprint = () => w.close();
-    }, 100);
-  };
-}
 
   const styles: Record<string, CSSProperties> = {
     page: {

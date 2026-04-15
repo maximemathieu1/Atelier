@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 
 type InventaireItem = {
@@ -37,6 +37,26 @@ type PieceCategorieRow = {
   created_at?: string;
 };
 
+type InstallationHistorique = {
+  id: string;
+  item_id: string;
+  bt_id: string | null;
+  bt_numero: string | null;
+  unite: string | null;
+  quantite: number | null;
+  installed_at: string | null;
+};
+
+type SupersedRow = {
+  id: string;
+  item_id: string;
+  sku_remplacement: string | null;
+  nom_remplacement: string | null;
+  note: string | null;
+  actif: boolean | null;
+  created_at: string | null;
+};
+
 type FormState = {
   id: string | null;
   sku: string;
@@ -56,6 +76,8 @@ type MenuState = {
   x: number;
   y: number;
 };
+
+type DetailsTab = "infos" | "couts" | "installations" | "supersed";
 
 const emptyForm: FormState = {
   id: null,
@@ -117,6 +139,17 @@ function toNumberOrZero(v: string) {
   return Number.isFinite(n) ? n : 0;
 }
 
+function isMissingRelation(error: unknown) {
+  const msg = String((error as { message?: string })?.message || "").toLowerCase();
+  return (
+    msg.includes("does not exist") ||
+    msg.includes("relation") ||
+    msg.includes("schema cache") ||
+    msg.includes("could not find") ||
+    msg.includes("not found")
+  );
+}
+
 export default function Inventaire() {
   const [items, setItems] = useState<InventaireItem[]>([]);
   const [categoriesOptions, setCategoriesOptions] = useState<PieceCategorieRow[]>([]);
@@ -132,10 +165,20 @@ export default function Inventaire() {
 
   const [selectedItem, setSelectedItem] = useState<InventaireItem | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [detailsTab, setDetailsTab] = useState<DetailsTab>("infos");
+
   const [history, setHistory] = useState<CoutHistorique[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
+  const [installHistory, setInstallHistory] = useState<InstallationHistorique[]>([]);
+  const [installHistoryLoading, setInstallHistoryLoading] = useState(false);
+
+  const [supersedRows, setSupersedRows] = useState<SupersedRow[]>([]);
+  const [supersedLoading, setSupersedLoading] = useState(false);
+
   const [menuOpen, setMenuOpen] = useState<MenuState | null>(null);
+
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   async function loadItems() {
     setLoading(true);
@@ -167,13 +210,8 @@ export default function Inventaire() {
 
     if (error) {
       console.error(error);
-      const msg = String(error.message || "").toLowerCase();
-      const missingTable =
-        msg.includes("does not exist") ||
-        msg.includes("relation") ||
-        msg.includes("schema cache");
 
-      if (!missingTable) {
+      if (!isMissingRelation(error)) {
         alert("Erreur lors du chargement des catégories de pièces.");
       }
 
@@ -196,7 +234,11 @@ export default function Inventaire() {
 
     if (error) {
       console.error(error);
-      alert("Erreur lors du chargement de l’historique des coûts.");
+
+      if (!isMissingRelation(error)) {
+        alert("Erreur lors du chargement de l’historique des coûts.");
+      }
+
       setHistory([]);
       setHistoryLoading(false);
       return;
@@ -206,9 +248,67 @@ export default function Inventaire() {
     setHistoryLoading(false);
   }
 
+  async function loadInstallHistory(itemId: string) {
+    setInstallHistoryLoading(true);
+
+    const { data, error } = await supabase
+      .from("inventaire_installations")
+      .select("id,item_id,bt_id,bt_numero,unite,quantite,installed_at")
+      .eq("item_id", itemId)
+      .order("installed_at", { ascending: false });
+
+    if (error) {
+      console.error(error);
+
+      if (!isMissingRelation(error)) {
+        alert("Erreur lors du chargement de l’historique d’installation.");
+      }
+
+      setInstallHistory([]);
+      setInstallHistoryLoading(false);
+      return;
+    }
+
+    setInstallHistory((data ?? []) as InstallationHistorique[]);
+    setInstallHistoryLoading(false);
+  }
+
+  async function loadSupersed(itemId: string) {
+    setSupersedLoading(true);
+
+    const { data, error } = await supabase
+      .from("inventaire_supersedes")
+      .select("id,item_id,sku_remplacement,nom_remplacement,note,actif,created_at")
+      .eq("item_id", itemId)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error(error);
+
+      if (!isMissingRelation(error)) {
+        alert("Erreur lors du chargement des supersed.");
+      }
+
+      setSupersedRows([]);
+      setSupersedLoading(false);
+      return;
+    }
+
+    setSupersedRows((data ?? []) as SupersedRow[]);
+    setSupersedLoading(false);
+  }
+
   useEffect(() => {
     loadItems();
     loadCategories();
+  }, []);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      searchInputRef.current?.focus();
+    }, 30);
+
+    return () => window.clearTimeout(t);
   }, []);
 
   useEffect(() => {
@@ -254,10 +354,14 @@ export default function Inventaire() {
   }, [items, search, showLowStockOnly, statusFilter]);
 
   const stats = useMemo(() => {
-    const actifs = items.filter((x) => x.actif).length;
-    const inactifs = items.filter((x) => !x.actif).length;
-    const lowStock = items.filter((x) => Number(x.quantite ?? 0) <= Number(x.seuil_alerte ?? 0)).length;
-    return { actifs, inactifs, lowStock, total: items.length };
+    const lowStock = items.filter(
+      (x) => Number(x.quantite ?? 0) <= Number(x.seuil_alerte ?? 0)
+    ).length;
+
+    return {
+      lowStock,
+      total: items.length,
+    };
   }, [items]);
 
   function closeForm() {
@@ -293,9 +397,15 @@ export default function Inventaire() {
 
   async function openDetails(item: InventaireItem) {
     setSelectedItem(item);
+    setDetailsTab("infos");
     setDetailsOpen(true);
     setMenuOpen(null);
-    await loadHistory(item.id);
+
+    await Promise.all([
+      loadHistory(item.id),
+      loadInstallHistory(item.id),
+      loadSupersed(item.id),
+    ]);
   }
 
   function openEditFromDetails() {
@@ -386,8 +496,13 @@ export default function Inventaire() {
 
       if (!updated.error && updated.data) {
         setSelectedItem(updated.data as InventaireItem);
+
         if (detailsOpen) {
-          await loadHistory(editedId);
+          await Promise.all([
+            loadHistory(editedId),
+            loadInstallHistory(editedId),
+            loadSupersed(editedId),
+          ]);
         }
       }
     }
@@ -415,36 +530,21 @@ export default function Inventaire() {
     }
   }
 
-  async function quickAdjustQty(item: InventaireItem, mode: "add" | "remove") {
-    const label = mode === "add" ? "Quantité à ajouter" : "Quantité à retirer";
-    const raw = window.prompt(label, "1");
-    if (raw == null) return;
+  function handleSearchKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key !== "Enter") return;
 
-    const delta = Number(String(raw).replace(",", "."));
-    if (!Number.isFinite(delta) || delta <= 0) {
-      alert("Quantité invalide.");
-      return;
-    }
+    const q = search.trim().toLowerCase();
+    if (!q) return;
 
-    const current = Number(item.quantite ?? 0);
-    const nextQty = mode === "add" ? current + delta : current - delta;
+    const exact = filteredItems.filter((item) => {
+      const sku = (item.sku ?? "").trim().toLowerCase();
+      const nom = (item.nom ?? "").trim().toLowerCase();
+      return sku === q || nom === q;
+    });
 
-    const { error } = await supabase
-      .from("inventaire_items")
-      .update({ quantite: nextQty })
-      .eq("id", item.id);
-
-    if (error) {
-      console.error(error);
-      alert("Erreur lors de l’ajustement du stock.");
-      return;
-    }
-
-    await loadItems();
-    setMenuOpen(null);
-
-    if (selectedItem?.id === item.id) {
-      setSelectedItem({ ...item, quantite: nextQty });
+    if (exact.length === 1) {
+      e.preventDefault();
+      openDetails(exact[0]);
     }
   }
 
@@ -458,36 +558,28 @@ export default function Inventaire() {
           <div style={subtitle}>Gestion des pièces et du stock courant</div>
         </div>
 
-        <button type="button" onClick={openCreate} style={btnPrimary}>
-          + Nouvelle pièce
-        </button>
-      </div>
+        <div style={headerActions}>
+          <div style={lowStockPill}>
+            <span style={lowStockDot} />
+            <span>Stock bas : {stats.lowStock}</span>
+          </div>
 
-      <div style={statsRow}>
-        <div style={statCard}>
-          <div style={statLabel}>Total</div>
-          <div style={statValue}>{stats.total}</div>
-        </div>
-        <div style={statCard}>
-          <div style={statLabel}>Actifs</div>
-          <div style={statValue}>{stats.actifs}</div>
-        </div>
-        <div style={statCard}>
-          <div style={statLabel}>Inactifs</div>
-          <div style={statValue}>{stats.inactifs}</div>
-        </div>
-        <div style={statCard}>
-          <div style={statLabel}>Stock bas</div>
-          <div style={statValue}>{stats.lowStock}</div>
+          <button type="button" onClick={openCreate} style={btnPrimary}>
+            + Nouvelle pièce
+          </button>
         </div>
       </div>
 
       <div style={toolbar}>
         <input
+          ref={searchInputRef}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Recherche par SKU, nom, catégorie, unité, emplacement..."
-          style={{ ...input, minWidth: 300, flex: 1 }}
+          onKeyDown={handleSearchKeyDown}
+          placeholder="Scanner ou rechercher par SKU, nom, catégorie, unité, emplacement..."
+          style={{ ...input, minWidth: 320, flex: 1 }}
+          autoComplete="off"
+          spellCheck={false}
         />
 
         <select
@@ -508,6 +600,11 @@ export default function Inventaire() {
           />
           <span>Stock bas seulement</span>
         </label>
+      </div>
+
+      <div style={scanHintBox}>
+        Lecteur code-barres compatible clavier : clique dans la recherche, scanne le SKU, puis
+        appuie sur Entrée. Si une seule pièce correspond, elle s’ouvre automatiquement.
       </div>
 
       <div style={panel}>
@@ -604,22 +701,6 @@ export default function Inventaire() {
 
             <button
               type="button"
-              style={dropdownItem}
-              onClick={() => quickAdjustQty(menuItem, "add")}
-            >
-              + Stock
-            </button>
-
-            <button
-              type="button"
-              style={dropdownItem}
-              onClick={() => quickAdjustQty(menuItem, "remove")}
-            >
-              - Stock
-            </button>
-
-            <button
-              type="button"
               style={dropdownItemDanger}
               onClick={() => toggleActif(menuItem)}
             >
@@ -636,7 +717,7 @@ export default function Inventaire() {
               <div>
                 <div style={{ fontSize: 20, fontWeight: 800 }}>{selectedItem.nom}</div>
                 <div style={{ opacity: 0.65, marginTop: 4 }}>
-                  Détail de la pièce et historique des coûts
+                  Détail de la pièce, historique et supersed
                 </div>
               </div>
 
@@ -647,91 +728,203 @@ export default function Inventaire() {
               </div>
             </div>
 
-            <div style={detailsBody}>
-              <div style={detailGrid}>
-                <div>
-                  <div style={detailLabel}>Nom</div>
-                  <div style={detailValue}>{selectedItem.nom}</div>
-                </div>
-                <div>
-                  <div style={detailLabel}>SKU</div>
-                  <div style={detailValue}>{selectedItem.sku || "—"}</div>
-                </div>
-                <div>
-                  <div style={detailLabel}>Catégorie</div>
-                  <div style={detailValue}>{selectedItem.categorie || "—"}</div>
-                </div>
-                <div>
-                  <div style={detailLabel}>Stock</div>
-                  <div style={detailValue}>
-                    {fmtQty(selectedItem.quantite)} {selectedItem.unite || ""}
-                  </div>
-                </div>
-                <div>
-                  <div style={detailLabel}>Coût courant</div>
-                  <div style={detailValue}>{fmtMoney(selectedItem.cout_unitaire)}</div>
-                </div>
-                <div>
-                  <div style={detailLabel}>Seuil alerte</div>
-                  <div style={detailValue}>{fmtQty(selectedItem.seuil_alerte)}</div>
-                </div>
-                <div>
-                  <div style={detailLabel}>Emplacement</div>
-                  <div style={detailValue}>{selectedItem.emplacement || "—"}</div>
-                </div>
-                <div>
-                  <div style={detailLabel}>Statut</div>
-                  <div style={detailValue}>{selectedItem.actif ? "Actif" : "Inactif"}</div>
-                </div>
-              </div>
+            <div style={detailTabsBar}>
+              <button
+                type="button"
+                style={detailsTab === "infos" ? detailTabBtnActive : detailTabBtn}
+                onClick={() => setDetailsTab("infos")}
+              >
+                Infos
+              </button>
 
-              <div style={{ marginTop: 16 }}>
-                <div style={detailLabel}>Note</div>
-                <div style={noteBox}>{selectedItem.note || "—"}</div>
-              </div>
-
-              <div style={{ marginTop: 22, marginBottom: 10, fontWeight: 800, fontSize: 16 }}>
+              <button
+                type="button"
+                style={detailsTab === "couts" ? detailTabBtnActive : detailTabBtn}
+                onClick={() => setDetailsTab("couts")}
+              >
                 Historique des coûts
-              </div>
+              </button>
 
-              {historyLoading ? (
-                <div style={emptyBox}>Chargement de l’historique...</div>
-              ) : history.length === 0 ? (
-                <div style={emptyBox}>Aucun historique trouvé.</div>
-              ) : (
-                <div style={{ overflowX: "auto" }}>
-                  <table style={table}>
-                    <thead>
-                      <tr>
-                        <th style={th}>Date</th>
-                        <th style={thRight}>Coût</th>
-                        <th style={th}>Fournisseur</th>
-                        <th style={th}>No facture</th>
-                        <th style={th}>Note</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {history.map((h) => (
-                        <tr key={h.id}>
-                          <td style={td}>{fmtDateTime(h.date_effective)}</td>
-                          <td style={tdRight}>{fmtMoney(h.cout_unitaire)}</td>
-                          <td style={td}>{h.fournisseur || "—"}</td>
-                          <td style={td}>{h.numero_facture || "—"}</td>
-                          <td style={td}>{h.note || "—"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+              <button
+                type="button"
+                style={detailsTab === "installations" ? detailTabBtnActive : detailTabBtn}
+                onClick={() => setDetailsTab("installations")}
+              >
+                Historique d’installation
+              </button>
+
+              <button
+                type="button"
+                style={detailsTab === "supersed" ? detailTabBtnActive : detailTabBtn}
+                onClick={() => setDetailsTab("supersed")}
+              >
+                Supersed
+              </button>
+            </div>
+
+            <div style={detailsBody}>
+              {detailsTab === "infos" && (
+                <>
+                  <div style={detailGrid}>
+                    <div>
+                      <div style={detailLabel}>Nom</div>
+                      <div style={detailValue}>{selectedItem.nom}</div>
+                    </div>
+                    <div>
+                      <div style={detailLabel}>SKU</div>
+                      <div style={detailValue}>{selectedItem.sku || "—"}</div>
+                    </div>
+                    <div>
+                      <div style={detailLabel}>Catégorie</div>
+                      <div style={detailValue}>{selectedItem.categorie || "—"}</div>
+                    </div>
+                    <div>
+                      <div style={detailLabel}>Stock</div>
+                      <div style={detailValue}>
+                        {fmtQty(selectedItem.quantite)} {selectedItem.unite || ""}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={detailLabel}>Coût courant</div>
+                      <div style={detailValue}>{fmtMoney(selectedItem.cout_unitaire)}</div>
+                    </div>
+                    <div>
+                      <div style={detailLabel}>Seuil alerte</div>
+                      <div style={detailValue}>{fmtQty(selectedItem.seuil_alerte)}</div>
+                    </div>
+                    <div>
+                      <div style={detailLabel}>Emplacement</div>
+                      <div style={detailValue}>{selectedItem.emplacement || "—"}</div>
+                    </div>
+                    <div>
+                      <div style={detailLabel}>Statut</div>
+                      <div style={detailValue}>{selectedItem.actif ? "Actif" : "Inactif"}</div>
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: 16 }}>
+                    <div style={detailLabel}>Note</div>
+                    <div style={noteBox}>{selectedItem.note || "—"}</div>
+                  </div>
+                </>
+              )}
+
+              {detailsTab === "couts" && (
+                <>
+                  {historyLoading ? (
+                    <div style={emptyBox}>Chargement de l’historique...</div>
+                  ) : history.length === 0 ? (
+                    <div style={emptyBox}>Aucun historique trouvé.</div>
+                  ) : (
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={table}>
+                        <thead>
+                          <tr>
+                            <th style={th}>Date</th>
+                            <th style={thRight}>Coût</th>
+                            <th style={th}>Fournisseur</th>
+                            <th style={th}>No facture</th>
+                            <th style={th}>Note</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {history.map((h) => (
+                            <tr key={h.id}>
+                              <td style={td}>{fmtDateTime(h.date_effective)}</td>
+                              <td style={tdRight}>{fmtMoney(h.cout_unitaire)}</td>
+                              <td style={td}>{h.fournisseur || "—"}</td>
+                              <td style={td}>{h.numero_facture || "—"}</td>
+                              <td style={td}>{h.note || "—"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {detailsTab === "installations" && (
+                <>
+                  {installHistoryLoading ? (
+                    <div style={emptyBox}>Chargement de l’historique d’installation...</div>
+                  ) : installHistory.length === 0 ? (
+                    <div style={emptyBox}>
+                      Aucun historique d’installation trouvé pour cette pièce.
+                    </div>
+                  ) : (
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={table}>
+                        <thead>
+                          <tr>
+                            <th style={th}>Date</th>
+                            <th style={th}>Unité</th>
+                            <th style={th}>BT</th>
+                            <th style={thRight}>Qté</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {installHistory.map((row) => (
+                            <tr key={row.id}>
+                              <td style={td}>{fmtDateTime(row.installed_at)}</td>
+                              <td style={td}>{row.unite || "—"}</td>
+                              <td style={td}>{row.bt_numero || "—"}</td>
+                              <td style={tdRight}>{fmtQty(row.quantite)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {detailsTab === "supersed" && (
+                <>
+                  <div style={tabIntroText}>
+                    Remplacements / numéros remplacés pour cette pièce.
+                  </div>
+
+                  {supersedLoading ? (
+                    <div style={emptyBox}>Chargement des supersed...</div>
+                  ) : supersedRows.length === 0 ? (
+                    <div style={emptyBox}>Aucun supersed défini pour cette pièce.</div>
+                  ) : (
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={table}>
+                        <thead>
+                          <tr>
+                            <th style={th}>SKU remplacement</th>
+                            <th style={th}>Nom remplacement</th>
+                            <th style={th}>Statut</th>
+                            <th style={th}>Note</th>
+                            <th style={th}>Ajouté le</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {supersedRows.map((row) => (
+                            <tr key={row.id}>
+                              <td style={td}>{row.sku_remplacement || "—"}</td>
+                              <td style={td}>{row.nom_remplacement || "—"}</td>
+                              <td style={td}>
+                                <span style={row.actif ? badgeActive : badgeInactive}>
+                                  {row.actif ? "Actif" : "Inactif"}
+                                </span>
+                              </td>
+                              <td style={td}>{row.note || "—"}</td>
+                              <td style={td}>{fmtDateTime(row.created_at)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </>
               )}
             </div>
 
             <div style={modalFooter}>
-              <button
-                type="button"
-                style={btnPrimary}
-                onClick={openEditFromDetails}
-              >
+              <button type="button" style={btnPrimary} onClick={openEditFromDetails}>
                 Modifier
               </button>
             </div>
@@ -759,6 +952,9 @@ export default function Inventaire() {
                     style={input}
                     value={form.sku}
                     onChange={(e) => setForm((p) => ({ ...p, sku: e.target.value }))}
+                    autoComplete="off"
+                    spellCheck={false}
+                    placeholder="Compatible scan code-barres"
                   />
                 </div>
 
@@ -881,7 +1077,7 @@ export default function Inventaire() {
 const pageWrap: React.CSSProperties = {
   padding: 20,
   display: "grid",
-  gap: 16,
+  gap: 14,
 };
 
 const headerRow: React.CSSProperties = {
@@ -889,6 +1085,13 @@ const headerRow: React.CSSProperties = {
   alignItems: "center",
   justifyContent: "space-between",
   gap: 12,
+  flexWrap: "wrap",
+};
+
+const headerActions: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 10,
   flexWrap: "wrap",
 };
 
@@ -903,28 +1106,25 @@ const subtitle: React.CSSProperties = {
   marginTop: 4,
 };
 
-const statsRow: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
-  gap: 12,
-};
-
-const statCard: React.CSSProperties = {
-  border: "1px solid #e5e7eb",
-  borderRadius: 14,
-  padding: 14,
-  background: "#fff",
-};
-
-const statLabel: React.CSSProperties = {
-  fontSize: 13,
-  opacity: 0.7,
-  marginBottom: 6,
-};
-
-const statValue: React.CSSProperties = {
-  fontSize: 28,
+const lowStockPill: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 8,
+  border: "1px solid #fcd34d",
+  background: "#fffbeb",
+  color: "#92400e",
+  borderRadius: 999,
+  padding: "10px 14px",
+  fontSize: 14,
   fontWeight: 800,
+};
+
+const lowStockDot: React.CSSProperties = {
+  width: 10,
+  height: 10,
+  borderRadius: "50%",
+  background: "#f59e0b",
+  display: "inline-block",
 };
 
 const toolbar: React.CSSProperties = {
@@ -932,6 +1132,16 @@ const toolbar: React.CSSProperties = {
   gap: 10,
   flexWrap: "wrap",
   alignItems: "center",
+};
+
+const scanHintBox: React.CSSProperties = {
+  border: "1px solid #dbeafe",
+  background: "#eff6ff",
+  color: "#1d4ed8",
+  borderRadius: 12,
+  padding: "10px 12px",
+  fontSize: 13,
+  fontWeight: 600,
 };
 
 const panel: React.CSSProperties = {
@@ -1173,7 +1383,7 @@ const modalCard: React.CSSProperties = {
 };
 
 const detailsModalCard: React.CSSProperties = {
-  width: "min(1050px, 100%)",
+  width: "min(1100px, 100%)",
   maxHeight: "90vh",
   background: "#fff",
   borderRadius: 18,
@@ -1195,6 +1405,37 @@ const modalHeader: React.CSSProperties = {
   padding: "16px 18px",
   borderBottom: "1px solid #e5e7eb",
   gap: 12,
+};
+
+const detailTabsBar: React.CSSProperties = {
+  display: "flex",
+  gap: 8,
+  padding: "12px 18px 0 18px",
+  flexWrap: "wrap",
+};
+
+const detailTabBtn: React.CSSProperties = {
+  border: "1px solid #d1d5db",
+  background: "#fff",
+  color: "#111827",
+  borderRadius: 10,
+  padding: "9px 12px",
+  fontWeight: 700,
+  cursor: "pointer",
+};
+
+const detailTabBtnActive: React.CSSProperties = {
+  ...detailTabBtn,
+  background: "#eff6ff",
+  border: "1px solid #bfdbfe",
+  color: "#1d4ed8",
+};
+
+const tabIntroText: React.CSSProperties = {
+  fontSize: 14,
+  fontWeight: 600,
+  color: "#4b5563",
+  marginBottom: 12,
 };
 
 const btnClose: React.CSSProperties = {

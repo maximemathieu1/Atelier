@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 
@@ -17,6 +17,7 @@ export default function ClientsListe() {
   const nav = useNavigate();
   const [busy, setBusy] = useState(false);
   const [rows, setRows] = useState<ClientRow[]>([]);
+  const [search, setSearch] = useState("");
 
   async function load() {
     const [{ data: clients, error: clientsError }, { data: unites, error: unitesError }] = await Promise.all([
@@ -91,6 +92,24 @@ export default function ClientsListe() {
     load();
   }, []);
 
+  const filteredRows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return rows;
+
+    return rows.filter((c) => {
+      const haystack = [
+        c.nom,
+        c.courriel ?? "",
+        c.telephone ?? "",
+        String(c.nb_unites),
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      return haystack.includes(q);
+    });
+  }, [rows, search]);
+
   return (
     <div className="page">
       <div
@@ -119,6 +138,25 @@ export default function ClientsListe() {
           </button>
         </div>
 
+        {/* 🔍 Barre de recherche */}
+        <div style={{ marginTop: 12, marginBottom: 14 }}>
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Rechercher nom, courriel, téléphone ou nb unités..."
+            style={{
+              width: "100%",
+              maxWidth: 420,
+              padding: "10px 12px",
+              borderRadius: 10,
+              border: "1px solid var(--line, #d0d7de)",
+              background: "var(--card, #fff)",
+              outline: "none",
+            }}
+          />
+        </div>
+
         <div className="table-wrap">
           <table className="list">
             <thead>
@@ -131,7 +169,7 @@ export default function ClientsListe() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((c) => (
+              {filteredRows.map((c) => (
                 <tr
                   className="row"
                   key={c.id}
@@ -156,10 +194,10 @@ export default function ClientsListe() {
                 </tr>
               ))}
 
-              {rows.length === 0 && (
+              {filteredRows.length === 0 && (
                 <tr>
                   <td colSpan={5} className="muted" style={{ padding: "12px 8px" }}>
-                    Aucun client.
+                    {rows.length === 0 ? "Aucun client." : "Aucun résultat."}
                   </td>
                 </tr>
               )}

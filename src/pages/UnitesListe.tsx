@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 
@@ -15,6 +15,7 @@ export default function UnitesListe() {
   const nav = useNavigate();
   const [busy, setBusy] = useState(false);
   const [rows, setRows] = useState<Unite[]>([]);
+  const [search, setSearch] = useState("");
 
   async function load() {
     const { data, error } = await supabase
@@ -72,6 +73,40 @@ export default function UnitesListe() {
     load();
   }, []);
 
+  const filteredRows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return rows;
+
+    return rows.filter((u) => {
+      const haystack = [
+        u.no_unite,
+        u.marque ?? "",
+        u.modele ?? "",
+        u.niv ?? "",
+        u.km_actuel != null ? String(u.km_actuel) : "",
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      return haystack.includes(q);
+    });
+  }, [rows, search]);
+
+  function renderVin(niv: string | null) {
+    if (!niv) return "";
+
+    const clean = niv.trim();
+    const last8 = clean.slice(-8);
+    const firstPart = clean.slice(0, -8);
+
+    return (
+      <>
+        {firstPart}
+        <strong>{last8}</strong>
+      </>
+    );
+  }
+
   return (
     <div className="page">
       <div
@@ -100,6 +135,24 @@ export default function UnitesListe() {
           </button>
         </div>
 
+        <div style={{ marginTop: 12, marginBottom: 14 }}>
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Rechercher une unité, marque, modèle, VIN ou KM..."
+            style={{
+              width: "100%",
+              maxWidth: 420,
+              padding: "10px 12px",
+              borderRadius: 10,
+              border: "1px solid var(--line, #d0d7de)",
+              background: "var(--card, #fff)",
+              outline: "none",
+            }}
+          />
+        </div>
+
         <div className="table-wrap">
           <table className="list">
             <thead>
@@ -113,7 +166,7 @@ export default function UnitesListe() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((u) => (
+              {filteredRows.map((u) => (
                 <tr
                   className="row"
                   key={u.id}
@@ -123,7 +176,7 @@ export default function UnitesListe() {
                   <td style={{ fontWeight: 900 }}>{u.no_unite}</td>
                   <td>{u.marque ?? ""}</td>
                   <td>{u.modele ?? ""}</td>
-                  <td>{u.niv ?? ""}</td>
+                  <td>{renderVin(u.niv)}</td>
                   <td>{u.km_actuel ?? ""}</td>
                   <td style={{ textAlign: "right" }} onClick={(e) => e.stopPropagation()}>
                     <button
@@ -139,10 +192,10 @@ export default function UnitesListe() {
                 </tr>
               ))}
 
-              {rows.length === 0 && (
+              {filteredRows.length === 0 && (
                 <tr>
                   <td colSpan={6} className="muted" style={{ padding: "12px 8px" }}>
-                    Aucune unité.
+                    {rows.length === 0 ? "Aucune unité." : "Aucun résultat."}
                   </td>
                 </tr>
               )}

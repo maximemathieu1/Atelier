@@ -442,7 +442,7 @@ export default function BTListe() {
       )}
 
       <div style={styles.card}>
-        <div style={{ fontWeight: 950 }}>Nouveau BT</div>
+        <div style={{ fontWeight: 950 }}>Sélectionner un véhicule</div>
 
         <div style={{ ...styles.row, marginTop: 10 }}>
           <input
