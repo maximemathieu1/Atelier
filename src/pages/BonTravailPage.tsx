@@ -81,6 +81,9 @@ type NoteMeca = {
   titre: string;
   details: string | null;
   created_at: string;
+  entretien_template_item_id?: string | null;
+  entretien_unite_item_id?: string | null;
+  entretien_auto?: boolean | null;
 };
 
 type TacheEffectuee = {
@@ -91,6 +94,9 @@ type TacheEffectuee = {
   titre: string;
   details: string | null;
   date_effectuee: string;
+  entretien_template_item_id?: string | null;
+  entretien_unite_item_id?: string | null;
+  entretien_auto?: boolean | null;
 };
 
 type MainOeuvreRow = {
@@ -416,9 +422,7 @@ export default function BonTravailPage() {
   );
 
   const totalTPS = useMemo(() => round2(totalGeneral * effectiveTpsRate), [totalGeneral, effectiveTpsRate]);
-
   const totalTVQ = useMemo(() => round2(totalGeneral * effectiveTvqRate), [totalGeneral, effectiveTvqRate]);
-
   const totalFinal = useMemo(() => round2(totalGeneral + totalTPS + totalTVQ), [totalGeneral, totalTPS, totalTVQ]);
 
   const hasKmColumn = useMemo(() => {
@@ -624,15 +628,17 @@ export default function BonTravailPage() {
       : Number(btRow.taux_horaire_snapshot ?? dynamicRate ?? 0);
 
     const recalcTpsRate = btIsOpenPricing ? liveTps : Number(btRow.tps_rate_snapshot ?? liveTps ?? 0);
-
     const recalcTvqRate = btIsOpenPricing ? liveTvq : Number(btRow.tvq_rate_snapshot ?? liveTvq ?? 0);
 
-    const [{ data: piecesRaw, error: ePieces }, { data: moRaw, error: eMo }, { data: pointagesRaw, error: ePointages }] =
-      await Promise.all([
-        supabase.from("bt_pieces").select("*").eq("bt_id", btId),
-        supabase.from("bt_main_oeuvre").select("*").eq("bt_id", btId),
-        supabase.from("bt_pointages").select("*").eq("bt_id", btId),
-      ]);
+    const [
+      { data: piecesRaw, error: ePieces },
+      { data: moRaw, error: eMo },
+      { data: pointagesRaw, error: ePointages },
+    ] = await Promise.all([
+      supabase.from("bt_pieces").select("*").eq("bt_id", btId),
+      supabase.from("bt_main_oeuvre").select("*").eq("bt_id", btId),
+      supabase.from("bt_pointages").select("*").eq("bt_id", btId),
+    ]);
 
     if (ePieces) throw ePieces;
     if (eMo) throw eMo;
@@ -728,6 +734,82 @@ export default function BonTravailPage() {
     setBt((prev) => (prev ? { ...prev, ...totals } : prev));
   }
 
+  async function upsertEntretienHistoriqueForTask(t: NoteMeca) {
+    if (!bt) return { ok: false as const, message: "BT introuvable." };
+
+    const isEntretienTask =
+      !!t.entretien_template_item_id || !!t.entretien_unite_item_id || !!t.entretien_auto;
+
+    if (!isEntretienTask) return { ok: true as const };
+
+    if (bt.km == null || !Number.isFinite(Number(bt.km))) {
+      return {
+        ok: false as const,
+        message: "Impossible de compléter un entretien périodique sans kilométrage au BT.",
+      };
+    }
+
+    const nomEntretien =
+      String(t.titre || "").replace(/^Entretien périodique\s*-\s*/i, "").trim() || t.titre;
+
+    let existingQuery = supabase
+      .from("unite_entretien_historique")
+      .select("id")
+      .eq("unite_id", bt.unite_id)
+      .eq("bt_id", bt.id);
+
+    if (t.entretien_template_item_id) {
+      existingQuery = existingQuery.eq("template_item_id", t.entretien_template_item_id);
+    } else {
+      existingQuery = existingQuery.is("template_item_id", null);
+    }
+
+    if (t.entretien_unite_item_id) {
+      existingQuery = existingQuery.eq("unite_item_id", t.entretien_unite_item_id);
+    } else {
+      existingQuery = existingQuery.is("unite_item_id", null);
+    }
+
+    const { data: existing, error: existingErr } = await existingQuery.maybeSingle();
+    if (existingErr) {
+      return { ok: false as const, message: existingErr.message };
+    }
+
+    if (existing?.id) {
+      const { error: updErr } = await supabase
+        .from("unite_entretien_historique")
+        .update({
+          nom_snapshot: nomEntretien,
+          date_effectuee: new Date().toISOString().slice(0, 10),
+          km_effectue: bt.km,
+        })
+        .eq("id", existing.id);
+
+      if (updErr) {
+        return { ok: false as const, message: updErr.message };
+      }
+    } else {
+      const { error: histErr } = await supabase.from("unite_entretien_historique").insert({
+        unite_id: bt.unite_id,
+        template_item_id: t.entretien_template_item_id ?? null,
+        unite_item_id: t.entretien_unite_item_id ?? null,
+        bt_id: bt.id,
+        nom_snapshot: nomEntretien,
+        frequence_km_snapshot: null,
+        frequence_jours_snapshot: null,
+        date_effectuee: new Date().toISOString().slice(0, 10),
+        km_effectue: bt.km,
+        note: null,
+      });
+
+      if (histErr) {
+        return { ok: false as const, message: histErr.message };
+      }
+    }
+
+    return { ok: true as const };
+  }
+
   async function loadAll() {
     if (!id) return;
     setLoading(true);
@@ -772,6 +854,10 @@ export default function BonTravailPage() {
       if (eU) throw eU;
       const unitRow = uData as Unite;
       setUnite(unitRow);
+
+      await supabase.rpc("sync_entretien_due_tasks", {
+        p_unite_id: btRow.unite_id,
+      });
 
       let liveClient: Client | null = null;
       let liveCfg: ClientConfig | null = null;
@@ -858,7 +944,9 @@ export default function BonTravailPage() {
 
       const { data: nData, error: eN } = await supabase
         .from("unite_notes")
-        .select("id,unite_id,titre,details,created_at")
+        .select(
+          "id,unite_id,titre,details,created_at,entretien_template_item_id,entretien_unite_item_id,entretien_auto"
+        )
         .eq("unite_id", btRow.unite_id)
         .order("created_at", { ascending: false });
 
@@ -989,6 +1077,14 @@ export default function BonTravailPage() {
     if (!selectedTasks.length) return;
     if (!confirm(`Marquer ${selectedTasks.length} tâche(s) comme effectuée(s) ?`)) return;
 
+    for (const task of selectedTasks) {
+      const res = await upsertEntretienHistoriqueForTask(task);
+      if (!res.ok) {
+        alert(res.message);
+        return;
+      }
+    }
+
     const insertRows = selectedTasks.map((t) => ({
       bt_id: bt.id,
       unite_id: bt.unite_id,
@@ -996,6 +1092,9 @@ export default function BonTravailPage() {
       titre: t.titre,
       details: t.details,
       date_effectuee: new Date().toISOString(),
+      entretien_template_item_id: t.entretien_template_item_id ?? null,
+      entretien_unite_item_id: t.entretien_unite_item_id ?? null,
+      entretien_auto: Boolean(t.entretien_auto),
     }));
 
     const { error: insertErr } = await supabase.from("bt_taches_effectuees").insert(insertRows);
@@ -1009,6 +1108,13 @@ export default function BonTravailPage() {
       alert(deleteErr.message);
       return;
     }
+
+    const currentBt = bt;
+    if (!currentBt) return;
+
+    await supabase.rpc("sync_entretien_due_tasks", {
+      p_unite_id: currentBt.unite_id,
+    });
 
     await loadAll();
   }
@@ -1027,6 +1133,13 @@ export default function BonTravailPage() {
       return;
     }
 
+    const currentBt = bt;
+    if (!currentBt) return;
+
+    await supabase.rpc("sync_entretien_due_tasks", {
+      p_unite_id: currentBt.unite_id,
+    });
+
     await loadAll();
   }
 
@@ -1036,10 +1149,42 @@ export default function BonTravailPage() {
       return;
     }
 
+    const isEntretienTask =
+      !!t.entretien_template_item_id || !!t.entretien_unite_item_id || !!t.entretien_auto;
+
+    if (isEntretienTask && bt) {
+      let histQuery = supabase
+        .from("unite_entretien_historique")
+        .delete()
+        .eq("unite_id", t.unite_id)
+        .eq("bt_id", bt.id);
+
+      if (t.entretien_template_item_id) {
+        histQuery = histQuery.eq("template_item_id", t.entretien_template_item_id);
+      } else {
+        histQuery = histQuery.is("template_item_id", null);
+      }
+
+      if (t.entretien_unite_item_id) {
+        histQuery = histQuery.eq("unite_item_id", t.entretien_unite_item_id);
+      } else {
+        histQuery = histQuery.is("unite_item_id", null);
+      }
+
+      const { error: histDeleteError } = await histQuery;
+      if (histDeleteError) {
+        alert(histDeleteError.message);
+        return;
+      }
+    }
+
     const { error: insErr } = await supabase.from("unite_notes").insert({
       unite_id: t.unite_id,
       titre: t.titre,
       details: t.details,
+      entretien_template_item_id: t.entretien_template_item_id ?? null,
+      entretien_unite_item_id: t.entretien_unite_item_id ?? null,
+      entretien_auto: Boolean(t.entretien_auto),
     });
 
     if (insErr) {
@@ -1052,6 +1197,13 @@ export default function BonTravailPage() {
       alert(delErr.message);
       return;
     }
+
+    const currentBt = bt;
+    if (!currentBt) return;
+
+    await supabase.rpc("sync_entretien_due_tasks", {
+      p_unite_id: currentBt.unite_id,
+    });
 
     await loadAll();
   }

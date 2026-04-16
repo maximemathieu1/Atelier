@@ -55,6 +55,9 @@ type TacheEffectuee = {
   titre: string;
   details: string | null;
   date_effectuee: string;
+  entretien_template_item_id?: string | null;
+  entretien_unite_item_id?: string | null;
+  entretien_auto?: boolean | null;
 };
 
 type UniteEntretienTemplate = {
@@ -76,8 +79,8 @@ type EntretienTemplateItem = {
   template_id: string;
   nom: string;
   description: string | null;
-  frequence_km: number | null;
-  frequence_jours: number | null;
+  periodicite_km: number | null;
+  periodicite_jours: number | null;
   ordre: number;
   actif: boolean;
 };
@@ -369,8 +372,8 @@ export default function BonTravailMecanoPage() {
         sourceId: it.id,
         nom: it.nom,
         description: it.description,
-        frequence_km: it.frequence_km,
-        frequence_jours: it.frequence_jours,
+        frequence_km: it.periodicite_km,
+        frequence_jours: it.periodicite_jours,
         templateNom: templateMap.get(it.template_id)?.nom ?? null,
         templateId: it.template_id,
         assignedTemplateLinkId: assignedTemplateByTemplateId.get(it.template_id)?.id ?? null,
@@ -435,85 +438,74 @@ export default function BonTravailMecanoPage() {
   }
 
   async function loadAll() {
-  if (!id) return;
+    if (!id) return;
 
-  setLoading(true);
-  setErr(null);
+    setLoading(true);
+    setErr(null);
 
-  try {
-    const { data: btData, error: btErr } = await supabase
-      .from("bons_travail")
-      .select("id,numero,unite_id,statut,date_ouverture,km,client_id,client_nom,marge_pieces_snapshot")
-      .eq("id", id)
-      .single();
-
-    if (btErr) throw btErr;
-    const btRow = btData as BonTravail;
-    setBt(btRow);
-
-    const { data: uData, error: uErr } = await supabase
-      .from("unites")
-      .select("id,no_unite,marque,modele,niv,plaque,client_id,type_unite_id,km_actuel,km_updated_at,km_last_bt_id,km_status")
-      .eq("id", btRow.unite_id)
-      .single();
-
-    if (uErr) throw uErr;
-    const uniteRow = uData as Unite;
-    setUnite(uniteRow);
-
-    let cfg: ClientConfig | null = null;
-    const resolvedClientId = btRow.client_id ?? uniteRow.client_id ?? null;
-    if (resolvedClientId) {
-      const { data: cfgData } = await supabase
-        .from("client_configuration")
-        .select("id,client_id,marge_pieces")
-        .eq("client_id", resolvedClientId)
-        .maybeSingle();
-
-      cfg = (cfgData as ClientConfig | null) ?? null;
-    }
-    setClientCfg(cfg);
-
-    // 1) TÂCHES : bloc principal, doit toujours fonctionner
-    const [notesRes, doneRes] = await Promise.all([
-      supabase
-        .from("unite_notes")
-        .select(
-          "id,unite_id,titre,details,created_at,entretien_template_item_id,entretien_unite_item_id,entretien_auto"
-        )
-        .eq("unite_id", btRow.unite_id)
-        .order("created_at", { ascending: false }),
-
-      supabase
-        .from("bt_taches_effectuees")
-        .select("id,bt_id,unite_id,unite_note_id,titre,details,date_effectuee")
-        .eq("bt_id", btRow.id)
-        .order("date_effectuee", { ascending: false }),
-    ]);
-
-    if (notesRes.error) throw notesRes.error;
-    if (doneRes.error) throw doneRes.error;
-
-    setNotes((notesRes.data || []) as NoteMeca[]);
-    setSelected({});
-    setSelectedDone({});
-    setTachesEffectuees((doneRes.data || []) as TacheEffectuee[]);
-
-    await loadPieces(btRow.id);
-
-    // 2) ENTRETIENS PÉRIODIQUES : bloc secondaire, ne doit pas casser la page
     try {
+      const { data: btData, error: btErr } = await supabase
+        .from("bons_travail")
+        .select("id,numero,unite_id,statut,date_ouverture,km,client_id,client_nom,marge_pieces_snapshot")
+        .eq("id", id)
+        .single();
+
+      if (btErr) throw btErr;
+      const btRow = btData as BonTravail;
+      setBt(btRow);
+
+      const { data: uData, error: uErr } = await supabase
+        .from("unites")
+        .select("id,no_unite,marque,modele,niv,plaque,client_id,type_unite_id,km_actuel,km_updated_at,km_last_bt_id,km_status")
+        .eq("id", btRow.unite_id)
+        .single();
+
+      if (uErr) throw uErr;
+      const uniteRow = uData as Unite;
+      setUnite(uniteRow);
+
       await supabase.rpc("sync_entretien_due_tasks", {
         p_unite_id: btRow.unite_id,
       });
 
+      let cfg: ClientConfig | null = null;
+      const resolvedClientId = btRow.client_id ?? uniteRow.client_id ?? null;
+      if (resolvedClientId) {
+        const { data: cfgData } = await supabase
+          .from("client_configuration")
+          .select("id,client_id,marge_pieces")
+          .eq("client_id", resolvedClientId)
+          .maybeSingle();
+
+        cfg = (cfgData as ClientConfig | null) ?? null;
+      }
+      setClientCfg(cfg);
+
       const [
+        notesRes,
+        doneRes,
         assignedRes,
         templatesRes,
         templateItemsRes,
         unitItemsRes,
         historiqueRes,
       ] = await Promise.all([
+        supabase
+          .from("unite_notes")
+          .select(
+            "id,unite_id,titre,details,created_at,entretien_template_item_id,entretien_unite_item_id,entretien_auto"
+          )
+          .eq("unite_id", btRow.unite_id)
+          .order("created_at", { ascending: false }),
+
+        supabase
+          .from("bt_taches_effectuees")
+          .select(
+            "id,bt_id,unite_id,unite_note_id,titre,details,date_effectuee,entretien_template_item_id,entretien_unite_item_id,entretien_auto"
+          )
+          .eq("bt_id", btRow.id)
+          .order("date_effectuee", { ascending: false }),
+
         supabase
           .from("unite_entretien_templates")
           .select("id,unite_id,template_id,actif")
@@ -528,7 +520,7 @@ export default function BonTravailMecanoPage() {
 
         supabase
           .from("entretien_template_items")
-          .select("id,template_id,nom,description,frequence_km,frequence_jours,ordre,actif")
+          .select("id,template_id,nom,description,periodicite_km,periodicite_jours,ordre,actif")
           .eq("actif", true)
           .order("ordre", { ascending: true })
           .order("nom", { ascending: true }),
@@ -549,44 +541,31 @@ export default function BonTravailMecanoPage() {
           .order("created_at", { ascending: false }),
       ]);
 
+      if (notesRes.error) throw notesRes.error;
+      if (doneRes.error) throw doneRes.error;
       if (assignedRes.error) throw assignedRes.error;
       if (templatesRes.error) throw templatesRes.error;
       if (templateItemsRes.error) throw templateItemsRes.error;
       if (unitItemsRes.error) throw unitItemsRes.error;
       if (historiqueRes.error) throw historiqueRes.error;
 
+      setNotes((notesRes.data || []) as NoteMeca[]);
+      setSelected({});
+      setSelectedDone({});
+      setTachesEffectuees((doneRes.data || []) as TacheEffectuee[]);
       setAssignedTemplates((assignedRes.data || []) as UniteEntretienTemplate[]);
       setTemplates((templatesRes.data || []) as EntretienTemplate[]);
       setTemplateItems((templateItemsRes.data || []) as EntretienTemplateItem[]);
       setUnitItems((unitItemsRes.data || []) as UniteEntretienItem[]);
       setHistorique((historiqueRes.data || []) as EntretienHistorique[]);
 
-      // recharge les notes après sync pour inclure les tâches auto nouvellement créées
-      const { data: notesAfterSync, error: notesAfterSyncErr } = await supabase
-        .from("unite_notes")
-        .select(
-          "id,unite_id,titre,details,created_at,entretien_template_item_id,entretien_unite_item_id,entretien_auto"
-        )
-        .eq("unite_id", btRow.unite_id)
-        .order("created_at", { ascending: false });
-
-      if (!notesAfterSyncErr) {
-        setNotes((notesAfterSync || []) as NoteMeca[]);
-      }
+      await loadPieces(btRow.id);
     } catch (e: any) {
-      console.error("Bloc entretien périodique ignoré :", e?.message || e);
-      setAssignedTemplates([]);
-      setTemplates([]);
-      setTemplateItems([]);
-      setUnitItems([]);
-      setHistorique([]);
+      setErr(e?.message ?? "Erreur chargement");
+    } finally {
+      setLoading(false);
     }
-  } catch (e: any) {
-    setErr(e?.message ?? "Erreur chargement");
-  } finally {
-    setLoading(false);
   }
-}
 
   useEffect(() => {
     loadAll();
@@ -766,35 +745,74 @@ export default function BonTravailMecanoPage() {
     const isEntretienTask =
       !!t.entretien_template_item_id || !!t.entretien_unite_item_id || !!t.entretien_auto;
 
-    if (isEntretienTask) {
-      if (bt.km == null || !Number.isFinite(Number(bt.km))) {
-        alert("Impossible de compléter un entretien périodique sans kilométrage au BT.");
-        return;
-      }
+   if (isEntretienTask) {
+  if (bt.km == null || !Number.isFinite(Number(bt.km))) {
+    alert("Impossible de compléter un entretien périodique sans kilométrage au BT.");
+    return;
+  }
 
-      const nomEntretien =
-        String(t.titre || "").replace(/^Entretien périodique\s*-\s*/i, "").trim() || t.titre;
+  const nomEntretien =
+    String(t.titre || "").replace(/^Entretien périodique\s*-\s*/i, "").trim() || t.titre;
 
-      const { error: histErr } = await supabase
-        .from("unite_entretien_historique")
-        .insert({
-          unite_id: bt.unite_id,
-          template_item_id: t.entretien_template_item_id ?? null,
-          unite_item_id: t.entretien_unite_item_id ?? null,
-          bt_id: bt.id,
-          nom_snapshot: nomEntretien,
-          frequence_km_snapshot: null,
-          frequence_jours_snapshot: null,
-          date_effectuee: new Date().toISOString().slice(0, 10),
-          km_effectue: bt.km,
-          note: null,
-        });
+  // 🔍 1. Vérifier si déjà existant
+  let existingQuery = supabase
+    .from("unite_entretien_historique")
+    .select("id")
+    .eq("unite_id", bt.unite_id)
+    .eq("bt_id", bt.id);
 
-      if (histErr) {
-        alert(histErr.message);
-        return;
-      }
+  if (t.entretien_template_item_id) {
+    existingQuery = existingQuery.eq("template_item_id", t.entretien_template_item_id);
+  } else {
+    existingQuery = existingQuery.is("template_item_id", null);
+  }
+
+  if (t.entretien_unite_item_id) {
+    existingQuery = existingQuery.eq("unite_item_id", t.entretien_unite_item_id);
+  } else {
+    existingQuery = existingQuery.is("unite_item_id", null);
+  }
+
+  const { data: existing } = await existingQuery.maybeSingle();
+
+  // 🔄 2. UPDATE si existe
+  if (existing) {
+    const { error: updErr } = await supabase
+      .from("unite_entretien_historique")
+      .update({
+        nom_snapshot: nomEntretien,
+        date_effectuee: new Date().toISOString().slice(0, 10),
+        km_effectue: bt.km,
+      })
+      .eq("id", existing.id);
+
+    if (updErr) {
+      alert(updErr.message);
+      return;
     }
+  } else {
+    // ➕ 3. INSERT sinon
+    const { error: histErr } = await supabase
+      .from("unite_entretien_historique")
+      .insert({
+        unite_id: bt.unite_id,
+        template_item_id: t.entretien_template_item_id ?? null,
+        unite_item_id: t.entretien_unite_item_id ?? null,
+        bt_id: bt.id,
+        nom_snapshot: nomEntretien,
+        frequence_km_snapshot: null,
+        frequence_jours_snapshot: null,
+        date_effectuee: new Date().toISOString().slice(0, 10),
+        km_effectue: bt.km,
+        note: null,
+      });
+
+    if (histErr) {
+      alert(histErr.message);
+      return;
+    }
+  }
+}
 
     const { error: insertErr } = await supabase
       .from("bt_taches_effectuees")
@@ -805,6 +823,9 @@ export default function BonTravailMecanoPage() {
         titre: t.titre,
         details: t.details,
         date_effectuee: new Date().toISOString(),
+        entretien_template_item_id: t.entretien_template_item_id ?? null,
+        entretien_unite_item_id: t.entretien_unite_item_id ?? null,
+        entretien_auto: Boolean(t.entretien_auto),
       });
 
     if (insertErr) {
@@ -833,28 +854,71 @@ export default function BonTravailMecanoPage() {
     if (isReadOnly) return;
     if (!checked) return;
 
-    const { error: insErr } = await supabase.from("unite_notes").insert({
-      unite_id: t.unite_id,
-      titre: t.titre,
-      details: t.details,
-    });
+    const isEntretienTask =
+      !!t.entretien_template_item_id || !!t.entretien_unite_item_id || !!t.entretien_auto;
 
-    if (insErr) {
-      alert(insErr.message);
-      return;
+    try {
+      if (isEntretienTask && bt) {
+        let histQuery = supabase
+          .from("unite_entretien_historique")
+          .delete()
+          .eq("unite_id", t.unite_id)
+          .eq("bt_id", bt.id);
+
+        if (t.entretien_template_item_id) {
+          histQuery = histQuery.eq("template_item_id", t.entretien_template_item_id);
+        } else {
+          histQuery = histQuery.is("template_item_id", null);
+        }
+
+        if (t.entretien_unite_item_id) {
+          histQuery = histQuery.eq("unite_item_id", t.entretien_unite_item_id);
+        } else {
+          histQuery = histQuery.is("unite_item_id", null);
+        }
+
+        const { error: histDeleteError } = await histQuery;
+
+        if (histDeleteError) {
+          alert(histDeleteError.message);
+          return;
+        }
+      }
+
+      const { error: insErr } = await supabase.from("unite_notes").insert({
+        unite_id: t.unite_id,
+        titre: t.titre,
+        details: t.details,
+        entretien_template_item_id: t.entretien_template_item_id ?? null,
+        entretien_unite_item_id: t.entretien_unite_item_id ?? null,
+        entretien_auto: Boolean(t.entretien_auto),
+      });
+
+      if (insErr) {
+        alert(insErr.message);
+        return;
+      }
+
+      const { error: delErr } = await supabase
+        .from("bt_taches_effectuees")
+        .delete()
+        .eq("id", t.id);
+
+      if (delErr) {
+        alert(delErr.message);
+        return;
+      }
+
+      if (bt) {
+        await supabase.rpc("sync_entretien_due_tasks", {
+          p_unite_id: bt.unite_id,
+        });
+      }
+
+      await loadAll();
+    } catch (e: any) {
+      alert(e?.message || "Erreur lors de la réouverture.");
     }
-
-    const { error: delErr } = await supabase
-      .from("bt_taches_effectuees")
-      .delete()
-      .eq("id", t.id);
-
-    if (delErr) {
-      alert(delErr.message);
-      return;
-    }
-
-    await loadAll();
   }
 
   async function deleteCompletedTask(t: TacheEffectuee) {
@@ -862,41 +926,33 @@ export default function BonTravailMecanoPage() {
     if (!window.confirm("Supprimer cette tâche complétée ?")) return;
 
     try {
-      const isEntretienTask = String(t.titre || "")
-        .toLowerCase()
-        .startsWith("entretien périodique");
+      const isEntretienTask =
+        !!t.entretien_template_item_id || !!t.entretien_unite_item_id || !!t.entretien_auto;
 
       if (isEntretienTask && bt) {
-        const nomEntretien = String(t.titre || "")
-          .replace(/^Entretien périodique\s*-\s*/i, "")
-          .trim();
-
-        const { data: histRows, error: histFindError } = await supabase
+        let histQuery = supabase
           .from("unite_entretien_historique")
-          .select("id,bt_id,nom_snapshot,created_at")
+          .delete()
           .eq("unite_id", t.unite_id)
-          .eq("bt_id", bt.id)
-          .eq("nom_snapshot", nomEntretien)
-          .order("created_at", { ascending: false })
-          .limit(1);
+          .eq("bt_id", bt.id);
 
-        if (histFindError) {
-          alert(histFindError.message);
-          return;
+        if (t.entretien_template_item_id) {
+          histQuery = histQuery.eq("template_item_id", t.entretien_template_item_id);
+        } else {
+          histQuery = histQuery.is("template_item_id", null);
         }
 
-        const histId = histRows?.[0]?.id ?? null;
+        if (t.entretien_unite_item_id) {
+          histQuery = histQuery.eq("unite_item_id", t.entretien_unite_item_id);
+        } else {
+          histQuery = histQuery.is("unite_item_id", null);
+        }
 
-        if (histId) {
-          const { error: histDeleteError } = await supabase
-            .from("unite_entretien_historique")
-            .delete()
-            .eq("id", histId);
+        const { error: histDeleteError } = await histQuery;
 
-          if (histDeleteError) {
-            alert(histDeleteError.message);
-            return;
-          }
+        if (histDeleteError) {
+          alert(histDeleteError.message);
+          return;
         }
       }
 
@@ -1089,16 +1145,16 @@ export default function BonTravailMecanoPage() {
 
   return (
     <div style={styles.page}>
-     <div style={{ ...styles.row, justifyContent: "space-between", alignItems: "flex-start" }}>
-  <div>
-    <div style={styles.h1}>Bon de travail</div>
-    <div style={styles.muted}>Vue simplifiée mécano</div>
-  </div>
+      <div style={{ ...styles.row, justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div>
+          <div style={styles.h1}>Bon de travail</div>
+          <div style={styles.muted}>Vue simplifiée mécano</div>
+        </div>
 
-  <button style={styles.btn} onClick={() => nav(-1)}>
-    Retour
-  </button>
-</div>
+        <button style={styles.btn} onClick={() => nav(-1)}>
+          Retour
+        </button>
+      </div>
 
       {err && (
         <div style={{ ...styles.card, borderColor: "rgba(220,38,38,.35)" }}>
@@ -1116,8 +1172,6 @@ export default function BonTravailMecanoPage() {
                 <div style={{ fontSize: 18, fontWeight: 950 }}>{bt.numero || "(BT)"}</div>
                 <StatutBadge statut={bt.statut} />
               </div>
-
-             
             </div>
 
             <div style={styles.headerCompact}>
