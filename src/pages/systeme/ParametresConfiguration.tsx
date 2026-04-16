@@ -123,9 +123,7 @@ export default function ParametresConfiguration() {
     );
   }, [templates]);
 
-  const selectedTemplate = useMemo(() => {
-    return templates.find((t) => t.id === selectedTemplateId) ?? null;
-  }, [templates, selectedTemplateId]);
+
 
   const selectedTemplateItems = useMemo(() => {
     if (!selectedTemplateId) return [];
