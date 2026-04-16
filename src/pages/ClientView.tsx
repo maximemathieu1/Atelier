@@ -94,7 +94,7 @@ type UniteRow = {
 type TabKey = "fiche" | "contacts" | "configuration" | "unites";
 
 function numOrNull(v: string) {
-  const s = String(v ?? "").trim();
+  const s = String(v ?? "").trim().replace(",", ".");
   if (!s) return null;
   const n = Number(s);
   return Number.isFinite(n) ? n : null;
@@ -212,6 +212,11 @@ export default function ClientView() {
 
   const [cfg, setCfg] = useState<ClientConfig | null>(null);
 
+  // Champs texte pour permettre 113.50 / 113,50 sans casser la saisie
+  const [cfgTauxHoraireInput, setCfgTauxHoraireInput] = useState("");
+  const [cfgMargePiecesInput, setCfgMargePiecesInput] = useState("");
+  const [cfgFraisAtelierInput, setCfgFraisAtelierInput] = useState("");
+
   const [tauxMO, setTauxMO] = useState<TauxMO[]>([]);
   const [marges, setMarges] = useState<MargePiece[]>([]);
 
@@ -234,39 +239,41 @@ export default function ClientView() {
     return client.nom?.trim() ? client.nom.trim() : "Client";
   }, [client]);
 
-async function loadClient() {
-  if (!id) return;
+  async function loadClient() {
+    if (!id) return;
 
-  const { data, error } = await supabase
-    .from("clients")
-    .select(
-      [
-        "id",
-        "nom",
-        "acomba_client_code",
-        "telephone",
-        "courriel",
-        "adresse_numero",
-        "adresse_rue",
-        "adresse_ville",
-        "adresse_province",
-        "adresse_code_postal",
-        "adresse_pays",
-        "note_generale",
-      ].join(",")
-    )
-    .eq("id", id)
-    .single();
+    const { data, error } = await supabase
+      .from("clients")
+      .select(
+        [
+          "id",
+          "nom",
+          "acomba_client_code",
+          "telephone",
+          "courriel",
+          "adresse_numero",
+          "adresse_rue",
+          "adresse_ville",
+          "adresse_province",
+          "adresse_code_postal",
+          "adresse_pays",
+          "note_generale",
+        ].join(",")
+      )
+      .eq("id", id)
+      .single();
 
-  if (error || !data) {
-    alert(error?.message || "Client introuvable");
-    setClient(null);
-    return;
+    if (error || !data) {
+      alert(error?.message || "Client introuvable");
+      setClient(null);
+      return;
+    }
+
+    const clientRow = data as unknown as Client;
+    setClient(clientRow);
   }
 
-  const clientRow = data as unknown as Client;
-  setClient(clientRow);
-}  async function loadContacts() {
+  async function loadContacts() {
     if (!id) return;
     const { data, error } = await supabase
       .from("client_contacts")
@@ -534,14 +541,18 @@ async function loadClient() {
     try {
       const payload = {
         client_id: id,
-        taux_horaire: cfg.taux_horaire ?? null,
-        marge_pieces: cfg.marge_pieces ?? null,
-        frais_atelier_pourcentage: cfg.frais_atelier_pourcentage ?? null,
+        taux_horaire: numOrNull(cfgTauxHoraireInput),
+        marge_pieces: numOrNull(cfgMargePiecesInput),
+        frais_atelier_pourcentage: numOrNull(cfgFraisAtelierInput),
         actif: cfg.actif ?? true,
         note_facturation: cfg.note_facturation?.trim() || null,
       };
 
-      const { error } = await supabase.from("client_configuration").update(payload).eq("client_id", id);
+      const { error } = await supabase
+        .from("client_configuration")
+        .update(payload)
+        .eq("client_id", id);
+
       if (error) throw error;
 
       await ensureConfigRow();
@@ -648,6 +659,14 @@ async function loadClient() {
     refreshAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  useEffect(() => {
+    setCfgTauxHoraireInput(cfg?.taux_horaire != null ? String(cfg.taux_horaire) : "");
+    setCfgMargePiecesInput(cfg?.marge_pieces != null ? String(cfg.marge_pieces) : "");
+    setCfgFraisAtelierInput(
+      cfg?.frais_atelier_pourcentage != null ? String(cfg.frais_atelier_pourcentage) : ""
+    );
+  }, [cfg?.id, cfg?.taux_horaire, cfg?.marge_pieces, cfg?.frais_atelier_pourcentage]);
 
   if (!id) return <div className="page">ID client manquant.</div>;
   if (!client) return <div className="page">Chargement…</div>;
@@ -1069,10 +1088,10 @@ async function loadClient() {
                 <Row label="Taux horaire (défaut)" hint="Main-d’œuvre">
                   <input
                     className="input"
-                    value={cfg?.taux_horaire ?? ""}
-                    onChange={(e) => setCfg((v) => (v ? { ...v, taux_horaire: numOrNull(e.target.value) } : v))}
+                    value={cfgTauxHoraireInput}
+                    onChange={(e) => setCfgTauxHoraireInput(e.target.value)}
                     inputMode="decimal"
-                    placeholder="Ex: 155"
+                    placeholder="Ex: 155 ou 113.50"
                     disabled={!isEditMode}
                   />
                 </Row>
@@ -1080,8 +1099,8 @@ async function loadClient() {
                 <Row label="Marge pièces (défaut)" hint="%">
                   <input
                     className="input"
-                    value={cfg?.marge_pieces ?? ""}
-                    onChange={(e) => setCfg((v) => (v ? { ...v, marge_pieces: numOrNull(e.target.value) } : v))}
+                    value={cfgMargePiecesInput}
+                    onChange={(e) => setCfgMargePiecesInput(e.target.value)}
                     inputMode="decimal"
                     placeholder="Ex: 25"
                     disabled={!isEditMode}
@@ -1091,10 +1110,8 @@ async function loadClient() {
                 <Row label="Frais atelier" hint="% sur la main-d’œuvre">
                   <input
                     className="input"
-                    value={cfg?.frais_atelier_pourcentage ?? ""}
-                    onChange={(e) =>
-                      setCfg((v) => (v ? { ...v, frais_atelier_pourcentage: numOrNull(e.target.value) } : v))
-                    }
+                    value={cfgFraisAtelierInput}
+                    onChange={(e) => setCfgFraisAtelierInput(e.target.value)}
                     inputMode="decimal"
                     placeholder="Ex: 5"
                     disabled={!isEditMode}

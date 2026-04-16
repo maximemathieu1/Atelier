@@ -71,6 +71,13 @@ type Pointage = {
   bons_travail?: BtRow | null;
 };
 
+type EmployeListRow = {
+  id: string;
+  nom_complet: string;
+  email: string;
+  actif: boolean;
+};
+
 type KmRpcResponse = {
   ok?: boolean;
   code?: string;
@@ -231,6 +238,13 @@ export default function OperationTempsReelPage() {
   const [unites, setUnites] = useState<UniteRow[]>([]);
   const [uniteMenuOpen, setUniteMenuOpen] = useState(false);
 
+  const [switchModalOpen, setSwitchModalOpen] = useState(false);
+  const [switchBusy, setSwitchBusy] = useState(false);
+  const [switchError, setSwitchError] = useState<string | null>(null);
+  const [employesActifs, setEmployesActifs] = useState<EmployeListRow[]>([]);
+  const [selectedEmployeId, setSelectedEmployeId] = useState("");
+  const [switchPassword, setSwitchPassword] = useState("");
+
   useEffect(() => {
     const t = window.setInterval(() => setTick((v) => v + 1), 1000);
     return () => window.clearInterval(t);
@@ -274,15 +288,15 @@ export default function OperationTempsReelPage() {
         const modele = String(u.modele || "").toLowerCase();
         const plaque = String(u.plaque || "").toLowerCase();
 
-        return (
-          no.includes(q) ||
-          marque.includes(q) ||
-          modele.includes(q) ||
-          plaque.includes(q)
-        );
+        return no.includes(q) || marque.includes(q) || modele.includes(q) || plaque.includes(q);
       })
       .slice(0, 25);
   }, [unites, uniteInput]);
+
+  const selectedEmploye = useMemo(
+    () => employesActifs.find((e) => e.id === selectedEmployeId) ?? null,
+    [employesActifs, selectedEmployeId]
+  );
 
   async function hydrateBtRows(rows: any[]): Promise<Pointage[]> {
     const btIds = Array.from(new Set((rows || []).map((r) => r.bt_id).filter(Boolean)));
@@ -298,9 +312,7 @@ export default function OperationTempsReelPage() {
 
     if (btError) throw btError;
 
-    const uniteIds = Array.from(
-      new Set(((btRows || []) as any[]).map((b) => b.unite_id).filter(Boolean))
-    );
+    const uniteIds = Array.from(new Set(((btRows || []) as any[]).map((b) => b.unite_id).filter(Boolean)));
 
     let uniteMap = new Map<string, any>();
     if (uniteIds.length) {
@@ -334,6 +346,17 @@ export default function OperationTempsReelPage() {
     setEmployeConnecte(employe);
     setMecanoNom(employe?.nom_complet || "");
     return employe;
+  }
+
+  async function loadEmployesActifs() {
+    const { data, error } = await supabase
+      .from("employes")
+      .select("id,nom_complet,email,actif")
+      .eq("actif", true)
+      .order("nom_complet", { ascending: true });
+
+    if (error) throw error;
+    setEmployesActifs((data || []) as EmployeListRow[]);
   }
 
   async function loadActivePointage(currentEmployeId: string) {
@@ -426,6 +449,7 @@ export default function OperationTempsReelPage() {
       const connectedEmployeId = employe?.id || "";
 
       await Promise.all([
+        loadEmployesActifs(),
         loadActivePointage(connectedEmployeId),
         loadPointagesJour(connectedEmployeId),
         loadUnites(),
@@ -728,10 +752,7 @@ export default function OperationTempsReelPage() {
     setBusy(true);
 
     try {
-      const { error } = await supabase
-        .from("bt_pointages")
-        .delete()
-        .eq("id", pointageId);
+      const { error } = await supabase.from("bt_pointages").delete().eq("id", pointageId);
 
       if (error) throw error;
 
@@ -805,6 +826,85 @@ export default function OperationTempsReelPage() {
     }
   }
 
+  function openSwitchModal() {
+    setSelectedEmployeId("");
+    setSwitchPassword("");
+    setSwitchError(null);
+    setSwitchModalOpen(true);
+  }
+
+  async function handleQuickSwitch() {
+    if (!selectedEmploye) {
+      setSwitchError("Sélectionne un employé.");
+      return;
+    }
+
+    if (!selectedEmploye.email) {
+      setSwitchError("Cet employé n'a pas d'email.");
+      return;
+    }
+
+    if (!switchPassword.trim()) {
+      setSwitchError("Entre le mot de passe.");
+      return;
+    }
+
+    setSwitchBusy(true);
+    setSwitchError(null);
+
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: selectedEmploye.email.trim(),
+        password: switchPassword,
+      });
+
+      if (error) throw error;
+
+      setSwitchModalOpen(false);
+      setSelectedEmployeId("");
+      setSwitchPassword("");
+      setSwitchError(null);
+
+      await refreshAll();
+    } catch (e: any) {
+      setSwitchError(e?.message || "Connexion impossible.");
+    } finally {
+      setSwitchBusy(false);
+    }
+  }
+
+  async function handleQuickLogout() {
+    if (activePointage) {
+      const ok = window.confirm(
+        "Un pointage est encore actif pour cet employé. Veux-tu vraiment te déconnecter ?"
+      );
+      if (!ok) return;
+    }
+
+    setSwitchBusy(true);
+    setSwitchError(null);
+
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+
+      setEmployeConnecte(null);
+      setMecanoNom("");
+      setActivePointage(null);
+      setPointagesJour([]);
+      setSwitchModalOpen(false);
+      setSelectedEmployeId("");
+      setSwitchPassword("");
+      setSwitchError(null);
+
+      await refreshAll();
+    } catch (e: any) {
+      setSwitchError(e?.message || "Déconnexion impossible.");
+    } finally {
+      setSwitchBusy(false);
+    }
+  }
+
   const styles: Record<string, CSSProperties> = {
     page: {
       minHeight: "100%",
@@ -812,6 +912,7 @@ export default function OperationTempsReelPage() {
       width: "100%",
       maxWidth: 1200,
       margin: "0 auto",
+      position: "relative",
     },
     headerWrap: {
       marginBottom: 18,
@@ -843,14 +944,14 @@ export default function OperationTempsReelPage() {
     },
     centerTitle: {
       margin: 0,
-      textAlign: "center" as const,
+      textAlign: "center",
       fontSize: 32,
       fontWeight: 950,
       letterSpacing: -0.5,
     },
     centerSub: {
       marginTop: 8,
-      textAlign: "center" as const,
+      textAlign: "center",
       color: "rgba(0,0,0,.6)",
       fontSize: 15,
     },
@@ -858,6 +959,8 @@ export default function OperationTempsReelPage() {
       marginTop: 18,
       display: "flex",
       justifyContent: "center",
+      gap: 10,
+      flexWrap: "wrap",
     },
     employePill: {
       display: "inline-flex",
@@ -872,6 +975,20 @@ export default function OperationTempsReelPage() {
       fontWeight: 900,
       fontSize: 14,
     },
+    switchInlineBtn: {
+  minHeight: 44,
+  padding: "0 18px",
+  borderRadius: 14,
+  border: "1.5px solid #ef4444",
+  background: "#fff",
+  color: "#dc2626",
+  fontWeight: 800,
+  fontSize: 14,
+  cursor: "pointer",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+},
     unitFormGrid: {
       display: "grid",
       gridTemplateColumns: "minmax(0,1fr) 200px",
@@ -896,7 +1013,7 @@ export default function OperationTempsReelPage() {
       minHeight: 78,
       padding: "12px 16px",
       display: "flex",
-      flexDirection: "column" as const,
+      flexDirection: "column",
       justifyContent: "center",
       boxShadow: "inset 0 1px 0 rgba(255,255,255,.7)",
     },
@@ -917,7 +1034,7 @@ export default function OperationTempsReelPage() {
       fontSize: 12,
       color: "rgba(0,0,0,.58)",
       minHeight: 18,
-      whiteSpace: "nowrap" as const,
+      whiteSpace: "nowrap",
       overflow: "hidden",
       textOverflow: "ellipsis",
     },
@@ -928,7 +1045,7 @@ export default function OperationTempsReelPage() {
       minHeight: 78,
       padding: "12px 16px",
       display: "flex",
-      flexDirection: "column" as const,
+      flexDirection: "column",
       justifyContent: "center",
     },
     kmInput: {
@@ -977,16 +1094,23 @@ export default function OperationTempsReelPage() {
       padding: 30,
     },
     activeTopTitle: {
-      textAlign: "center" as const,
+      textAlign: "center",
       fontSize: 32,
       fontWeight: 950,
       margin: 0,
     },
     activeTopSub: {
       marginTop: 8,
-      textAlign: "center" as const,
+      textAlign: "center",
       color: "rgba(0,0,0,.6)",
       fontSize: 15,
+    },
+    activeMetaRow: {
+      marginTop: 16,
+      display: "flex",
+      justifyContent: "center",
+      gap: 10,
+      flexWrap: "wrap",
     },
     activeUnitBox: {
       marginTop: 24,
@@ -994,7 +1118,7 @@ export default function OperationTempsReelPage() {
       borderRadius: 18,
       background: "rgba(37,99,235,.06)",
       border: "1px solid rgba(37,99,235,.16)",
-      textAlign: "center" as const,
+      textAlign: "center",
     },
     activeUnitLabel: {
       fontSize: 12,
@@ -1025,7 +1149,7 @@ export default function OperationTempsReelPage() {
       border: "1px solid rgba(0,0,0,.08)",
       background: "#fafafa",
       padding: 16,
-      textAlign: "center" as const,
+      textAlign: "center",
     },
     statLabel: {
       fontSize: 12,
@@ -1092,7 +1216,7 @@ export default function OperationTempsReelPage() {
       padding: 18,
       boxShadow: "0 12px 34px rgba(0,0,0,.06)",
       marginTop: 12,
-      overflowX: "auto" as const,
+      overflowX: "auto",
     },
     tableTitle: {
       fontSize: 16,
@@ -1101,11 +1225,11 @@ export default function OperationTempsReelPage() {
     },
     table: {
       width: "100%",
-      borderCollapse: "collapse" as const,
+      borderCollapse: "collapse",
       minWidth: 760,
     },
     th: {
-      textAlign: "left" as const,
+      textAlign: "left",
       fontSize: 12,
       color: "rgba(0,0,0,.55)",
       padding: "8px 6px",
@@ -1113,7 +1237,7 @@ export default function OperationTempsReelPage() {
     td: {
       padding: "12px 6px",
       borderTop: "1px solid rgba(0,0,0,.08)",
-      verticalAlign: "top" as const,
+      verticalAlign: "top",
     },
     btn: {
       padding: "10px 12px",
@@ -1150,7 +1274,7 @@ export default function OperationTempsReelPage() {
     },
     actionMenuBtn: {
       width: "100%",
-      textAlign: "left" as const,
+      textAlign: "left",
       padding: "10px 12px",
       borderRadius: 10,
       border: "none",
@@ -1161,7 +1285,9 @@ export default function OperationTempsReelPage() {
     overlay: {
       position: "fixed",
       inset: 0,
-      background: "rgba(0,0,0,.35)",
+      background: "rgba(15,23,42,.35)",
+      backdropFilter: "blur(5px)",
+      WebkitBackdropFilter: "blur(5px)",
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
@@ -1172,7 +1298,7 @@ export default function OperationTempsReelPage() {
       width: "100%",
       maxWidth: 520,
       background: "#fff",
-      borderRadius: 16,
+      borderRadius: 18,
       boxShadow: "0 20px 60px rgba(0,0,0,.22)",
       border: "1px solid rgba(0,0,0,.08)",
       overflow: "hidden",
@@ -1183,6 +1309,12 @@ export default function OperationTempsReelPage() {
       fontWeight: 900,
       fontSize: 18,
     },
+    modalHeaderSub: {
+      fontSize: 13,
+      color: "rgba(0,0,0,.58)",
+      fontWeight: 600,
+      marginTop: 4,
+    },
     modalBody: {
       padding: 18,
       display: "grid",
@@ -1192,8 +1324,9 @@ export default function OperationTempsReelPage() {
       padding: "16px 18px",
       borderTop: "1px solid rgba(0,0,0,.08)",
       display: "flex",
-      justifyContent: "flex-end",
+      justifyContent: "space-between",
       gap: 10,
+      flexWrap: "wrap",
     },
     dateInput: {
       width: "100%",
@@ -1202,7 +1335,7 @@ export default function OperationTempsReelPage() {
       border: "1px solid rgba(0,0,0,.14)",
       background: "#fff",
       font: "inherit",
-      boxSizing: "border-box" as const,
+      boxSizing: "border-box",
     },
     unitDropdown: {
       position: "absolute",
@@ -1214,12 +1347,12 @@ export default function OperationTempsReelPage() {
       borderRadius: 14,
       boxShadow: "0 16px 40px rgba(0,0,0,.12)",
       maxHeight: 260,
-      overflowY: "auto" as const,
+      overflowY: "auto",
       zIndex: 100,
     },
     unitDropdownBtn: {
       width: "100%",
-      textAlign: "left" as const,
+      textAlign: "left",
       padding: "12px 14px",
       border: "none",
       background: "#fff",
@@ -1238,6 +1371,69 @@ export default function OperationTempsReelPage() {
       padding: "14px 16px",
       fontSize: 13,
       color: "rgba(0,0,0,.58)",
+    },
+    switchFab: {
+      position: "fixed",
+      right: 18,
+      bottom: 18,
+      zIndex: 120,
+      minHeight: 54,
+      padding: "0 18px",
+      borderRadius: 999,
+      border: "1px solid #2563eb",
+      background: "#2563eb",
+      color: "#fff",
+      fontWeight: 900,
+      fontSize: 14,
+      cursor: "pointer",
+      boxShadow: "0 14px 34px rgba(37,99,235,.28)",
+    },
+    modalInfoCard: {
+      borderRadius: 14,
+      border: "1px solid rgba(37,99,235,.14)",
+      background: "rgba(37,99,235,.06)",
+      padding: 12,
+      fontSize: 14,
+      color: "#1e3a8a",
+      fontWeight: 700,
+    },
+    modalError: {
+      borderRadius: 12,
+      border: "1px solid rgba(220,38,38,.20)",
+      background: "rgba(220,38,38,.06)",
+      padding: 12,
+      color: "#b91c1c",
+      fontSize: 13,
+      fontWeight: 700,
+    },
+    selectInput: {
+      width: "100%",
+      padding: "12px 12px",
+      borderRadius: 12,
+      border: "1px solid rgba(0,0,0,.14)",
+      background: "#fff",
+      font: "inherit",
+      boxSizing: "border-box",
+      minHeight: 46,
+    },
+    textInput: {
+      width: "100%",
+      padding: "12px 12px",
+      borderRadius: 12,
+      border: "1px solid rgba(0,0,0,.14)",
+      background: "#fff",
+      font: "inherit",
+      boxSizing: "border-box",
+      minHeight: 46,
+    },
+    btnDangerGhost: {
+      padding: "10px 12px",
+      borderRadius: 10,
+      border: "1px solid rgba(220,38,38,.35)",
+      background: "#fff",
+      color: "#b91c1c",
+      fontWeight: 900,
+      cursor: "pointer",
     },
   };
 
@@ -1272,8 +1468,12 @@ export default function OperationTempsReelPage() {
 
             <div style={styles.centerMeta}>
               <div style={styles.employePill}>
-                Employé connecté&nbsp;: {employeConnecte?.nom_complet || "Non connecté"}
+                Employé connecté : {employeConnecte?.nom_complet || "Non connecté"}
               </div>
+
+              <button type="button" style={styles.switchInlineBtn} onClick={openSwitchModal}>
+                Déconnexion
+              </button>
             </div>
 
             <div style={styles.unitFormGrid}>
@@ -1285,6 +1485,11 @@ export default function OperationTempsReelPage() {
                     <input
                       style={styles.unitMainInput}
                       value={uniteInput}
+                      name="atelier-unite-field"
+                      autoComplete="off"
+                      autoCorrect="off"
+                      autoCapitalize="none"
+                      spellCheck={false}
                       onFocus={() => setUniteMenuOpen(true)}
                       onChange={(e) => {
                         const v = e.target.value;
@@ -1334,6 +1539,11 @@ export default function OperationTempsReelPage() {
                   <input
                     style={styles.kmInput}
                     inputMode="numeric"
+                    name="atelier-km-field"
+                    autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="none"
+                    spellCheck={false}
                     value={kmInput}
                     onChange={(e) => setKmInput(e.target.value)}
                     placeholder="Optionnel"
@@ -1357,9 +1567,7 @@ export default function OperationTempsReelPage() {
               )}
 
             {!employeConnecte && !loading && (
-              <div style={styles.warn}>
-                Aucun employé actif n'est lié au user connecté.
-              </div>
+              <div style={styles.warn}>Aucun employé actif n'est lié au user connecté.</div>
             )}
 
             <div style={styles.startButtonWrap}>
@@ -1376,6 +1584,15 @@ export default function OperationTempsReelPage() {
           <div style={styles.activeCard}>
             <h1 style={styles.activeTopTitle}>Opération en cours</h1>
             <div style={styles.activeTopSub}>Tu es actuellement pointé</div>
+
+            <div style={styles.activeMetaRow}>
+              <div style={styles.employePill}>
+                Employé connecté : {employeConnecte?.nom_complet || "Non connecté"}
+              </div>
+              <button type="button" style={styles.switchInlineBtn} onClick={openSwitchModal}>
+                Changer d’employé
+              </button>
+            </div>
 
             <div style={styles.activeUnitBox}>
               <div style={styles.activeUnitLabel}>Unité en cours</div>
@@ -1414,11 +1631,7 @@ export default function OperationTempsReelPage() {
                 Ouvrir le bon de travail
               </button>
 
-              <button
-                style={styles.bigDanger}
-                onClick={arreterPointage}
-                disabled={busy}
-              >
+              <button style={styles.bigDanger} onClick={arreterPointage} disabled={busy}>
                 {busy ? "Arrêt..." : "Arrêter"}
               </button>
             </div>
@@ -1471,10 +1684,7 @@ export default function OperationTempsReelPage() {
                       <td style={styles.td}>{fmtDateTime(p.ended_at)}</td>
                       <td style={styles.td}>{duration}</td>
                       <td style={styles.td}>
-                        <div
-                          style={styles.actionsWrap}
-                          onClick={(e) => e.stopPropagation()}
-                        >
+                        <div style={styles.actionsWrap} onClick={(e) => e.stopPropagation()}>
                           <button
                             style={styles.btn}
                             disabled={busy}
@@ -1533,6 +1743,10 @@ export default function OperationTempsReelPage() {
         )}
       </div>
 
+      <button type="button" style={styles.switchFab} onClick={openSwitchModal}>
+        {employeConnecte?.nom_complet ? `Employé · ${employeConnecte.nom_complet}` : "Changer d’employé"}
+      </button>
+
       {editPointage && (
         <div style={styles.overlay} onClick={closeEditModal}>
           <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
@@ -1569,6 +1783,103 @@ export default function OperationTempsReelPage() {
               <button style={styles.btnBlue} onClick={saveEditPointage} disabled={busy}>
                 Enregistrer
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {switchModalOpen && (
+        <div style={styles.overlay}>
+          <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <div>
+                <div>Changer d’employé</div>
+                <div style={styles.modalHeaderSub}>
+                  Sélection rapide sans revenir à la page de login
+                </div>
+              </div>
+            </div>
+
+            <div style={styles.modalBody}>
+              <div style={{ display: "none" }}>
+                <input type="text" name="username" autoComplete="username" />
+                <input type="password" name="password" autoComplete="current-password" />
+              </div>
+
+              <div style={styles.modalInfoCard}>
+                Employé actif : {employeConnecte?.nom_complet || "Aucun"}
+              </div>
+
+              <div>
+                <div style={styles.fieldLabel}>Employé</div>
+                <select
+                  style={styles.selectInput}
+                  value={selectedEmployeId}
+                  name="quick-switch-employe"
+                  autoComplete="off"
+                  onChange={(e) => setSelectedEmployeId(e.target.value)}
+                  disabled={switchBusy}
+                >
+                  <option value="">Sélectionner un employé</option>
+                  {employesActifs.map((emp) => (
+                    <option key={emp.id} value={emp.id}>
+                      {emp.nom_complet}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <div style={styles.fieldLabel}>Mot de passe</div>
+                <input
+                  type="password"
+                  style={styles.textInput}
+                  name="atelier-switch-code"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  value={switchPassword}
+                  onChange={(e) => setSwitchPassword(e.target.value)}
+                  placeholder="Entrer le mot de passe"
+                  disabled={switchBusy}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      handleQuickSwitch();
+                    }
+                  }}
+                />
+              </div>
+
+              {selectedEmploye?.email ? (
+                <div style={{ ...styles.muted, fontSize: 12 }}>
+                  Compte utilisé : {selectedEmploye.email}
+                </div>
+              ) : null}
+
+              {switchError && <div style={styles.modalError}>{switchError}</div>}
+            </div>
+
+            <div style={styles.modalFooter}>
+              <button
+                type="button"
+                style={styles.btnDangerGhost}
+                onClick={handleQuickLogout}
+                disabled={switchBusy}
+              >
+                Déconnecter
+              </button>
+
+              <div style={{ display: "flex", gap: 10 }}>
+                <button
+                  type="button"
+                  style={styles.btnBlue}
+                  onClick={handleQuickSwitch}
+                  disabled={switchBusy}
+                >
+                  {switchBusy ? "Connexion..." : "Entrer"}
+                </button>
+              </div>
             </div>
           </div>
         </div>
