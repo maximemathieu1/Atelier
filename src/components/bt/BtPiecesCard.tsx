@@ -155,6 +155,10 @@ export default function BtPiecesCard({
     const currentQty = Number((data as any)?.quantite || 0);
     const nextQty = currentQty + delta;
 
+    if (nextQty < 0) {
+      throw new Error("Stock insuffisant pour cette modification.");
+    }
+
     const { error: updateError } = await supabase
       .from("inventaire_items")
       .update({ quantite: nextQty })
@@ -195,7 +199,10 @@ export default function BtPiecesCard({
     }
   }
 
-  function chooseInventoryItem(item: InventaireItem, matchedBy: "sku" | "supersed" | null = null) {
+  function chooseInventoryItem(
+    item: InventaireItem,
+    matchedBy: "sku" | "supersed" | null = null
+  ) {
     setPendingPieces((rows) => [
       ...rows,
       {
@@ -237,9 +244,7 @@ export default function BtPiecesCard({
         p_code: code,
       });
 
-      if (error) {
-        throw error;
-      }
+      if (error) throw error;
 
       const rows = (data || []) as ScanLookupRow[];
 
@@ -255,7 +260,10 @@ export default function BtPiecesCard({
         if (itemError) throw itemError;
         if (!itemData) throw new Error("Pièce inventaire introuvable.");
 
-        chooseInventoryItem(itemData as InventaireItem, match.matched_by === "supersed" ? "supersed" : "sku");
+        chooseInventoryItem(
+          itemData as InventaireItem,
+          match.matched_by === "supersed" ? "supersed" : "sku"
+        );
         return;
       }
 
@@ -377,8 +385,11 @@ export default function BtPiecesCard({
     }
   }
 
-  async function autoSavePieceRow(row: Piece) {
+  async function autoSavePieceRow(pieceId: string) {
     if (isReadOnly || !piecesTableAvailable) return;
+
+    const row = pieces.find((p) => p.id === pieceId);
+    if (!row) return;
 
     const description = String(row.description || "").trim();
     const quantite = Number(row.quantite || 0);
@@ -388,12 +399,6 @@ export default function BtPiecesCard({
     if (!Number.isFinite(quantite) || quantite <= 0) return;
     if (!Number.isFinite(prix_unitaire) || prix_unitaire < 0) return;
 
-    const original = pieces.find((p) => p.id === row.id);
-    if (!original) return;
-
-    const originalQty = Number(original.quantite || 0);
-    const newQty = Number(row.quantite || 0);
-
     const margePct =
       isBtOpenPricing
         ? effectiveMargePiecesPct
@@ -402,9 +407,31 @@ export default function BtPiecesCard({
         : effectiveMargePiecesPct;
 
     const prixFactureUnitaire = prix_unitaire * (1 + margePct / 100);
-    const totalFacture = newQty * prixFactureUnitaire;
+    const totalFacture = quantite * prixFactureUnitaire;
 
     try {
+      const { data: dbRow, error: readError } = await supabase
+        .from("bt_pieces")
+        .select("id, quantite, inventaire_item_id")
+        .eq("id", pieceId)
+        .single();
+
+      if (readError) throw readError;
+      if (!dbRow) throw new Error("Ligne de pièce introuvable.");
+
+      const originalQty = Number((dbRow as any).quantite || 0);
+      const newQty = Number(row.quantite || 0);
+      const originalItemId = ((dbRow as any).inventaire_item_id as string | null) ?? null;
+      const currentItemId = row.inventaire_item_id ?? null;
+
+      if (originalItemId !== currentItemId) {
+        throw new Error(
+          "Le lien inventaire de cette pièce a changé. Recharge le BT avant de continuer."
+        );
+      }
+
+      const deltaStock = originalQty - newQty;
+
       const { error } = await supabase
         .from("bt_pieces")
         .update({
@@ -417,15 +444,12 @@ export default function BtPiecesCard({
           prix_facture_unitaire_snapshot: prixFactureUnitaire,
           total_facture_snapshot: totalFacture,
         })
-        .eq("id", row.id);
+        .eq("id", pieceId);
 
       if (error) throw error;
 
-      if (row.inventaire_item_id) {
-        const deltaStock = originalQty - newQty;
-        if (deltaStock !== 0) {
-          await adjustInventoryStock(row.inventaire_item_id, deltaStock);
-        }
+      if (currentItemId && deltaStock !== 0) {
+        await adjustInventoryStock(currentItemId, deltaStock);
       }
 
       await onReload(btId);
@@ -797,7 +821,7 @@ export default function BtPiecesCard({
                           style={{ ...styles.input, minWidth: 100, width: "100%" }}
                           value={p.sku ?? ""}
                           onChange={(e) => updatePieceLocal(p.id, { sku: e.target.value })}
-                          onBlur={() => autoSavePieceRow(p)}
+                          onBlur={() => autoSavePieceRow(p.id)}
                           disabled={isReadOnly || !piecesTableAvailable}
                         />
                       </td>
@@ -806,7 +830,7 @@ export default function BtPiecesCard({
                           style={{ ...styles.input, minWidth: 180, width: "100%" }}
                           value={p.description ?? ""}
                           onChange={(e) => updatePieceLocal(p.id, { description: e.target.value })}
-                          onBlur={() => autoSavePieceRow(p)}
+                          onBlur={() => autoSavePieceRow(p.id)}
                           disabled={isReadOnly || !piecesTableAvailable}
                         />
                       </td>
@@ -818,7 +842,7 @@ export default function BtPiecesCard({
                             style={{ ...styles.input, minWidth: 80, width: "100%" }}
                             value={p.unite ?? ""}
                             onChange={(e) => updatePieceLocal(p.id, { unite: e.target.value })}
-                            onBlur={() => autoSavePieceRow(p)}
+                            onBlur={() => autoSavePieceRow(p.id)}
                             disabled={isReadOnly || !piecesTableAvailable}
                           />
                         )}
@@ -829,7 +853,7 @@ export default function BtPiecesCard({
                           inputMode="numeric"
                           value={String(p.quantite ?? 0)}
                           onChange={(e) => updatePieceLocal(p.id, { quantite: toNum(e.target.value) })}
-                          onBlur={() => autoSavePieceRow(p)}
+                          onBlur={() => autoSavePieceRow(p.id)}
                           disabled={isReadOnly || !piecesTableAvailable}
                         />
                       </td>
@@ -841,7 +865,7 @@ export default function BtPiecesCard({
                           onChange={(e) =>
                             updatePieceLocal(p.id, { prix_unitaire: toNum(e.target.value) })
                           }
-                          onBlur={() => autoSavePieceRow(p)}
+                          onBlur={() => autoSavePieceRow(p.id)}
                           disabled={isReadOnly || !piecesTableAvailable}
                         />
                       </td>
