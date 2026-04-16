@@ -31,8 +31,8 @@ type EntretienTemplateItem = {
   template_id: string;
   nom: string;
   description: string | null;
-  frequence_km: number | null;
-  frequence_jours: number | null;
+  periodicite_km: number | null;
+  periodicite_jours: number | null;
   ordre: number;
   actif: boolean;
 };
@@ -276,7 +276,7 @@ export default function UniteEntretienPage({
 
         supabase
           .from("entretien_template_items")
-          .select("id,template_id,nom,description,frequence_km,frequence_jours,ordre,actif")
+          .select("id,template_id,nom,description,periodicite_km,periodicite_jours,ordre,actif")
           .eq("actif", true)
           .order("ordre", { ascending: true })
           .order("nom", { ascending: true }),
@@ -290,11 +290,11 @@ export default function UniteEntretienPage({
           .order("nom", { ascending: true }),
 
         supabase
-  .from("unite_entretien_historique")
-  .select("id,unite_id,template_item_id,unite_item_id,bt_id,km_log_id,nom_snapshot,frequence_km_snapshot,frequence_jours_snapshot,date_effectuee,km_effectue,note,created_at")
-  .eq("unite_id", id)
-  .order("date_effectuee", { ascending: false })
-  .order("created_at", { ascending: false }),
+          .from("unite_entretien_historique")
+          .select("id,unite_id,template_item_id,unite_item_id,bt_id,km_log_id,nom_snapshot,frequence_km_snapshot,frequence_jours_snapshot,date_effectuee,km_effectue,note,created_at")
+          .eq("unite_id", id)
+          .order("date_effectuee", { ascending: false })
+          .order("created_at", { ascending: false }),
       ]);
 
       if (uniteRes.error) throw uniteRes.error;
@@ -386,8 +386,8 @@ export default function UniteEntretienPage({
         sourceId: it.id,
         nom: it.nom,
         description: it.description,
-        frequence_km: it.frequence_km,
-        frequence_jours: it.frequence_jours,
+        frequence_km: it.periodicite_km,
+        frequence_jours: it.periodicite_jours,
         templateNom: templateMap.get(it.template_id)?.nom ?? null,
         templateId: it.template_id,
         assignedTemplateLinkId: assignedTemplateByTemplateId.get(it.template_id)?.id ?? null,
@@ -513,32 +513,32 @@ export default function UniteEntretienPage({
     }
   }
 
-async function syncUniteKmFromLastLog() {
-  if (!id) return null;
+  async function syncUniteKmFromLastLog() {
+    if (!id) return null;
 
-  const { data: latest, error: latestError } = await supabase
-    .from("unites_km_log")
-    .select("id,km,created_at")
-    .eq("unite_id", id)
-    .order("created_at", { ascending: false })
-    .order("id", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    const { data: latest, error: latestError } = await supabase
+      .from("unites_km_log")
+      .select("id,km,created_at")
+      .eq("unite_id", id)
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-  if (latestError) throw latestError;
+    if (latestError) throw latestError;
 
-  const km = latest?.km ?? null;
+    const km = latest?.km ?? null;
 
-  const { error: updateError } = await supabase
-    .from("unites")
-    .update({ km_actuel: km })
-    .eq("id", id);
+    const { error: updateError } = await supabase
+      .from("unites")
+      .update({ km_actuel: km })
+      .eq("id", id);
 
-  if (updateError) throw updateError;
+    if (updateError) throw updateError;
 
-  setUnite((prev) => (prev ? { ...prev, km_actuel: km } : prev));
-  return km;
-}
+    setUnite((prev) => (prev ? { ...prev, km_actuel: km } : prev));
+    return km;
+  }
 
   async function createManualUnitItemFromAddModal() {
     if (!id || !localNom.trim() || busy) return;
@@ -659,54 +659,161 @@ async function syncUniteKmFromLastLog() {
     setHistMenuOpenId(null);
   }
 
- async function saveManual() {
-  if (!id || busy) return;
+  async function saveManual() {
+    if (!id || busy) return;
 
-  if (manualMode === "create" && !manualRow) return;
-  if (manualMode === "edit" && !editingHistory) return;
+    if (manualMode === "create" && !manualRow) return;
+    if (manualMode === "edit" && !editingHistory) return;
 
-  setBusy(true);
-  try {
-    if (manualMode === "create" && manualRow) {
-      const km = numOrNull(manualKm);
+    setBusy(true);
+    try {
+      if (manualMode === "create" && manualRow) {
+        const km = numOrNull(manualKm);
 
-      let kmLogId: string | null = null;
+        let kmLogId: string | null = null;
 
-      if (km != null) {
-        const { data: kmLogRow, error: kmLogError } = await supabase
-          .from("unites_km_log")
-          .insert({
-            unite_id: id,
-            km,
-            source: "entretien_manuel",
-            note: manualNote.trim() || `Entretien manuel - ${manualRow.nom}`,
-            bt_id: null,
-          })
-          .select("id")
-          .single();
+        if (km != null) {
+          const { data: kmLogRow, error: kmLogError } = await supabase
+            .from("unites_km_log")
+            .insert({
+              unite_id: id,
+              km,
+              source: "entretien_manuel",
+              note: manualNote.trim() || `Entretien manuel - ${manualRow.nom}`,
+              bt_id: null,
+            })
+            .select("id")
+            .single();
 
-        if (kmLogError) throw kmLogError;
-        kmLogId = kmLogRow?.id ?? null;
+          if (kmLogError) throw kmLogError;
+          kmLogId = kmLogRow?.id ?? null;
+        }
+
+        const payload = {
+          unite_id: id,
+          template_item_id: manualRow.sourceType === "template" ? manualRow.sourceId : null,
+          unite_item_id: manualRow.sourceType === "unite" ? manualRow.sourceId : null,
+          bt_id: null,
+          km_log_id: kmLogId,
+          nom_snapshot: manualRow.nom,
+          frequence_km_snapshot: manualRow.frequence_km,
+          frequence_jours_snapshot: manualRow.frequence_jours,
+          date_effectuee: manualDate,
+          km_effectue: km,
+          note: manualNote.trim() || null,
+        };
+
+        const { error } = await supabase.from("unite_entretien_historique").insert(payload);
+        if (error) throw error;
+
+        if (kmLogId) {
+          await syncUniteKmFromLastLog();
+
+          const { error: syncError } = await supabase.rpc("sync_entretien_items_for_unite", {
+            p_unite_id: id,
+          });
+
+          if (syncError) throw syncError;
+        }
       }
 
-      const payload = {
-        unite_id: id,
-        template_item_id: manualRow.sourceType === "template" ? manualRow.sourceId : null,
-        unite_item_id: manualRow.sourceType === "unite" ? manualRow.sourceId : null,
-        bt_id: null,
-        km_log_id: kmLogId,
-        nom_snapshot: manualRow.nom,
-        frequence_km_snapshot: manualRow.frequence_km,
-        frequence_jours_snapshot: manualRow.frequence_jours,
-        date_effectuee: manualDate,
-        km_effectue: km,
-        note: manualNote.trim() || null,
-      };
+      if (manualMode === "edit" && editingHistory) {
+        const km = numOrNull(manualKm);
 
-      const { error } = await supabase.from("unite_entretien_historique").insert(payload);
-      if (error) throw error;
+        if (editingHistory.km_log_id) {
+          const { error: kmLogError } = await supabase
+            .from("unites_km_log")
+            .update({
+              km,
+              note: manualNote.trim() || null,
+            })
+            .eq("id", editingHistory.km_log_id);
 
-      if (kmLogId) {
+          if (kmLogError) throw kmLogError;
+        } else if (km != null) {
+          let resolvedKmLogId: string | null = null;
+
+          if (editingHistory.bt_id) {
+            const { data: existingKmLog, error: existingKmLogError } = await supabase
+              .from("unites_km_log")
+              .select("id")
+              .eq("unite_id", id)
+              .eq("bt_id", editingHistory.bt_id)
+              .order("created_at", { ascending: false })
+              .order("id", { ascending: false })
+              .limit(1)
+              .maybeSingle();
+
+            if (existingKmLogError) throw existingKmLogError;
+
+            if (existingKmLog?.id) {
+              resolvedKmLogId = existingKmLog.id;
+
+              const { error: updateExistingKmLogError } = await supabase
+                .from("unites_km_log")
+                .update({
+                  km,
+                  note: manualNote.trim() || null,
+                })
+                .eq("id", resolvedKmLogId);
+
+              if (updateExistingKmLogError) throw updateExistingKmLogError;
+            }
+          }
+
+          if (!resolvedKmLogId) {
+            const { data: kmLogRow, error: kmLogError } = await supabase
+              .from("unites_km_log")
+              .insert({
+                unite_id: id,
+                km,
+                source: editingHistory.bt_id ? "bt" : "entretien_manuel",
+                note: manualNote.trim() || null,
+                bt_id: editingHistory.bt_id ?? null,
+              })
+              .select("id")
+              .single();
+
+            if (kmLogError) throw kmLogError;
+            resolvedKmLogId = kmLogRow?.id ?? null;
+          }
+
+          const { error: histLinkError } = await supabase
+            .from("unite_entretien_historique")
+            .update({
+              km_log_id: resolvedKmLogId,
+            })
+            .eq("id", editingHistory.id);
+
+          if (histLinkError) throw histLinkError;
+        }
+
+        if (editingHistory.bt_id) {
+          const { error: btError } = await supabase
+            .from("bons_travail")
+            .update({
+              km,
+            })
+            .eq("id", editingHistory.bt_id);
+
+          if (btError) throw btError;
+        }
+
+        const { error: histError } = await supabase
+          .from("unite_entretien_historique")
+          .update({
+            date_effectuee: manualDate,
+            km_effectue: km,
+            note: manualNote.trim() || null,
+          })
+          .eq("id", editingHistory.id);
+
+        if (histError) throw histError;
+
+        await supabase.rpc("sync_entretien_historique_km", {
+          p_unite_id: id,
+        });
+
         await syncUniteKmFromLastLog();
 
         const { error: syncError } = await supabase.rpc("sync_entretien_items_for_unite", {
@@ -715,131 +822,17 @@ async function syncUniteKmFromLastLog() {
 
         if (syncError) throw syncError;
       }
-    }
 
-    if (manualMode === "edit" && editingHistory) {
-      const km = numOrNull(manualKm);
-
-      // 1) Si on a déjà une ligne KM liée, on la met à jour
-      if (editingHistory.km_log_id) {
-        const { error: kmLogError } = await supabase
-          .from("unites_km_log")
-          .update({
-            km,
-            note: manualNote.trim() || null,
-          })
-          .eq("id", editingHistory.km_log_id);
-
-        if (kmLogError) throw kmLogError;
-      } else if (km != null) {
-  // 2) Si aucune ligne KM n’existait encore, on tente d’abord de retrouver
-  // une ligne existante liée au même BT
-  let resolvedKmLogId: string | null = null;
-
-  if (editingHistory.bt_id) {
-    const { data: existingKmLog, error: existingKmLogError } = await supabase
-      .from("unites_km_log")
-      .select("id")
-      .eq("unite_id", id)
-      .eq("bt_id", editingHistory.bt_id)
-      .order("created_at", { ascending: false })
-      .order("id", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (existingKmLogError) throw existingKmLogError;
-
-    if (existingKmLog?.id) {
-      resolvedKmLogId = existingKmLog.id;
-
-      const { error: updateExistingKmLogError } = await supabase
-        .from("unites_km_log")
-        .update({
-          km,
-          note: manualNote.trim() || null,
-        })
-        .eq("id", resolvedKmLogId);
-
-      if (updateExistingKmLogError) throw updateExistingKmLogError;
+      setManualOpen(false);
+      setManualRow(null);
+      setEditingHistory(null);
+      await loadAll();
+    } catch (e: any) {
+      alert(e?.message ?? String(e));
+    } finally {
+      setBusy(false);
     }
   }
-
-  // 3) Si aucune ligne BT existante n’a été trouvée, on en crée une nouvelle
-  if (!resolvedKmLogId) {
-    const { data: kmLogRow, error: kmLogError } = await supabase
-      .from("unites_km_log")
-      .insert({
-        unite_id: id,
-        km,
-        source: editingHistory.bt_id ? "bt" : "entretien_manuel",
-        note: manualNote.trim() || null,
-        bt_id: editingHistory.bt_id ?? null,
-      })
-      .select("id")
-      .single();
-
-    if (kmLogError) throw kmLogError;
-    resolvedKmLogId = kmLogRow?.id ?? null;
-  }
-
-  const { error: histLinkError } = await supabase
-    .from("unite_entretien_historique")
-    .update({
-      km_log_id: resolvedKmLogId,
-    })
-    .eq("id", editingHistory.id);
-
-  if (histLinkError) throw histLinkError;
-}
-
-      // 3) Si l’historique est lié à un BT, le BT suit aussi
-      if (editingHistory.bt_id) {
-        const { error: btError } = await supabase
-          .from("bons_travail")
-          .update({
-            km,
-          })
-          .eq("id", editingHistory.bt_id);
-
-        if (btError) throw btError;
-      }
-
-      // 4) Mise à jour de l’historique d’entretien
-      const { error: histError } = await supabase
-        .from("unite_entretien_historique")
-        .update({
-          date_effectuee: manualDate,
-          km_effectue: km,
-          note: manualNote.trim() || null,
-        })
-        .eq("id", editingHistory.id);
-
-      if (histError) throw histError;
-
-      // 5) Resync global comme dans la logique KM unité
-      await supabase.rpc("sync_entretien_historique_km", {
-        p_unite_id: id,
-      });
-
-      await syncUniteKmFromLastLog();
-
-      const { error: syncError } = await supabase.rpc("sync_entretien_items_for_unite", {
-        p_unite_id: id,
-      });
-
-      if (syncError) throw syncError;
-    }
-
-    setManualOpen(false);
-    setManualRow(null);
-    setEditingHistory(null);
-    await loadAll();
-  } catch (e: any) {
-    alert(e?.message ?? String(e));
-  } finally {
-    setBusy(false);
-  }
-}
 
   async function deleteHistory(h: EntretienHistorique) {
     const ok = window.confirm(`Supprimer l'historique "${h.nom_snapshot}" ?`);
@@ -895,181 +888,180 @@ async function syncUniteKmFromLastLog() {
   }
 
   const styles: Record<string, React.CSSProperties> = {
-  page: {
-    maxWidth: embedded ? "100%" : 1180,
-    margin: embedded ? "0" : "24px auto",
-    padding: embedded ? "0" : "0 14px",
-  },
-  card: {
-    background: "#fff",
-    border: "1px solid rgba(0,0,0,.08)",
-    borderRadius: 14,
-    padding: 14,
-    boxShadow: "0 8px 30px rgba(0,0,0,.05)",
-    marginBottom: 12,
-  },
-  row: { display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" },
+    page: {
+      maxWidth: embedded ? "100%" : 1180,
+      margin: embedded ? "0" : "24px auto",
+      padding: embedded ? "0" : "0 14px",
+    },
+    card: {
+      background: "#fff",
+      border: "1px solid rgba(0,0,0,.08)",
+      borderRadius: 14,
+      padding: 14,
+      boxShadow: "0 8px 30px rgba(0,0,0,.05)",
+      marginBottom: 12,
+    },
+    row: { display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" },
 
-  btn: {
-    padding: "10px 12px",
-    borderRadius: 10,
-    border: "1px solid rgba(0,0,0,.14)",
-    background: "#fff",
-    fontWeight: 800,
-    cursor: "pointer",
-  },
+    btn: {
+      padding: "10px 12px",
+      borderRadius: 10,
+      border: "1px solid rgba(0,0,0,.14)",
+      background: "#fff",
+      fontWeight: 800,
+      cursor: "pointer",
+    },
 
-  btnPrimary: {
-    padding: "10px 12px",
-    borderRadius: 10,
-    border: "1px solid rgba(0,0,0,.14)",
-    background: "#111827",
-    color: "#fff",
-    fontWeight: 900,
-    cursor: "pointer",
-  },
+    btnPrimary: {
+      padding: "10px 12px",
+      borderRadius: 10,
+      border: "1px solid rgba(0,0,0,.14)",
+      background: "#111827",
+      color: "#fff",
+      fontWeight: 900,
+      cursor: "pointer",
+    },
 
-  btnMini: {
-    padding: "8px 10px",
-    borderRadius: 10,
-    border: "1px solid rgba(0,0,0,.14)",
-    background: "#fff",
-    fontWeight: 800,
-    cursor: "pointer",
-    lineHeight: 1,
-  },
+    btnMini: {
+      padding: "8px 10px",
+      borderRadius: 10,
+      border: "1px solid rgba(0,0,0,.14)",
+      background: "#fff",
+      fontWeight: 800,
+      cursor: "pointer",
+      lineHeight: 1,
+    },
 
-  input: {
-    padding: "10px 12px",
-    borderRadius: 10,
-    border: "1px solid rgba(0,0,0,.14)",
-    minWidth: 220,
-    background: "#fff",
-  },
+    input: {
+      padding: "10px 12px",
+      borderRadius: 10,
+      border: "1px solid rgba(0,0,0,.14)",
+      minWidth: 220,
+      background: "#fff",
+    },
 
-  table: { width: "100%", borderCollapse: "collapse" },
+    table: { width: "100%", borderCollapse: "collapse" },
 
-  th: {
-    textAlign: "left",
-    fontSize: 12,
-    color: "rgba(0,0,0,.55)",
-    padding: "8px 6px",
-  },
+    th: {
+      textAlign: "left",
+      fontSize: 12,
+      color: "rgba(0,0,0,.55)",
+      padding: "8px 6px",
+    },
 
-  td: {
-    padding: "10px 6px",
-    borderTop: "1px solid rgba(0,0,0,.08)",
-    verticalAlign: "top",
-  },
+    td: {
+      padding: "10px 6px",
+      borderTop: "1px solid rgba(0,0,0,.08)",
+      verticalAlign: "top",
+    },
 
-  badge: {
-    display: "inline-block",
-    padding: "4px 10px",
-    borderRadius: 999,
-    fontSize: 12,
-    fontWeight: 900,
-    border: "1px solid rgba(0,0,0,.08)",
-  },
+    badge: {
+      display: "inline-block",
+      padding: "4px 10px",
+      borderRadius: 999,
+      fontSize: 12,
+      fontWeight: 900,
+      border: "1px solid rgba(0,0,0,.08)",
+    },
 
-  modalBackdrop: {
-    position: "fixed",
-    inset: 0,
-    background: "rgba(0,0,0,.35)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 16,
-    zIndex: 1000,
-  },
+    modalBackdrop: {
+      position: "fixed",
+      inset: 0,
+      background: "rgba(0,0,0,.35)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: 16,
+      zIndex: 1000,
+    },
 
-  modalCard: {
-    width: "100%",
-    maxWidth: 920,
-    background: "#fff",
-    borderRadius: 14,
-    padding: 16,
-    boxShadow: "0 20px 50px rgba(0,0,0,.20)",
-    border: "1px solid rgba(0,0,0,.08)",
-  },
+    modalCard: {
+      width: "100%",
+      maxWidth: 920,
+      background: "#fff",
+      borderRadius: 14,
+      padding: 16,
+      boxShadow: "0 20px 50px rgba(0,0,0,.20)",
+      border: "1px solid rgba(0,0,0,.08)",
+    },
 
-  menuWrap: {
-    position: "relative",
-    display: "inline-block",
-  },
+    menuWrap: {
+      position: "relative",
+      display: "inline-block",
+    },
 
-  menu: {
-    position: "absolute",
-    top: "calc(100% + 6px)",
-    right: 0,
-    minWidth: 520,
-    background: "#fff",
-    border: "1px solid rgba(0,0,0,.08)",
-    borderRadius: 12,
-    boxShadow: "0 16px 40px rgba(0,0,0,.12)",
-    padding: 6,
-    zIndex: 50,
-  },
+    menu: {
+      position: "absolute",
+      top: "calc(100% + 6px)",
+      right: 0,
+      minWidth: 520,
+      background: "#fff",
+      border: "1px solid rgba(0,0,0,.08)",
+      borderRadius: 12,
+      boxShadow: "0 16px 40px rgba(0,0,0,.12)",
+      padding: 6,
+      zIndex: 50,
+    },
 
-  menuGrid: {
-    display: "grid",
-    gridTemplateColumns: "1fr",
-    gap: 6,
-  },
+    menuGrid: {
+      display: "grid",
+      gridTemplateColumns: "1fr",
+      gap: 6,
+    },
 
-  menuItem: {
-    width: "100%",
-    textAlign: "left",
-    padding: "10px 12px",
-    borderRadius: 10,
-    border: "none",
-    background: "#fff",
-    cursor: "pointer",
-    fontWeight: 700,
-  },
+    menuItem: {
+      width: "100%",
+      textAlign: "left",
+      padding: "10px 12px",
+      borderRadius: 10,
+      border: "none",
+      background: "#fff",
+      cursor: "pointer",
+      fontWeight: 700,
+    },
 
-  // ✅ VERSION FINALE CORRIGÉE (UNE SEULE)
-  menuItemMuted: {
-    width: "100%",
-    textAlign: "left",
-    padding: "10px 12px",
-    borderRadius: 10,
-    border: "none",
-    background: "#f9fafb",
-    color: "#6b7280",
-    cursor: "default",
-    fontWeight: 700,
-    fontSize: 13,
-  },
+    menuItemMuted: {
+      width: "100%",
+      textAlign: "left",
+      padding: "10px 12px",
+      borderRadius: 10,
+      border: "none",
+      background: "#f9fafb",
+      color: "#6b7280",
+      cursor: "default",
+      fontWeight: 700,
+      fontSize: 13,
+    },
 
-  histRowClickable: {
-    cursor: "pointer",
-  },
+    histRowClickable: {
+      cursor: "pointer",
+    },
 
-  tabsWrap: {
-    display: "flex",
-    gap: 8,
-    marginBottom: 12,
-  },
+    tabsWrap: {
+      display: "flex",
+      gap: 8,
+      marginBottom: 12,
+    },
 
-  tabBtn: {
-    padding: "9px 12px",
-    borderRadius: 10,
-    border: "1px solid rgba(0,0,0,.14)",
-    background: "#fff",
-    fontWeight: 800,
-    cursor: "pointer",
-  },
+    tabBtn: {
+      padding: "9px 12px",
+      borderRadius: 10,
+      border: "1px solid rgba(0,0,0,.14)",
+      background: "#fff",
+      fontWeight: 800,
+      cursor: "pointer",
+    },
 
-  helperBox: {
-    marginTop: 12,
-    padding: "10px 12px",
-    borderRadius: 10,
-    border: "1px solid rgba(0,0,0,.08)",
-    background: "#f8fafc",
-    color: "rgba(0,0,0,.7)",
-    fontSize: 13,
-  },
-};
+    helperBox: {
+      marginTop: 12,
+      padding: "10px 12px",
+      borderRadius: 10,
+      border: "1px solid rgba(0,0,0,.08)",
+      background: "#f8fafc",
+      color: "rgba(0,0,0,.7)",
+      fontSize: 13,
+    },
+  };
 
   if (!id) return <div style={styles.page}>ID unité manquant.</div>;
 
@@ -1231,61 +1223,60 @@ async function syncUniteKmFromLastLog() {
                             </button>
 
                             {rowMenuOpenId === rowMenuId && (
-  <div style={styles.menu}>
-    <div style={styles.menuGrid}>
-      
-      <button
-        style={styles.menuItem}
-        type="button"
-        onClick={() => addToBt(row)}
-      >
-        Ajouter au BT
-      </button>
+                              <div style={styles.menu}>
+                                <div style={styles.menuGrid}>
+                                  <button
+                                    style={styles.menuItem}
+                                    type="button"
+                                    onClick={() => addToBt(row)}
+                                  >
+                                    Ajouter au BT
+                                  </button>
 
-      <button
-        style={styles.menuItem}
-        type="button"
-        onClick={() => openManualCreate(row)}
-      >
-        Saisie manuelle
-      </button>
+                                  <button
+                                    style={styles.menuItem}
+                                    type="button"
+                                    onClick={() => openManualCreate(row)}
+                                  >
+                                    Saisie manuelle
+                                  </button>
 
-      {row.sourceType === "unite" ? (
-        <>
-          <button
-            style={styles.menuItem}
-            type="button"
-            onClick={() => openEditUnitItem(row)}
-          >
-            Modifier
-          </button>
+                                  {row.sourceType === "unite" ? (
+                                    <>
+                                      <button
+                                        style={styles.menuItem}
+                                        type="button"
+                                        onClick={() => openEditUnitItem(row)}
+                                      >
+                                        Modifier
+                                      </button>
 
-          <button
-            style={{ ...styles.menuItem, color: "#991b1b" }}
-            type="button"
-            onClick={() => deleteRowItem(row)}
-          >
-            Supprimer
-          </button>
-        </>
-      ) : (
-        <>
-          <div style={styles.menuItemMuted}>
-            Template (lecture seule)
-          </div>
+                                      <button
+                                        style={{ ...styles.menuItem, color: "#991b1b" }}
+                                        type="button"
+                                        onClick={() => deleteRowItem(row)}
+                                      >
+                                        Supprimer
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <div style={styles.menuItemMuted}>
+                                        Template (lecture seule)
+                                      </div>
 
-          <button
-            style={{ ...styles.menuItem, color: "#991b1b" }}
-            type="button"
-            onClick={() => deleteRowItem(row)}
-          >
-            Retirer de l’unité
-          </button>
-        </>
-      )}
-    </div>
-  </div>
-)}
+                                      <button
+                                        style={{ ...styles.menuItem, color: "#991b1b" }}
+                                        type="button"
+                                        onClick={() => deleteRowItem(row)}
+                                      >
+                                        Retirer de l’unité
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         </td>
                       </tr>
