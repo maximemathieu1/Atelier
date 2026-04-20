@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import BtPiecesCard, { type Piece as PieceFull } from "../components/bt/BtPiecesCard";
@@ -138,6 +138,23 @@ type KmRpcResponse = {
   last_bt_numero?: string | null;
   last_date?: string | null;
   log_id?: string | null;
+};
+
+type SpeechRecognitionLike = {
+  lang: string;
+  interimResults: boolean;
+  continuous: boolean;
+  onstart: null | (() => void);
+  onerror: null | ((event: { error?: string }) => void);
+  onend: null | (() => void);
+  onresult: null | ((event: any) => void);
+  start: () => void;
+  stop: () => void;
+};
+
+type WindowWithSpeechRecognition = Window & {
+  SpeechRecognition?: new () => SpeechRecognitionLike;
+  webkitSpeechRecognition?: new () => SpeechRecognitionLike;
 };
 
 function fmtDateTime(v: string | null | undefined) {
@@ -311,6 +328,12 @@ export default function BonTravailMecanoPage() {
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [selectedDone, setSelectedDone] = useState<Record<string, boolean>>({});
   const [newTask, setNewTask] = useState("");
+  const [taskInterim, setTaskInterim] = useState("");
+  const [speechSupported, setSpeechSupported] = useState(false);
+  const [speechError, setSpeechError] = useState<string | null>(null);
+  const [speechListening, setSpeechListening] = useState(false);
+
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
 
   const [assignedTemplates, setAssignedTemplates] = useState<UniteEntretienTemplate[]>([]);
   const [templates, setTemplates] = useState<EntretienTemplate[]>([]);
@@ -330,6 +353,108 @@ export default function BonTravailMecanoPage() {
 
   const [taskModalOpen, setTaskModalOpen] = useState(false);
 
+  useEffect(() => {
+    const w = window as WindowWithSpeechRecognition;
+    setSpeechSupported(Boolean(w.SpeechRecognition || w.webkitSpeechRecognition));
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      try {
+        recognitionRef.current?.stop();
+      } catch {}
+      recognitionRef.current = null;
+    };
+  }, []);
+
+  function stopDictation() {
+    try {
+      recognitionRef.current?.stop();
+    } catch {}
+  }
+
+  function startDictation() {
+    const w = window as WindowWithSpeechRecognition;
+    const RecognitionCtor = w.SpeechRecognition || w.webkitSpeechRecognition;
+
+    if (!RecognitionCtor) {
+      setSpeechError("Dictée vocale non supportée sur cet appareil.");
+      return;
+    }
+
+    setSpeechError(null);
+
+    try {
+      stopDictation();
+
+      const recognition = new RecognitionCtor();
+      recognition.lang = "fr-CA";
+      recognition.interimResults = true;
+      recognition.continuous = true;
+
+      recognition.onstart = () => {
+        setSpeechListening(true);
+      };
+
+      recognition.onerror = (event) => {
+        const errCode = event?.error || "Erreur de dictée vocale.";
+        if (errCode === "not-allowed") {
+          setSpeechError("Accès au micro refusé.");
+        } else if (errCode === "no-speech") {
+          setSpeechError("Aucune voix détectée.");
+        } else if (errCode === "audio-capture") {
+          setSpeechError("Microphone introuvable.");
+        } else {
+          setSpeechError(errCode);
+        }
+        setSpeechListening(false);
+      };
+
+      recognition.onend = () => {
+        setSpeechListening(false);
+        recognitionRef.current = null;
+      };
+
+      recognition.onresult = (e: any) => {
+        let interim = "";
+        let final = "";
+
+        for (let i = e.resultIndex; i < e.results.length; i += 1) {
+          const txt = e.results[i][0]?.transcript ?? "";
+          if (e.results[i].isFinal) final += txt;
+          else interim += txt;
+        }
+
+        setTaskInterim(interim.trim());
+
+        if (final.trim()) {
+          setNewTask((prev) => {
+            const base = prev.trim();
+            const extra = final.trim();
+            return base ? `${base} ${extra}` : extra;
+          });
+          setTaskInterim("");
+        }
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+    } catch (e: any) {
+      setSpeechListening(false);
+      setSpeechError(e?.message || "Impossible de démarrer la dictée.");
+      recognitionRef.current = null;
+    }
+  }
+
+  function resetTaskModalState() {
+    stopDictation();
+    setSpeechListening(false);
+    setSpeechError(null);
+    setTaskInterim("");
+    setNewTask("");
+    setTaskModalOpen(false);
+  }
+
   const isReadOnly = useMemo(() => {
     if (!bt) return false;
     return bt.statut === "termine" || bt.statut === "facture";
@@ -347,6 +472,13 @@ export default function BonTravailMecanoPage() {
     if (bt?.marge_pieces_snapshot != null) return Number(bt.marge_pieces_snapshot || 0);
     return Number(clientCfg?.marge_pieces || 0);
   }, [isBtOpenPricing, bt, clientCfg]);
+
+  const displayTaskValue = useMemo(() => {
+    const base = newTask.trim();
+    const interim = taskInterim.trim();
+    if (!interim) return newTask;
+    return base ? `${base} ${interim}` : interim;
+  }, [newTask, taskInterim]);
 
   const rows = useMemo(() => {
     const assignedSet = new Set(assignedTemplates.map((x) => x.template_id));
@@ -535,7 +667,9 @@ export default function BonTravailMecanoPage() {
 
         supabase
           .from("unite_entretien_historique")
-          .select("id,unite_id,template_item_id,unite_item_id,bt_id,km_log_id,nom_snapshot,frequence_km_snapshot,frequence_jours_snapshot,date_effectuee,km_effectue,note,created_at")
+          .select(
+            "id,unite_id,template_item_id,unite_item_id,bt_id,km_log_id,nom_snapshot,frequence_km_snapshot,frequence_jours_snapshot,date_effectuee,km_effectue,note,created_at"
+          )
           .eq("unite_id", btRow.unite_id)
           .order("date_effectuee", { ascending: false })
           .order("created_at", { ascending: false }),
@@ -571,7 +705,7 @@ export default function BonTravailMecanoPage() {
     loadAll();
   }, [id]);
 
-  async function saveKmValue(
+    async function saveKmValue(
     value: string,
     force = false,
     overrideReason?: string | null
@@ -685,6 +819,7 @@ export default function BonTravailMecanoPage() {
     if (!bt) return false;
     const titre = newTask.trim();
     if (!titre) return false;
+
     if (isReadOnly) {
       alert("BT fermé/facturé : impossible de modifier.");
       return false;
@@ -701,7 +836,12 @@ export default function BonTravailMecanoPage() {
       return false;
     }
 
+    stopDictation();
+    setSpeechListening(false);
+    setSpeechError(null);
+    setTaskInterim("");
     setNewTask("");
+
     await loadAll();
     return true;
   }
@@ -745,98 +885,88 @@ export default function BonTravailMecanoPage() {
     const isEntretienTask =
       !!t.entretien_template_item_id || !!t.entretien_unite_item_id || !!t.entretien_auto;
 
-   if (isEntretienTask) {
-  if (bt.km == null || !Number.isFinite(Number(bt.km))) {
-    alert("Impossible de compléter un entretien périodique sans kilométrage au BT.");
-    return;
-  }
+    if (isEntretienTask) {
+      if (bt.km == null || !Number.isFinite(Number(bt.km))) {
+        alert("Impossible de compléter un entretien périodique sans kilométrage au BT.");
+        return;
+      }
 
-  const nomEntretien =
-    String(t.titre || "").replace(/^Entretien périodique\s*-\s*/i, "").trim() || t.titre;
+      const nomEntretien =
+        String(t.titre || "").replace(/^Entretien périodique\s*-\s*/i, "").trim() || t.titre;
 
-  // 🔍 1. Vérifier si déjà existant
-  let existingQuery = supabase
-    .from("unite_entretien_historique")
-    .select("id")
-    .eq("unite_id", bt.unite_id)
-    .eq("bt_id", bt.id);
+      let existingQuery = supabase
+        .from("unite_entretien_historique")
+        .select("id")
+        .eq("unite_id", bt.unite_id)
+        .eq("bt_id", bt.id);
 
-  if (t.entretien_template_item_id) {
-    existingQuery = existingQuery.eq("template_item_id", t.entretien_template_item_id);
-  } else {
-    existingQuery = existingQuery.is("template_item_id", null);
-  }
+      if (t.entretien_template_item_id) {
+        existingQuery = existingQuery.eq("template_item_id", t.entretien_template_item_id);
+      } else {
+        existingQuery = existingQuery.is("template_item_id", null);
+      }
 
-  if (t.entretien_unite_item_id) {
-    existingQuery = existingQuery.eq("unite_item_id", t.entretien_unite_item_id);
-  } else {
-    existingQuery = existingQuery.is("unite_item_id", null);
-  }
+      if (t.entretien_unite_item_id) {
+        existingQuery = existingQuery.eq("unite_item_id", t.entretien_unite_item_id);
+      } else {
+        existingQuery = existingQuery.is("unite_item_id", null);
+      }
 
-  const { data: existing } = await existingQuery.maybeSingle();
+      const { data: existing } = await existingQuery.maybeSingle();
 
-  // 🔄 2. UPDATE si existe
-  if (existing) {
-    const { error: updErr } = await supabase
-      .from("unite_entretien_historique")
-      .update({
-        nom_snapshot: nomEntretien,
-        date_effectuee: new Date().toISOString().slice(0, 10),
-        km_effectue: bt.km,
-      })
-      .eq("id", existing.id);
+      if (existing) {
+        const { error: updErr } = await supabase
+          .from("unite_entretien_historique")
+          .update({
+            nom_snapshot: nomEntretien,
+            date_effectuee: new Date().toISOString().slice(0, 10),
+            km_effectue: bt.km,
+          })
+          .eq("id", existing.id);
 
-    if (updErr) {
-      alert(updErr.message);
-      return;
+        if (updErr) {
+          alert(updErr.message);
+          return;
+        }
+      } else {
+        const { error: histErr } = await supabase.from("unite_entretien_historique").insert({
+          unite_id: bt.unite_id,
+          template_item_id: t.entretien_template_item_id ?? null,
+          unite_item_id: t.entretien_unite_item_id ?? null,
+          bt_id: bt.id,
+          nom_snapshot: nomEntretien,
+          frequence_km_snapshot: null,
+          frequence_jours_snapshot: null,
+          date_effectuee: new Date().toISOString().slice(0, 10),
+          km_effectue: bt.km,
+          note: null,
+        });
+
+        if (histErr) {
+          alert(histErr.message);
+          return;
+        }
+      }
     }
-  } else {
-    // ➕ 3. INSERT sinon
-    const { error: histErr } = await supabase
-      .from("unite_entretien_historique")
-      .insert({
-        unite_id: bt.unite_id,
-        template_item_id: t.entretien_template_item_id ?? null,
-        unite_item_id: t.entretien_unite_item_id ?? null,
-        bt_id: bt.id,
-        nom_snapshot: nomEntretien,
-        frequence_km_snapshot: null,
-        frequence_jours_snapshot: null,
-        date_effectuee: new Date().toISOString().slice(0, 10),
-        km_effectue: bt.km,
-        note: null,
-      });
 
-    if (histErr) {
-      alert(histErr.message);
-      return;
-    }
-  }
-}
-
-    const { error: insertErr } = await supabase
-      .from("bt_taches_effectuees")
-      .insert({
-        bt_id: bt.id,
-        unite_id: bt.unite_id,
-        unite_note_id: t.id,
-        titre: t.titre,
-        details: t.details,
-        date_effectuee: new Date().toISOString(),
-        entretien_template_item_id: t.entretien_template_item_id ?? null,
-        entretien_unite_item_id: t.entretien_unite_item_id ?? null,
-        entretien_auto: Boolean(t.entretien_auto),
-      });
+    const { error: insertErr } = await supabase.from("bt_taches_effectuees").insert({
+      bt_id: bt.id,
+      unite_id: bt.unite_id,
+      unite_note_id: t.id,
+      titre: t.titre,
+      details: t.details,
+      date_effectuee: new Date().toISOString(),
+      entretien_template_item_id: t.entretien_template_item_id ?? null,
+      entretien_unite_item_id: t.entretien_unite_item_id ?? null,
+      entretien_auto: Boolean(t.entretien_auto),
+    });
 
     if (insertErr) {
       alert(insertErr.message);
       return;
     }
 
-    const { error: deleteErr } = await supabase
-      .from("unite_notes")
-      .delete()
-      .eq("id", t.id);
+    const { error: deleteErr } = await supabase.from("unite_notes").delete().eq("id", t.id);
 
     if (deleteErr) {
       alert(deleteErr.message);
@@ -956,10 +1086,7 @@ export default function BonTravailMecanoPage() {
         }
       }
 
-      const { error } = await supabase
-        .from("bt_taches_effectuees")
-        .delete()
-        .eq("id", t.id);
+      const { error } = await supabase.from("bt_taches_effectuees").delete().eq("id", t.id);
 
       if (error) {
         alert(error.message);
@@ -1132,12 +1259,59 @@ export default function BonTravailMecanoPage() {
     },
     modalCard: {
       width: "100%",
-      maxWidth: 460,
+      maxWidth: 520,
       background: "#fff",
       borderRadius: 14,
       padding: 16,
       boxShadow: "0 20px 50px rgba(0,0,0,.20)",
       border: "1px solid rgba(0,0,0,.08)",
+    },
+    modalFieldWrap: {
+      display: "grid",
+      gridTemplateColumns: "1fr 60px",
+      gap: 10,
+      alignItems: "start",
+    },
+    textarea: {
+      width: "100%",
+      minHeight: 100,
+      padding: "10px 12px",
+      borderRadius: 10,
+      border: "1px solid rgba(0,0,0,.14)",
+      background: "#fff",
+      resize: "vertical" as const,
+      fontFamily: "inherit",
+      fontSize: 14,
+      lineHeight: 1.4,
+      boxSizing: "border-box" as const,
+    },
+    micBtn: {
+      height: 52,
+      borderRadius: 10,
+      border: "1px solid rgba(0,0,0,.14)",
+      background: "#fff",
+      fontSize: 22,
+      cursor: "pointer",
+    },
+    micBtnActive: {
+      height: 52,
+      borderRadius: 10,
+      border: "2px solid #dc2626",
+      background: "#fff",
+      color: "#dc2626",
+      fontSize: 22,
+      cursor: "pointer",
+    },
+    helperText: {
+      fontSize: 12,
+      marginTop: 8,
+      color: "rgba(0,0,0,.68)",
+    },
+    helperError: {
+      fontSize: 12,
+      marginTop: 6,
+      color: "#dc2626",
+      fontWeight: 700,
     },
   };
 
@@ -1541,36 +1715,67 @@ export default function BonTravailMecanoPage() {
       )}
 
       {taskModalOpen && (
-        <div style={styles.modalBackdrop} onClick={() => setTaskModalOpen(false)}>
+        <div style={styles.modalBackdrop} onClick={resetTaskModalState}>
           <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
             <div style={{ fontSize: 18, fontWeight: 950, marginBottom: 10 }}>
               Ajouter une tâche
             </div>
 
-            <input
-              style={{ ...styles.input, width: "100%" }}
-              placeholder="Nouvelle tâche…"
-              value={newTask}
-              onChange={(e) => setNewTask(e.target.value)}
-              onKeyDown={async (e) => {
-                if (e.key === "Enter") {
-                  const ok = await addTask();
-                  if (ok) setTaskModalOpen(false);
+            <div style={styles.modalFieldWrap}>
+              <textarea
+                style={styles.textarea}
+                placeholder="Nouvelle tâche…"
+                value={displayTaskValue}
+                onChange={(e) => {
+                  setNewTask(e.target.value);
+                  setTaskInterim("");
+                }}
+                autoFocus
+              />
+
+              <button
+                type="button"
+                style={speechListening ? styles.micBtnActive : styles.micBtn}
+                onClick={() => {
+                  if (speechListening) stopDictation();
+                  else startDictation();
+                }}
+                disabled={!speechSupported}
+                title={
+                  !speechSupported
+                    ? "Dictée non supportée"
+                    : speechListening
+                    ? "Arrêter la dictée"
+                    : "Démarrer la dictée"
                 }
-              }}
-              autoFocus
-            />
+              >
+                {speechListening ? "⏹" : "🎤"}
+              </button>
+            </div>
+
+            {!speechSupported ? (
+              <div style={styles.helperText}>
+                Dictée vocale non disponible sur cet appareil ou navigateur.
+              </div>
+            ) : speechListening ? (
+              <div style={styles.helperText}>Écoute en cours… parle normalement.</div>
+            ) : (
+              <div style={styles.helperText}>Clique sur le micro pour dicter la tâche.</div>
+            )}
+
+            {speechError ? <div style={styles.helperError}>{speechError}</div> : null}
 
             <div style={{ ...styles.row, justifyContent: "flex-end", marginTop: 14 }}>
-              <button style={styles.btn} type="button" onClick={() => setTaskModalOpen(false)}>
+              <button style={styles.btn} type="button" onClick={resetTaskModalState}>
                 Annuler
               </button>
+
               <button
                 style={styles.btnPrimary}
                 type="button"
                 onClick={async () => {
                   const ok = await addTask();
-                  if (ok) setTaskModalOpen(false);
+                  if (ok) resetTaskModalState();
                 }}
               >
                 Ajouter

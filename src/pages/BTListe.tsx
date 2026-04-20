@@ -103,6 +103,14 @@ export default function BTListe() {
   const [creating, setCreating] = useState(false);
   const [createErr, setCreateErr] = useState<string | null>(null);
 
+  const [sortKey, setSortKey] = useState<
+    "numero" | "unite" | "client" | "km" | "date" | "pieces" | "mo" | "total" | "statut"
+  >("date");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+
   async function loadAll() {
     setLoading(true);
     setErr(null);
@@ -117,7 +125,11 @@ export default function BTListe() {
           .from("unites")
           .select("id,no_unite,marque,modele,annee,km_actuel,statut,client_id")
           .order("no_unite", { ascending: true }),
-        supabase.from("bons_travail").select("*").order("created_at", { ascending: false }).limit(300),
+        supabase
+          .from("bons_travail")
+          .select("*")
+          .order("created_at", { ascending: false })
+          .limit(300),
         supabase.from("clients").select("id,nom"),
       ]);
 
@@ -191,10 +203,48 @@ export default function BTListe() {
     return true;
   }
 
-  const filtered = useMemo(() => {
+  function handleSort(
+    key: "numero" | "unite" | "client" | "km" | "date" | "pieces" | "mo" | "total" | "statut"
+  ) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  }
+
+  function sortValue(bt: BT, key: string) {
+    const u = unitesById[bt.unite_id];
+
+    switch (key) {
+      case "numero":
+        return bt.numero || "";
+      case "unite":
+        return u?.no_unite || "";
+      case "client":
+        return resolveClientName(bt);
+      case "km":
+        return Number((bt as any).km ?? (bt as any).kilometrage ?? 0);
+      case "date":
+        return new Date(bt.date_ouverture || bt.created_at || 0).getTime();
+      case "pieces":
+        return resolvePiecesAtelier(bt);
+      case "mo":
+        return resolveMainOeuvre(bt);
+      case "total":
+        return resolveGrandTotal(bt);
+      case "statut":
+        return statutLabel(bt.statut || "");
+      default:
+        return "";
+    }
+  }
+
+  const filteredSorted = useMemo(() => {
     const term = q.trim().toLowerCase();
 
-    return bts.filter((bt) => {
+    const list = bts.filter((bt) => {
       if (!matchesStatutFilter(bt.statut)) return false;
       if (!term) return true;
 
@@ -210,6 +260,7 @@ export default function BTListe() {
         bt.statut || "",
         u?.no_unite || "",
         client,
+        String((bt as any).km ?? (bt as any).kilometrage ?? ""),
         String(totalPiecesAtelier),
         String(totalMo),
         String(grandTotal),
@@ -220,7 +271,40 @@ export default function BTListe() {
 
       return s.includes(term);
     });
-  }, [bts, q, statut, unitesById, clientsById]);
+
+    list.sort((a, b) => {
+      const va = sortValue(a, sortKey);
+      const vb = sortValue(b, sortKey);
+
+      if (typeof va === "number" && typeof vb === "number") {
+        return sortDir === "asc" ? va - vb : vb - va;
+      }
+
+      return sortDir === "asc"
+        ? String(va).localeCompare(String(vb), "fr", { numeric: true, sensitivity: "base" })
+        : String(vb).localeCompare(String(va), "fr", { numeric: true, sensitivity: "base" });
+    });
+
+    return list;
+  }, [bts, q, statut, sortKey, sortDir, unitesById, clientsById]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [q, statut, sortKey, sortDir, pageSize]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredSorted.length / pageSize));
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
+  const paginatedRows = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return filteredSorted.slice(start, start + pageSize);
+  }, [filteredSorted, page, pageSize]);
+
+  const fromRow = filteredSorted.length === 0 ? 0 : (page - 1) * pageSize + 1;
+  const toRow = Math.min(page * pageSize, filteredSorted.length);
 
   function syncUnitFromText(value: string) {
     setNewUniteText(value);
@@ -343,6 +427,36 @@ export default function BTListe() {
       cursor: "pointer",
       opacity: creating ? 0.75 : 1,
     },
+
+btnSecondaryDisabled: {
+  padding: "8px 12px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,.08)",
+  background: "#f3f4f6",
+  color: "#9ca3af",
+  fontWeight: 800,
+  cursor: "not-allowed",
+  opacity: 0.8,
+},
+
+    btnSecondary: {
+      padding: "8px 12px",
+      borderRadius: 10,
+      border: "1px solid rgba(0,0,0,.14)",
+      background: "#fff",
+      color: "#111",
+      fontWeight: 800,
+      cursor: "pointer",
+    },
+    btnPageActive: {
+      padding: "8px 12px",
+      borderRadius: 10,
+      border: "1px solid #2563eb",
+      background: "#2563eb",
+      color: "#fff",
+      fontWeight: 900,
+      cursor: "pointer",
+    },
     input: {
       padding: "10px 12px",
       borderRadius: 10,
@@ -353,7 +467,7 @@ export default function BTListe() {
       padding: "10px 12px",
       borderRadius: 10,
       border: "1px solid rgba(0,0,0,.14)",
-      minWidth: 220,
+      minWidth: 160,
     },
     tableWrap: {
       width: "100%",
@@ -362,7 +476,7 @@ export default function BTListe() {
     table: {
       width: "100%",
       borderCollapse: "collapse" as const,
-      minWidth: 980,
+      minWidth: 1160,
       tableLayout: "fixed" as const,
     },
     th: {
@@ -371,6 +485,7 @@ export default function BTListe() {
       color: "rgba(0,0,0,.55)",
       padding: "8px 6px",
       whiteSpace: "nowrap" as const,
+      userSelect: "none" as const,
     },
     thAmount: {
       textAlign: "right" as const,
@@ -378,7 +493,8 @@ export default function BTListe() {
       color: "rgba(0,0,0,.55)",
       padding: "8px 6px",
       whiteSpace: "nowrap" as const,
-      width: 125,
+      width: 140,
+      userSelect: "none" as const,
     },
     thClient: {
       textAlign: "left" as const,
@@ -386,7 +502,8 @@ export default function BTListe() {
       color: "rgba(0,0,0,.55)",
       padding: "8px 6px",
       whiteSpace: "nowrap" as const,
-      width: 90,
+      width: 240,
+      userSelect: "none" as const,
     },
     thStatus: {
       textAlign: "left" as const,
@@ -394,7 +511,8 @@ export default function BTListe() {
       color: "rgba(0,0,0,.55)",
       padding: "8px 6px",
       whiteSpace: "nowrap" as const,
-      width: 90,
+      width: 120,
+      userSelect: "none" as const,
     },
     td: {
       padding: "10px 6px",
@@ -416,6 +534,7 @@ export default function BTListe() {
       whiteSpace: "nowrap" as const,
       overflow: "hidden",
       textOverflow: "ellipsis",
+      maxWidth: 240,
     },
     link: { color: "#2563eb", cursor: "pointer", textDecoration: "underline" },
     errBox: {
@@ -424,7 +543,62 @@ export default function BTListe() {
       padding: 10,
       borderRadius: 12,
     },
+    sortBtn: {
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 6,
+      background: "transparent",
+      border: "none",
+      padding: 0,
+      margin: 0,
+      font: "inherit",
+      color: "inherit",
+      cursor: "pointer",
+      fontWeight: 800,
+    },
+    pagerWrap: {
+      display: "flex",
+      gap: 8,
+      alignItems: "center",
+      justifyContent: "space-between",
+      flexWrap: "wrap",
+      marginTop: 14,
+      paddingTop: 12,
+      borderTop: "1px solid rgba(0,0,0,.08)",
+    },
+    pagerLeft: {
+      display: "flex",
+      gap: 8,
+      alignItems: "center",
+      flexWrap: "wrap",
+    },
+    pagerRight: {
+      display: "flex",
+      gap: 8,
+      alignItems: "center",
+      flexWrap: "wrap",
+    },
   };
+
+  function SortArrow({ col }: { col: typeof sortKey }) {
+    if (sortKey !== col) return <span style={{ opacity: 0.35 }}>↕</span>;
+    return <span>{sortDir === "asc" ? "↑" : "↓"}</span>;
+  }
+
+  function renderSortableHeader(
+    label: string,
+    key: typeof sortKey,
+    style: React.CSSProperties
+  ) {
+    return (
+      <th style={style}>
+        <button type="button" style={styles.sortBtn} onClick={() => handleSort(key)}>
+          <span>{label}</span>
+          <SortArrow col={key} />
+        </button>
+      </th>
+    );
+  }
 
   return (
     <div style={styles.page}>
@@ -490,8 +664,19 @@ export default function BTListe() {
             <option value="verrouille">Verrouillé</option>
           </select>
 
+          <select
+            style={styles.select}
+            value={String(pageSize)}
+            onChange={(e) => setPageSize(Number(e.target.value))}
+          >
+            <option value="10">10 / page</option>
+            <option value="25">25 / page</option>
+            <option value="50">50 / page</option>
+            <option value="100">100 / page</option>
+          </select>
+
           <div style={{ marginLeft: "auto" }}>
-            <span style={styles.muted}>{filtered.length}</span>
+            <span style={styles.muted}>{filteredSorted.length}</span>
             <span style={styles.muted}> résultat(s)</span>
           </div>
         </div>
@@ -499,82 +684,135 @@ export default function BTListe() {
         {loading ? (
           <div style={{ padding: 10 }}>Chargement…</div>
         ) : (
-          <div style={styles.tableWrap}>
-            <table style={styles.table}>
-              <thead>
-                <tr>
-                  <th style={styles.th}>BT</th>
-                  <th style={styles.th}>Unité</th>
-                  <th style={styles.thClient}>Client</th>
-                  <th style={styles.th}>KM</th>
-                  <th style={styles.th}>Ouverture</th>
-                  <th style={styles.thAmount}>Total pièces + atelier</th>
-                  <th style={styles.thAmount}>Total main-d’œuvre</th>
-                  <th style={styles.thAmount}>Grand total</th>
-                  <th style={styles.thStatus}>Statut</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.length === 0 ? (
+          <>
+            <div style={styles.tableWrap}>
+              <table style={styles.table}>
+                <thead>
                   <tr>
-                    <td style={styles.td} colSpan={9}>
-                      <span style={styles.muted}>Aucun bon de travail.</span>
-                    </td>
+                    {renderSortableHeader("BT", "numero", styles.th)}
+                    {renderSortableHeader("Unité", "unite", styles.th)}
+                    {renderSortableHeader("Client", "client", styles.thClient)}
+                    {renderSortableHeader("KM", "km", styles.th)}
+                    {renderSortableHeader("Ouverture", "date", styles.th)}
+                    {renderSortableHeader("Total pièces + atelier", "pieces", styles.thAmount)}
+                    {renderSortableHeader("Total main-d’œuvre", "mo", styles.thAmount)}
+                    {renderSortableHeader("Grand total", "total", styles.thAmount)}
+                    {renderSortableHeader("Statut", "statut", styles.thStatus)}
                   </tr>
-                ) : (
-                  filtered.map((bt) => {
-                    const u = unitesById[bt.unite_id];
-                    const kmVal = (bt as any).km ?? (bt as any).kilometrage ?? null;
-                    const opened = (bt as any).date_ouverture ?? (bt as any).created_at ?? null;
-                    const client = resolveClientName(bt);
-                    const totalPiecesAtelier = resolvePiecesAtelier(bt);
-                    const totalMainOeuvre = resolveMainOeuvre(bt);
-                    const grandTotal = resolveGrandTotal(bt);
+                </thead>
 
-                    return (
-                      <tr key={bt.id}>
-                        <td style={styles.td}>
-                          <span style={styles.link} onClick={() => nav(`/bt/${bt.id}`)}>
-                            {bt.numero || (bt as any).no_bt || "(BT)"}
-                          </span>
-                        </td>
+                <tbody>
+                  {paginatedRows.length === 0 ? (
+                    <tr>
+                      <td style={styles.td} colSpan={9}>
+                        <span style={styles.muted}>Aucun bon de travail.</span>
+                      </td>
+                    </tr>
+                  ) : (
+                    paginatedRows.map((bt) => {
+                      const u = unitesById[bt.unite_id];
+                      const kmVal = (bt as any).km ?? (bt as any).kilometrage ?? null;
+                      const opened = (bt as any).date_ouverture ?? (bt as any).created_at ?? null;
+                      const client = resolveClientName(bt);
+                      const totalPiecesAtelier = resolvePiecesAtelier(bt);
+                      const totalMainOeuvre = resolveMainOeuvre(bt);
+                      const grandTotal = resolveGrandTotal(bt);
 
-                        <td style={styles.td}>
-                          <div style={{ fontWeight: 900 }}>{u?.no_unite ?? "—"}</div>
-                          <div style={styles.muted}>
-                            {u ? [u.marque, u.modele, u.annee].filter(Boolean).join(" ") : ""}
-                          </div>
-                        </td>
+                      return (
+                        <tr key={bt.id}>
+                          <td style={styles.td}>
+                            <span style={styles.link} onClick={() => nav(`/bt/${bt.id}`)}>
+                              {bt.numero || (bt as any).no_bt || "(BT)"}
+                            </span>
+                          </td>
 
-                        <td style={styles.tdClient} title={client}>
-                          {client}
-                        </td>
+                          <td style={styles.td}>
+                            <div style={{ fontWeight: 900 }}>{u?.no_unite ?? "—"}</div>
+                            <div style={styles.muted}>
+                              {u ? [u.marque, u.modele, u.annee].filter(Boolean).join(" ") : ""}
+                            </div>
+                          </td>
 
-                        <td style={styles.td}>{kmVal ?? "—"}</td>
+                          <td style={styles.tdClient} title={client}>
+                            {client}
+                          </td>
 
-                        <td style={styles.td}>{fmtDate(opened)}</td>
+                          <td style={styles.td}>{kmVal ?? "—"}</td>
 
-                        <td style={styles.tdAmount}>{money(totalPiecesAtelier)}</td>
+                          <td style={styles.td}>{fmtDate(opened)}</td>
 
-                        <td style={styles.tdAmount}>{money(totalMainOeuvre)}</td>
+                          <td style={styles.tdAmount}>{money(totalPiecesAtelier)}</td>
 
-                        <td style={styles.tdAmount}>
-                          <strong>{money(grandTotal)}</strong>
-                        </td>
+                          <td style={styles.tdAmount}>{money(totalMainOeuvre)}</td>
 
-                        <td style={styles.td}>
-                          <span style={pill}>{statutLabel(bt.statut)}</span>
-                          {Boolean(bt.verrouille) && (
-                            <span style={{ ...pill, marginLeft: 8 }}>Verrouillé</span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
+                          <td style={styles.tdAmount}>
+                            <strong>{money(grandTotal)}</strong>
+                          </td>
+
+                          <td style={styles.td}>
+                            <span style={pill}>{statutLabel(bt.statut)}</span>
+                            {Boolean(bt.verrouille) && (
+                              <span style={{ ...pill, marginLeft: 8 }}>Verrouillé</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div style={styles.pagerWrap}>
+  <div style={styles.pagerLeft}>
+    <span style={styles.muted}>
+      Affichage {fromRow} à {toRow} sur {filteredSorted.length}
+    </span>
+  </div>
+
+  <div style={styles.pagerRight}>
+    <button
+      type="button"
+      style={page <= 1 ? styles.btnSecondaryDisabled : styles.btnSecondary}
+      onClick={() => setPage(1)}
+      disabled={page <= 1}
+    >
+      « Première
+    </button>
+
+    <button
+      type="button"
+      style={page <= 1 ? styles.btnSecondaryDisabled : styles.btnSecondary}
+      onClick={() => setPage((p) => Math.max(1, p - 1))}
+      disabled={page <= 1}
+    >
+      ‹ Précédente
+    </button>
+
+    <button type="button" style={styles.btnPageActive}>
+      Page {page} / {totalPages}
+    </button>
+
+    <button
+      type="button"
+      style={page >= totalPages ? styles.btnSecondaryDisabled : styles.btnSecondary}
+      onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+      disabled={page >= totalPages}
+    >
+      Suivante ›
+    </button>
+
+    <button
+      type="button"
+      style={page >= totalPages ? styles.btnSecondaryDisabled : styles.btnSecondary}
+      onClick={() => setPage(totalPages)}
+      disabled={page >= totalPages}
+    >
+      Dernière »
+    </button>
+  </div>
+</div>
+          </>
         )}
       </div>
     </div>

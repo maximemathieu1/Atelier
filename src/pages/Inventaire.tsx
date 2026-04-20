@@ -78,6 +78,17 @@ type MenuState = {
 };
 
 type DetailsTab = "infos" | "couts" | "installations" | "supersed";
+type SortKey =
+  | "sku"
+  | "nom"
+  | "categorie"
+  | "quantite"
+  | "unite"
+  | "cout_unitaire"
+  | "seuil_alerte"
+  | "emplacement"
+  | "statut";
+type SortDir = "asc" | "desc";
 
 const emptyForm: FormState = {
   id: null,
@@ -160,6 +171,12 @@ export default function Inventaire() {
   const [showLowStockOnly, setShowLowStockOnly] = useState(false);
   const [statusFilter, setStatusFilter] = useState<"actifs" | "inactifs" | "tous">("actifs");
 
+  const [sortKey, setSortKey] = useState<SortKey>("nom");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState<FormState>(emptyForm);
 
@@ -177,6 +194,8 @@ export default function Inventaire() {
   const [supersedLoading, setSupersedLoading] = useState(false);
 
   const [menuOpen, setMenuOpen] = useState<MenuState | null>(null);
+
+
 
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -353,6 +372,80 @@ export default function Inventaire() {
     });
   }, [items, search, showLowStockOnly, statusFilter]);
 
+  function handleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
+      return;
+    }
+    setSortKey(key);
+    setSortDir("asc");
+  }
+
+  function getSortValue(item: InventaireItem, key: SortKey) {
+    switch (key) {
+      case "sku":
+        return item.sku ?? "";
+      case "nom":
+        return item.nom ?? "";
+      case "categorie":
+        return item.categorie ?? "";
+      case "quantite":
+        return Number(item.quantite ?? 0);
+      case "unite":
+        return item.unite ?? "";
+      case "cout_unitaire":
+        return Number(item.cout_unitaire ?? 0);
+      case "seuil_alerte":
+        return Number(item.seuil_alerte ?? 0);
+      case "emplacement":
+        return item.emplacement ?? "";
+      case "statut":
+        return item.actif ? "actif" : "inactif";
+      default:
+        return "";
+    }
+  }
+
+  const filteredSortedItems = useMemo(() => {
+    const copy = [...filteredItems];
+
+    copy.sort((a, b) => {
+      const av = getSortValue(a, sortKey);
+      const bv = getSortValue(b, sortKey);
+
+      if (typeof av === "number" && typeof bv === "number") {
+        return sortDir === "asc" ? av - bv : bv - av;
+      }
+
+      return sortDir === "asc"
+        ? String(av).localeCompare(String(bv), "fr", {
+            numeric: true,
+            sensitivity: "base",
+          })
+        : String(bv).localeCompare(String(av), "fr", {
+            numeric: true,
+            sensitivity: "base",
+          });
+    });
+
+    return copy;
+  }, [filteredItems, sortKey, sortDir]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, showLowStockOnly, statusFilter, sortKey, sortDir, pageSize]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredSortedItems.length / pageSize));
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
+  const paginatedItems = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return filteredSortedItems.slice(start, start + pageSize);
+  }, [filteredSortedItems, page, pageSize]);
+
   const stats = useMemo(() => {
     const lowStock = items.filter(
       (x) => Number(x.quantite ?? 0) <= Number(x.seuil_alerte ?? 0)
@@ -363,6 +456,16 @@ export default function Inventaire() {
       total: items.length,
     };
   }, [items]);
+
+  const totalRows = filteredSortedItems.length;
+const currentPage = page;
+
+const fromRow = totalRows === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+const toRow = Math.min(currentPage * pageSize, totalRows);
+
+function setCurrentPage(next: number) {
+  setPage(next);
+}
 
   function closeForm() {
     if (saving) return;
@@ -536,7 +639,7 @@ export default function Inventaire() {
     const q = search.trim().toLowerCase();
     if (!q) return;
 
-    const exact = filteredItems.filter((item) => {
+    const exact = filteredSortedItems.filter((item) => {
       const sku = (item.sku ?? "").trim().toLowerCase();
       const nom = (item.nom ?? "").trim().toLowerCase();
       return sku === q || nom === q;
@@ -546,6 +649,11 @@ export default function Inventaire() {
       e.preventDefault();
       openDetails(exact[0]);
     }
+  }
+
+  function renderSortArrow(key: SortKey) {
+    if (sortKey !== key) return <span style={{ opacity: 0.35 }}>↕</span>;
+    return <span>{sortDir === "asc" ? "↑" : "↓"}</span>;
   }
 
   const menuItem = getMenuItem();
@@ -572,34 +680,45 @@ export default function Inventaire() {
 
       <div style={toolbar}>
         <input
-          ref={searchInputRef}
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          onKeyDown={handleSearchKeyDown}
-          placeholder="Scanner ou rechercher par SKU, nom, catégorie, unité, emplacement..."
-          style={{ ...input, minWidth: 320, flex: 1 }}
-          autoComplete="off"
-          spellCheck={false}
-        />
+  ref={searchInputRef}
+  value={search}
+  onChange={(e) => setSearch(e.target.value)}
+  onKeyDown={handleSearchKeyDown}
+  placeholder="Scanner ou rechercher par SKU, nom, catégorie, unité, emplacement..."
+  style={{ ...input, minWidth: 280, flex: "1 1 420px" }}
+  autoComplete="off"
+  spellCheck={false}
+/>
 
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value as "actifs" | "inactifs" | "tous")}
-          style={input}
-        >
-          <option value="actifs">Actifs seulement</option>
-          <option value="inactifs">Inactifs seulement</option>
-          <option value="tous">Tous</option>
-        </select>
+<select
+  value={statusFilter}
+  onChange={(e) => setStatusFilter(e.target.value as "actifs" | "inactifs" | "tous")}
+  style={{ ...input, width: 220, flex: "0 0 220px" }}
+>
+  <option value="actifs">Actifs seulement</option>
+  <option value="inactifs">Inactifs seulement</option>
+  <option value="tous">Tous</option>
+</select>
 
-        <label style={checkboxWrap}>
-          <input
-            type="checkbox"
-            checked={showLowStockOnly}
-            onChange={(e) => setShowLowStockOnly(e.target.checked)}
-          />
-          <span>Stock bas seulement</span>
-        </label>
+<label style={checkboxWrap}>
+  <input
+    type="checkbox"
+    checked={showLowStockOnly}
+    onChange={(e) => setShowLowStockOnly(e.target.checked)}
+  />
+  <span>Stock bas seulement</span>
+</label>
+
+<select
+  value={pageSize}
+  onChange={(e) => setPageSize(Number(e.target.value))}
+  style={{ ...input, width: 140, flex: "0 0 140px" }}
+>
+  <option value={10}>10 / page</option>
+  <option value={25}>25 / page</option>
+  <option value={50}>50 / page</option>
+  <option value={100}>100 / page</option>
+</select>
       </div>
 
       <div style={scanHintBox}>
@@ -612,64 +731,160 @@ export default function Inventaire() {
 
         {loading ? (
           <div style={emptyBox}>Chargement...</div>
-        ) : filteredItems.length === 0 ? (
+        ) : filteredSortedItems.length === 0 ? (
           <div style={emptyBox}>Aucune pièce trouvée.</div>
         ) : (
-          <div style={{ overflowX: "auto" }}>
-            <table style={table}>
-              <thead>
-                <tr>
-                  <th style={th}>SKU</th>
-                  <th style={th}>Nom</th>
-                  <th style={th}>Catégorie</th>
-                  <th style={thRight}>Stock</th>
-                  <th style={th}>Unité</th>
-                  <th style={thRight}>Coût</th>
-                  <th style={thRight}>Seuil</th>
-                  <th style={th}>Emplacement</th>
-                  <th style={th}>Statut</th>
-                  <th style={thActions}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredItems.map((item) => {
-                  const isLow = Number(item.quantite ?? 0) <= Number(item.seuil_alerte ?? 0);
+          <>
+            <div style={{ overflowX: "auto" }}>
+              <table style={table}>
+                <thead>
+                  <tr>
+                    <th style={{ ...th, cursor: "pointer", userSelect: "none" }} onClick={() => handleSort("sku")}>
+                      <span style={sortHeadInner}>SKU {renderSortArrow("sku")}</span>
+                    </th>
+                    <th style={{ ...th, cursor: "pointer", userSelect: "none" }} onClick={() => handleSort("nom")}>
+                      <span style={sortHeadInner}>Nom {renderSortArrow("nom")}</span>
+                    </th>
+                    <th style={{ ...th, cursor: "pointer", userSelect: "none" }} onClick={() => handleSort("categorie")}>
+                      <span style={sortHeadInner}>Catégorie {renderSortArrow("categorie")}</span>
+                    </th>
+                    <th
+                      style={{ ...thRight, cursor: "pointer", userSelect: "none" }}
+                      onClick={() => handleSort("quantite")}
+                    >
+                      <span style={sortHeadInnerRight}>Stock {renderSortArrow("quantite")}</span>
+                    </th>
+                    <th style={{ ...th, cursor: "pointer", userSelect: "none" }} onClick={() => handleSort("unite")}>
+                      <span style={sortHeadInner}>Unité {renderSortArrow("unite")}</span>
+                    </th>
+                    <th
+                      style={{ ...thRight, cursor: "pointer", userSelect: "none" }}
+                      onClick={() => handleSort("cout_unitaire")}
+                    >
+                      <span style={sortHeadInnerRight}>Coût {renderSortArrow("cout_unitaire")}</span>
+                    </th>
+                    <th
+                      style={{ ...thRight, cursor: "pointer", userSelect: "none" }}
+                      onClick={() => handleSort("seuil_alerte")}
+                    >
+                      <span style={sortHeadInnerRight}>Seuil {renderSortArrow("seuil_alerte")}</span>
+                    </th>
+                    <th
+                      style={{ ...th, cursor: "pointer", userSelect: "none" }}
+                      onClick={() => handleSort("emplacement")}
+                    >
+                      <span style={sortHeadInner}>Emplacement {renderSortArrow("emplacement")}</span>
+                    </th>
+                    <th style={{ ...th, cursor: "pointer", userSelect: "none" }} onClick={() => handleSort("statut")}>
+                      <span style={sortHeadInner}>Statut {renderSortArrow("statut")}</span>
+                    </th>
+                    <th style={thActions}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paginatedItems.map((item) => {
+                    const isLow = Number(item.quantite ?? 0) <= Number(item.seuil_alerte ?? 0);
 
-                  return (
-                    <tr key={item.id} style={isLow ? rowLowStock : undefined}>
-                      <td style={td}>{item.sku || "—"}</td>
-                      <td style={tdStrong}>{item.nom}</td>
-                      <td style={td}>{item.categorie || "—"}</td>
-                      <td style={tdRight}>{fmtQty(item.quantite)}</td>
-                      <td style={td}>{item.unite || "—"}</td>
-                      <td style={tdRight}>{fmtMoney(item.cout_unitaire)}</td>
-                      <td style={tdRight}>{fmtQty(item.seuil_alerte)}</td>
-                      <td style={td}>{item.emplacement || "—"}</td>
-                      <td style={td}>
-                        <span style={item.actif ? badgeActive : badgeInactive}>
-                          {item.actif ? "Actif" : "Inactif"}
-                        </span>
-                        {isLow && <span style={badgeLow}>Stock bas</span>}
-                      </td>
-                      <td style={td}>
-                        <div style={actionMenuWrap}>
-                          <button
-                            type="button"
-                            style={btnDots}
-                            onClick={(e) => openActionMenu(e, item.id)}
-                            aria-label="Actions"
-                            title="Actions"
-                          >
-                            ...
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                    return (
+                      <tr key={item.id} style={isLow ? rowLowStock : undefined}>
+                        <td style={td}>{item.sku || "—"}</td>
+                        <td style={tdStrong}>{item.nom}</td>
+                        <td style={td}>{item.categorie || "—"}</td>
+                        <td style={tdRight}>{fmtQty(item.quantite)}</td>
+                        <td style={td}>{item.unite || "—"}</td>
+                        <td style={tdRight}>{fmtMoney(item.cout_unitaire)}</td>
+                        <td style={tdRight}>{fmtQty(item.seuil_alerte)}</td>
+                        <td style={td}>{item.emplacement || "—"}</td>
+                        <td style={td}>
+                          <span style={item.actif ? badgeActive : badgeInactive}>
+                            {item.actif ? "Actif" : "Inactif"}
+                          </span>
+                          {isLow && <span style={badgeLow}>Stock bas</span>}
+                        </td>
+                        <td style={td}>
+                          <div style={actionMenuWrap}>
+                            <button
+                              type="button"
+                              style={btnDots}
+                              onClick={(e) => openActionMenu(e, item.id)}
+                              aria-label="Actions"
+                              title="Actions"
+                            >
+                              ...
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+             </table>
+            </div>
+
+            <div
+  style={{
+    display: "flex",
+    gap: 8,
+    alignItems: "center",
+    justifyContent: "space-between",
+    flexWrap: "wrap",
+    marginTop: 14,
+    paddingTop: 12,
+    borderTop: "1px solid rgba(0,0,0,.08)",
+  }}
+>
+  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+    <span style={{ color: "rgba(0,0,0,.6)" }}>
+      Affichage {fromRow} à {toRow} sur {totalRows}
+    </span>
+  </div>
+
+  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+    <button
+      type="button"
+      style={currentPage <= 1 ? btnPagerInactive : btnPagerGhost}
+      disabled={currentPage <= 1}
+      onClick={() => setCurrentPage(1)}
+    >
+      « Première
+    </button>
+
+    <button
+      type="button"
+      style={currentPage <= 1 ? btnPagerInactive : btnPagerGhost}
+      disabled={currentPage <= 1}
+      onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+    >
+      ‹ Précédente
+    </button>
+
+    <button
+      type="button"
+      style={btnPagerActive}
+    >
+      Page {currentPage} / {totalPages}
+    </button>
+
+    <button
+      type="button"
+      style={currentPage >= totalPages ? btnPagerInactive : btnPagerGhost}
+      disabled={currentPage >= totalPages}
+      onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+    >
+      Suivante ›
+    </button>
+
+    <button
+      type="button"
+      style={currentPage >= totalPages ? btnPagerInactive : btnPagerGhost}
+      disabled={currentPage >= totalPages}
+      onClick={() => setCurrentPage(totalPages)}
+    >
+      Dernière »
+    </button>
+  </div>
+</div>
+          </>
         )}
       </div>
 
@@ -1192,6 +1407,20 @@ const thActions: React.CSSProperties = {
   textAlign: "center",
 };
 
+const sortHeadInner: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 6,
+};
+
+const sortHeadInnerRight: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 6,
+  justifyContent: "flex-end",
+  width: "100%",
+};
+
 const td: React.CSSProperties = {
   padding: "10px 8px",
   borderBottom: "1px solid #f0f0f0",
@@ -1361,6 +1590,36 @@ const btnDanger: React.CSSProperties = {
   ...btnBase,
   background: "#dc2626",
   color: "#fff",
+};
+
+
+const btnPagerGhost: React.CSSProperties = {
+  borderRadius: 10,
+  padding: "8px 12px",
+  border: "1px solid rgba(0,0,0,.14)",
+  background: "#fff",
+  color: "#111",
+  fontWeight: 800,
+  cursor: "pointer",
+};
+
+const btnPagerInactive: React.CSSProperties = {
+  ...btnPagerGhost,
+  opacity: 0.5,
+  cursor: "not-allowed",
+  background: "#f3f4f6",
+  color: "#9ca3af",
+  border: "1px solid rgba(0,0,0,.08)",
+};
+
+const btnPagerActive: React.CSSProperties = {
+  borderRadius: 10,
+  padding: "8px 12px",
+  border: "1px solid #2563eb",
+  background: "#2563eb",
+  color: "#fff",
+  fontWeight: 900,
+  cursor: "pointer",
 };
 
 const modalBackdrop: React.CSSProperties = {

@@ -78,40 +78,6 @@ type KmLog = {
 
 type TabKey = "infos" | "pep" | "kilometrage" | "notes" | "entretien";
 
-type UniteAttribute = {
-  id: string;
-  code: string;
-  libelle: string;
-  type_valeur: "bool" | "texte" | "nombre" | "liste";
-  categorie: string | null;
-  ordre: number;
-  actif: boolean;
-};
-
-type UniteAttributeOption = {
-  id: string;
-  attribute_id: string;
-  valeur: string;
-  libelle: string;
-  ordre: number;
-  actif: boolean;
-};
-
-type UniteAttributeValueRow = {
-  id: string;
-  unite_id: string;
-  attribute_id: string;
-  attribute_code: string;
-  attribute_libelle: string;
-  type_valeur: "bool" | "texte" | "nombre" | "liste";
-  categorie: string | null;
-  ordre: number;
-  valeur_bool: boolean | null;
-  valeur_text: string | null;
-  valeur_number: number | null;
-  valeur_option: string | null;
-};
-
 function isoToInputDate(v: string | null) {
   if (!v) return "";
   return v.includes("T") ? v.slice(0, 10) : v.slice(0, 10);
@@ -231,31 +197,6 @@ export default function UniteView() {
     () => opts.filter((o) => o.categorie === "groupe_accessoire" && o.actif),
     [opts]
   );
-
-  const [pepAttributes, setPepAttributes] = useState<UniteAttribute[]>([]);
-  const [pepAttributeOptions, setPepAttributeOptions] = useState<UniteAttributeOption[]>([]);
-  const [pepAttributeValues, setPepAttributeValues] = useState<Record<string, any>>({});
-  const [pepAttributesLoading, setPepAttributesLoading] = useState(false);
-
-  const groupedPepAttributes = useMemo(() => {
-    const map = new Map<string, UniteAttribute[]>();
-
-    for (const attr of pepAttributes) {
-      const key = attr.categorie?.trim() || "Autres";
-      if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push(attr);
-    }
-
-    return Array.from(map.entries()).map(([categorie, items]) => ({
-      categorie,
-      items: items.slice().sort((a, b) => {
-        const ao = Number(a.ordre ?? 0);
-        const bo = Number(b.ordre ?? 0);
-        if (ao !== bo) return ao - bo;
-        return a.libelle.localeCompare(b.libelle, "fr", { sensitivity: "base" });
-      }),
-    }));
-  }, [pepAttributes]);
 
   const [openNoteModal, setOpenNoteModal] = useState(false);
   const [newNoteTitle, setNewNoteTitle] = useState("");
@@ -384,67 +325,6 @@ export default function UniteView() {
     setKmLogs(((data as any[]) ?? []) as KmLog[]);
   }
 
-  async function loadPepAttributesForUnit(uniteId: string) {
-    setPepAttributesLoading(true);
-
-    const [attrRes, optionRes, valueRes] = await Promise.all([
-      supabase
-        .from("unite_attributes")
-        .select("id, code, libelle, type_valeur, categorie, ordre, actif")
-        .eq("actif", true)
-        .order("categorie", { ascending: true })
-        .order("ordre", { ascending: true })
-        .order("libelle", { ascending: true }),
-
-      supabase
-        .from("unite_attribute_options")
-        .select("id, attribute_id, valeur, libelle, ordre, actif")
-        .eq("actif", true)
-        .order("ordre", { ascending: true })
-        .order("libelle", { ascending: true }),
-
-      supabase
-        .from("v_unites_attributes")
-        .select("*")
-        .eq("unite_id", uniteId)
-        .order("categorie", { ascending: true })
-        .order("ordre", { ascending: true }),
-    ]);
-
-    if (!attrRes.error) {
-      setPepAttributes((attrRes.data ?? []) as UniteAttribute[]);
-    } else {
-      console.warn("unite_attributes:", attrRes.error.message);
-      setPepAttributes([]);
-    }
-
-    if (!optionRes.error) {
-      setPepAttributeOptions((optionRes.data ?? []) as UniteAttributeOption[]);
-    } else {
-      console.warn("unite_attribute_options:", optionRes.error.message);
-      setPepAttributeOptions([]);
-    }
-
-    if (!valueRes.error) {
-      const rows = (valueRes.data ?? []) as UniteAttributeValueRow[];
-      const map: Record<string, any> = {};
-
-      for (const row of rows) {
-        if (row.type_valeur === "bool") map[row.attribute_code] = row.valeur_bool ?? false;
-        else if (row.type_valeur === "texte") map[row.attribute_code] = row.valeur_text ?? "";
-        else if (row.type_valeur === "nombre") map[row.attribute_code] = row.valeur_number ?? "";
-        else if (row.type_valeur === "liste") map[row.attribute_code] = row.valeur_option ?? "";
-      }
-
-      setPepAttributeValues(map);
-    } else {
-      console.warn("v_unites_attributes:", valueRes.error.message);
-      setPepAttributeValues({});
-    }
-
-    setPepAttributesLoading(false);
-  }
-
   async function syncUniteKmFromLastLog() {
     if (!id) return null;
 
@@ -490,56 +370,7 @@ export default function UniteView() {
 
   async function cancelEdit() {
     await refreshAll();
-    if (id) {
-      await loadPepAttributesForUnit(id);
-    }
     closeEditMode();
-  }
-
-  function setPepAttributeDraft(attributeCode: string, value: any) {
-    setPepAttributeValues((prev) => ({
-      ...prev,
-      [attributeCode]: value,
-    }));
-  }
-
-  async function saveDynamicPepAttributes(uniteId: string) {
-    if (!pepAttributes.length) return;
-
-    const payloads = pepAttributes.map((attr) => {
-      const rawValue = pepAttributeValues[attr.code];
-
-      const payload: Record<string, any> = {
-        unite_id: uniteId,
-        attribute_id: attr.id,
-        valeur_bool: null,
-        valeur_text: null,
-        valeur_number: null,
-        valeur_option: null,
-      };
-
-      if (attr.type_valeur === "bool") {
-        payload.valeur_bool = Boolean(rawValue);
-      } else if (attr.type_valeur === "texte") {
-        payload.valeur_text = String(rawValue ?? "").trim() || null;
-      } else if (attr.type_valeur === "nombre") {
-        if (rawValue === "" || rawValue == null) payload.valeur_number = null;
-        else {
-          const n = Number(rawValue);
-          payload.valeur_number = Number.isFinite(n) ? n : null;
-        }
-      } else if (attr.type_valeur === "liste") {
-        payload.valeur_option = String(rawValue ?? "").trim() || null;
-      }
-
-      return payload;
-    });
-
-    const { error } = await supabase
-      .from("unites_attributes_values")
-      .upsert(payloads, { onConflict: "unite_id,attribute_id" });
-
-    if (error) throw error;
   }
 
   async function saveUnite() {
@@ -575,9 +406,7 @@ export default function UniteView() {
       const { error } = await supabase.from("unites").update(payload).eq("id", u.id);
       if (error) throw error;
 
-      await saveDynamicPepAttributes(u.id);
       await refreshAll();
-      await loadPepAttributesForUnit(u.id);
       closeEditMode();
     } catch (e: any) {
       alert(e?.message ?? String(e));
@@ -741,16 +570,6 @@ export default function UniteView() {
   useEffect(() => {
     refreshAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
-
-  useEffect(() => {
-    if (!id) {
-      setPepAttributes([]);
-      setPepAttributeOptions([]);
-      setPepAttributeValues({});
-      return;
-    }
-    loadPepAttributesForUnit(id);
   }, [id]);
 
   if (!id) return <div className="page">ID unité manquant.</div>;
@@ -1010,7 +829,7 @@ export default function UniteView() {
                   />
                 </Row>
 
-                <Row label="Attributs fixes">
+                <Row label="Attributs">
                   <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
                     <label style={{ display: "inline-flex", gap: 8, alignItems: "center", fontWeight: 800 }}>
                       <input
@@ -1126,7 +945,7 @@ export default function UniteView() {
             <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline" }}>
               <div>
                 <div style={{ fontWeight: 900, fontSize: 16 }}>Configuration PEP</div>
-                <div className="muted">Paramètres utilisés pour le formulaire PEP et les règles S/O.</div>
+                <div className="muted">Paramètres utilisés pour le formulaire PEP.</div>
               </div>
             </div>
 
@@ -1230,118 +1049,6 @@ export default function UniteView() {
                   ))}
                 </select>
               </Row>
-            </div>
-          </div>
-
-          <div className="card">
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline", flexWrap: "wrap" }}>
-              <div>
-                <div style={{ fontWeight: 900, fontSize: 16 }}>Attributs PEP dynamiques</div>
-                <div className="muted">
-                  Ces attributs servent aux règles S/O automatiques selon l’unité.
-                </div>
-              </div>
-            </div>
-
-            <div style={{ marginTop: 12 }}>
-              {pepAttributesLoading ? (
-                <div className="muted">Chargement des attributs…</div>
-              ) : pepAttributes.length === 0 ? (
-                <div className="muted">Aucun attribut dynamique actif.</div>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                  {groupedPepAttributes.map((group) => (
-                    <div
-                      key={group.categorie}
-                      style={{
-                        border: "1px solid var(--border)",
-                        borderRadius: 12,
-                        padding: 12,
-                      }}
-                    >
-                      <div style={{ fontWeight: 900, marginBottom: 10 }}>{group.categorie}</div>
-
-                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                        {group.items.map((attr) => {
-                          const value = pepAttributeValues[attr.code];
-                          const optionsForAttr = pepAttributeOptions.filter(
-                            (opt) => opt.attribute_id === attr.id
-                          );
-
-                          if (attr.type_valeur === "bool") {
-                            return (
-                              <Row key={attr.id} label={attr.libelle}>
-                                <label
-                                  style={{
-                                    display: "inline-flex",
-                                    gap: 8,
-                                    alignItems: "center",
-                                    fontWeight: 800,
-                                  }}
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={Boolean(value)}
-                                    onChange={(e) => setPepAttributeDraft(attr.code, e.target.checked)}
-                                    disabled={!isEditMode}
-                                  />
-                                  Actif
-                                </label>
-                              </Row>
-                            );
-                          }
-
-                          if (attr.type_valeur === "texte") {
-                            return (
-                              <Row key={attr.id} label={attr.libelle}>
-                                <input
-                                  className="input"
-                                  type="text"
-                                  value={value ?? ""}
-                                  onChange={(e) => setPepAttributeDraft(attr.code, e.target.value)}
-                                  disabled={!isEditMode}
-                                />
-                              </Row>
-                            );
-                          }
-
-                          if (attr.type_valeur === "nombre") {
-                            return (
-                              <Row key={attr.id} label={attr.libelle}>
-                                <input
-                                  className="input"
-                                  type="number"
-                                  value={value ?? ""}
-                                  onChange={(e) => setPepAttributeDraft(attr.code, e.target.value)}
-                                  disabled={!isEditMode}
-                                />
-                              </Row>
-                            );
-                          }
-
-                          return (
-                            <Row key={attr.id} label={attr.libelle}>
-                              <select
-                                className="input"
-                                value={value ?? ""}
-                                onChange={(e) => setPepAttributeDraft(attr.code, e.target.value)}
-                                disabled={!isEditMode}
-                              >
-                                <option value="">—</option>
-                                {optionsForAttr.map((opt) => (
-                                  <option key={opt.id} value={opt.valeur}>
-                                    {opt.libelle}
-                                  </option>
-                                ))}
-                              </select>
-                            </Row>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
             </div>
           </div>
         </div>

@@ -94,6 +94,10 @@ export default function FacturationBT() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [batchBusy, setBatchBusy] = useState(false);
 
+  const [pageAFacturer, setPageAFacturer] = useState(1);
+  const [pageFacture, setPageFacture] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+
   const [sendOpen, setSendOpen] = useState(false);
   const [sendBusy, setSendBusy] = useState(false);
   const [sendMsg, setSendMsg] = useState<string | null>(null);
@@ -184,15 +188,71 @@ export default function FacturationBT() {
     [rows]
   );
 
-  const visibleRows = tab === "a_facturer" ? aFacturer : factures;
+  useEffect(() => {
+    setPageAFacturer(1);
+  }, [aFacturer.length, pageSize]);
+
+  useEffect(() => {
+    setPageFacture(1);
+  }, [factures.length, pageSize]);
+
+  const totalPagesAFacturer = Math.max(1, Math.ceil(aFacturer.length / pageSize));
+  const totalPagesFacture = Math.max(1, Math.ceil(factures.length / pageSize));
+
+  useEffect(() => {
+    if (pageAFacturer > totalPagesAFacturer) setPageAFacturer(totalPagesAFacturer);
+  }, [pageAFacturer, totalPagesAFacturer]);
+
+  useEffect(() => {
+    if (pageFacture > totalPagesFacture) setPageFacture(totalPagesFacture);
+  }, [pageFacture, totalPagesFacture]);
+
+  const aFacturerPaginated = useMemo(() => {
+    const start = (pageAFacturer - 1) * pageSize;
+    return aFacturer.slice(start, start + pageSize);
+  }, [aFacturer, pageAFacturer, pageSize]);
+
+  const facturesPaginated = useMemo(() => {
+    const start = (pageFacture - 1) * pageSize;
+    return factures.slice(start, start + pageSize);
+  }, [factures, pageFacture, pageSize]);
+
+  const visibleRows = tab === "a_facturer" ? aFacturerPaginated : facturesPaginated;
   const selectedRows = useMemo(
     () => aFacturer.filter((r) => selectedIds.includes(r.id)),
     [aFacturer, selectedIds]
   );
+
   const allVisibleSelected =
     tab === "a_facturer" &&
-    aFacturer.length > 0 &&
-    aFacturer.every((r) => selectedIds.includes(r.id));
+    aFacturerPaginated.length > 0 &&
+    aFacturerPaginated.every((r) => selectedIds.includes(r.id));
+
+  const fromRow =
+    tab === "a_facturer"
+      ? aFacturer.length === 0
+        ? 0
+        : (pageAFacturer - 1) * pageSize + 1
+      : factures.length === 0
+      ? 0
+      : (pageFacture - 1) * pageSize + 1;
+
+  const toRow =
+    tab === "a_facturer"
+      ? Math.min(pageAFacturer * pageSize, aFacturer.length)
+      : Math.min(pageFacture * pageSize, factures.length);
+
+  const currentPage = tab === "a_facturer" ? pageAFacturer : pageFacture;
+  const totalPages = tab === "a_facturer" ? totalPagesAFacturer : totalPagesFacture;
+  const totalRows = tab === "a_facturer" ? aFacturer.length : factures.length;
+
+  function setCurrentPage(next: number) {
+    if (tab === "a_facturer") {
+      setPageAFacturer(next);
+    } else {
+      setPageFacture(next);
+    }
+  }
 
   function toggleRow(id: string, checked: boolean) {
     setSelectedIds((prev) => {
@@ -203,7 +263,7 @@ export default function FacturationBT() {
 
   function toggleAllVisible(checked: boolean) {
     setSelectedIds((prev) => {
-      const visibleIds = aFacturer.map((r) => r.id);
+      const visibleIds = aFacturerPaginated.map((r) => r.id);
       if (checked) {
         return Array.from(new Set([...prev, ...visibleIds]));
       }
@@ -696,21 +756,38 @@ export default function FacturationBT() {
           </button>
         </div>
 
-        {tab === "a_facturer" && (
-          <button
-            type="button"
+        <div style={{ ...(styles.row as CSSProperties) }}>
+          <select
+            value={pageSize}
+            onChange={(e) => setPageSize(Number(e.target.value))}
             style={{
-              ...(styles.btnPrimary as CSSProperties),
-              opacity: selectedRows.length === 0 || batchBusy ? 0.7 : 1,
+              ...(styles.btn as CSSProperties),
+              paddingTop: 8,
+              paddingBottom: 8,
             }}
-            onClick={exporterAcombaBatch}
-            disabled={selectedRows.length === 0 || batchBusy}
           >
-            {batchBusy
-              ? "Export..."
-              : `Exporter Acomba${selectedRows.length ? ` (${selectedRows.length})` : ""}`}
-          </button>
-        )}
+            <option value={10}>10 / page</option>
+            <option value={25}>25 / page</option>
+            <option value={50}>50 / page</option>
+            <option value={100}>100 / page</option>
+          </select>
+
+          {tab === "a_facturer" && (
+            <button
+              type="button"
+              style={{
+                ...(styles.btnPrimary as CSSProperties),
+                opacity: selectedRows.length === 0 || batchBusy ? 0.7 : 1,
+              }}
+              onClick={exporterAcombaBatch}
+              disabled={selectedRows.length === 0 || batchBusy}
+            >
+              {batchBusy
+                ? "Export..."
+                : `Exporter Acomba${selectedRows.length ? ` (${selectedRows.length})` : ""}`}
+            </button>
+          )}
+        </div>
       </div>
 
       {err && (
@@ -781,7 +858,7 @@ export default function FacturationBT() {
                   </td>
                 </tr>
               ) : tab === "a_facturer" ? (
-                aFacturer.map((r) => (
+                aFacturerPaginated.map((r) => (
                   <tr key={r.id}>
                     <td style={{ ...(styles.td as CSSProperties), textAlign: "center" }}>
                       <input
@@ -867,7 +944,7 @@ export default function FacturationBT() {
                   </tr>
                 ))
               ) : (
-                factures.map((r) => (
+                facturesPaginated.map((r) => (
                   <tr key={r.id}>
                     <td style={styles.td as CSSProperties}>{fmtDate(r.date_fermeture)}</td>
                     <td style={{ ...(styles.td as CSSProperties), fontWeight: 900 }}>{r.numero || "—"}</td>
@@ -903,6 +980,70 @@ export default function FacturationBT() {
               )}
             </tbody>
           </table>
+        </div>
+
+        <div
+          style={{
+            display: "flex",
+            gap: 8,
+            alignItems: "center",
+            justifyContent: "space-between",
+            flexWrap: "wrap",
+            marginTop: 14,
+            paddingTop: 12,
+            borderTop: "1px solid rgba(0,0,0,.08)",
+          }}
+        >
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <span style={styles.muted as CSSProperties}>
+              Affichage {fromRow} à {toRow} sur {totalRows}
+            </span>
+          </div>
+
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <button
+              type="button"
+              style={styles.btn as CSSProperties}
+              disabled={currentPage <= 1}
+              onClick={() => setCurrentPage(1)}
+            >
+              « Première
+            </button>
+
+            <button
+              type="button"
+              style={styles.btn as CSSProperties}
+              disabled={currentPage <= 1}
+              onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+            >
+              ‹ Précédente
+            </button>
+
+            <button
+              type="button"
+              style={styles.btnPrimary as CSSProperties}
+            >
+              Page {currentPage} / {totalPages}
+            </button>
+
+            <button
+              type="button"
+              style={styles.btn as CSSProperties}
+              disabled={currentPage >= totalPages}
+              onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+            >
+              Suivante ›
+            </button>
+
+            <button
+              type="button"
+              style={styles.btn as CSSProperties}
+              disabled={currentPage >= totalPages}
+              onClick={() => setCurrentPage(totalPages)}
+            >
+              Dernière »
+            </button>
+          </div>
         </div>
       </div>
 

@@ -1,5 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Routes, Route, NavLink, Navigate, useLocation, useNavigate } from "react-router-dom";
+import {
+  Routes,
+  Route,
+  NavLink,
+  Navigate,
+  useLocation,
+  useNavigate,
+} from "react-router-dom";
 
 import ClientsListe from "./pages/ClientsListe";
 import UnitesListe from "./pages/UnitesListe";
@@ -17,6 +24,16 @@ import Inventaire from "./pages/Inventaire";
 import FacturationBT from "./pages/FacturationBT";
 
 import ParametresSysteme from "./pages/systeme/ParametresSysteme";
+import ParametresConfiguration from "./pages/systeme/ParametresConfiguration";
+import ParametresUnitesPage from "./pages/systeme/ParametresUnitesPage";
+import ParametresPiecesPage from "./pages/systeme/ParametresPiecesPage";
+import ParametresTemplatesPage from "./pages/systeme/ParametresTemplatesPage";
+
+import PepAccueil from "./pages/pep/PepAccueil";
+import PepNouvelle from "./pages/pep/PepNouvelle";
+import PepFinal from "./pages/pep/PepFinal";
+import PepSuivi from "./pages/pep/PepSuivi";
+import PepAdmin from "./pages/pep/PepAdmin";
 
 import { supabase } from "./lib/supabaseClient";
 import "./styles.css";
@@ -77,14 +94,8 @@ function AppShell({ onLogout }: { onLogout: () => void | Promise<void> }) {
         }
       >
         <div className="brand">
-          <div className="brand-placeholder">
-            <div className="brand-badge">A</div>
-            <div>
-              <div className="brand-title">Atelier</div>
-              <div className="brand-subtitle">Groupe Breton</div>
-            </div>
-          </div>
-        </div>
+  <img src="/logo-groupe-breton.png" className="brand-logo" />
+</div>
 
         <div className="section">
           <div className="section-title">ADMINISTRATION</div>
@@ -115,6 +126,10 @@ function AppShell({ onLogout }: { onLogout: () => void | Promise<void> }) {
 
           <NavLink to="/operation-temps-reel" className={linkClass} onClick={onNavClick}>
             Opération temps réel
+          </NavLink>
+
+          <NavLink to="/pep" className={linkClass} onClick={onNavClick}>
+            PEP
           </NavLink>
         </div>
 
@@ -176,13 +191,30 @@ function AppShell({ onLogout }: { onLogout: () => void | Promise<void> }) {
           <Route path="/inventaire" element={<Inventaire />} />
           <Route path="/operation-temps-reel" element={<OperationTempsReelPage />} />
 
+          <Route path="/pep" element={<PepAccueil />}>
+  <Route index element={<Navigate to="suivi" replace />} />
+  <Route path="nouvelle" element={<PepNouvelle />} />
+  <Route path="suivi" element={<PepSuivi />} />
+  <Route path="admin" element={<PepAdmin />} />
+</Route>
+
+<Route path="/pep/final" element={<PepFinal />} />
+
           <Route path="/facturation" element={<FacturationBT />} />
 
           <Route path="/parametres-systeme" element={<ParametresSysteme />} />
           <Route path="/parametres-systeme/configuration" element={<ParametresSysteme />} />
           <Route path="/parametres-systeme/compatibilite" element={<ParametresSysteme />} />
-          <Route path="/parametres-systeme/entreprise-facturation" element={<ParametresSysteme />} />
+          <Route
+            path="/parametres-systeme/entreprise-facturation"
+            element={<ParametresSysteme />}
+          />
           <Route path="/parametres-systeme/acomba" element={<ParametresSysteme />} />
+
+          <Route path="/systeme/parametres" element={<ParametresConfiguration />} />
+          <Route path="/systeme/parametres/unites" element={<ParametresUnitesPage />} />
+          <Route path="/systeme/parametres/pieces" element={<ParametresPiecesPage />} />
+          <Route path="/systeme/parametres/templates" element={<ParametresTemplatesPage />} />
 
           <Route path="*" element={<Navigate to="/clients" replace />} />
         </Routes>

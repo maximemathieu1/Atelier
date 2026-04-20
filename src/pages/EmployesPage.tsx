@@ -6,6 +6,7 @@ type EmployeRow = {
   id: string;
   email: string;
   nom_complet: string;
+  numero_mecano: string | null;
   role: string | null;
   actif: boolean;
   created_at?: string;
@@ -102,7 +103,7 @@ const btnMenuTextStyle: React.CSSProperties = {
 const gridHeaderStyle: React.CSSProperties = {
   display: "grid",
   gridTemplateColumns:
-    "minmax(220px,1.5fr) minmax(240px,1.4fr) minmax(140px,1fr) 120px 90px",
+    "minmax(220px,1.5fr) minmax(240px,1.4fr) 120px minmax(140px,1fr) 120px 90px",
   gap: 12,
   alignItems: "center",
   fontWeight: 700,
@@ -114,7 +115,7 @@ const gridHeaderStyle: React.CSSProperties = {
 const rowStyle: React.CSSProperties = {
   display: "grid",
   gridTemplateColumns:
-    "minmax(220px,1.5fr) minmax(240px,1.4fr) minmax(140px,1fr) 120px 90px",
+    "minmax(220px,1.5fr) minmax(240px,1.4fr) 120px minmax(140px,1fr) 120px 90px",
   gap: 12,
   alignItems: "center",
   padding: "10px 0",
@@ -303,6 +304,8 @@ function EmployeRowItem({
 
       <div>{employe.email || "—"}</div>
 
+      <div>{employe.numero_mecano || "—"}</div>
+
       <div>{roles.find((r) => r.value === employe.role)?.label || employe.role || "—"}</div>
 
       <div>
@@ -382,6 +385,7 @@ export default function EmployesPage() {
 
   const [formNomComplet, setFormNomComplet] = useState("");
   const [formEmail, setFormEmail] = useState("");
+  const [formNumeroMecano, setFormNumeroMecano] = useState("");
   const [formRole, setFormRole] = useState("mecano");
   const [formActif, setFormActif] = useState(true);
 
@@ -409,7 +413,7 @@ export default function EmployesPage() {
 
     const { data, error } = await supabase
       .from("employes")
-      .select("id, email, nom_complet, role, actif, created_at")
+      .select("id, email, nom_complet, numero_mecano, role, actif, created_at")
       .order("nom_complet", { ascending: true });
 
     if (error) {
@@ -434,6 +438,7 @@ export default function EmployesPage() {
   function resetForm() {
     setFormNomComplet("");
     setFormEmail("");
+    setFormNumeroMecano("");
     setFormRole("mecano");
     setFormActif(true);
   }
@@ -452,6 +457,7 @@ export default function EmployesPage() {
     setEditingId(employe.id);
     setFormNomComplet(employe.nom_complet || "");
     setFormEmail(employe.email || "");
+    setFormNumeroMecano(employe.numero_mecano || "");
     setFormRole(employe.role || "mecano");
     setFormActif(!!employe.actif);
     setShowEditModal(true);
@@ -466,6 +472,7 @@ export default function EmployesPage() {
   async function handleAdd() {
     const nom = formNomComplet.trim();
     const courriel = formEmail.trim().toLowerCase();
+    const numeroMecano = formNumeroMecano.trim();
 
     if (!nom) {
       alert("Le nom complet est obligatoire.");
@@ -482,6 +489,7 @@ export default function EmployesPage() {
     const { error } = await supabase.from("employes").insert({
       nom_complet: nom,
       email: courriel,
+      numero_mecano: numeroMecano || null,
       role: formRole || "mecano",
       actif: formActif,
     });
@@ -501,6 +509,7 @@ export default function EmployesPage() {
   async function handleSaveEdit() {
     const nom = formNomComplet.trim();
     const courriel = formEmail.trim().toLowerCase();
+    const numeroMecano = formNumeroMecano.trim();
 
     if (!editingId) return;
 
@@ -521,6 +530,7 @@ export default function EmployesPage() {
       .update({
         nom_complet: nom,
         email: courriel,
+        numero_mecano: numeroMecano || null,
         role: formRole || "mecano",
         actif: formActif,
       })
@@ -545,6 +555,7 @@ export default function EmployesPage() {
       return (
         (e.nom_complet || "").toLowerCase().includes(q) ||
         (e.email || "").toLowerCase().includes(q) ||
+        (e.numero_mecano || "").toLowerCase().includes(q) ||
         (e.role || "").toLowerCase().includes(q) ||
         (e.actif ? "actif" : "inactif").includes(q)
       );
@@ -554,21 +565,21 @@ export default function EmployesPage() {
   return (
     <div style={pageStyle}>
       <div
-  style={{
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 16,
-    gap: 12,
-    flexWrap: "wrap",
-  }}
->
-  <div style={titleStyle}>Employés</div>
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: 16,
+          gap: 12,
+          flexWrap: "wrap",
+        }}
+      >
+        <div style={titleStyle}>Employés</div>
 
-  <button type="button" style={btnBlueStyle} onClick={openAddModal}>
-    Ajouter un employé
-  </button>
-</div>
+        <button type="button" style={btnBlueStyle} onClick={openAddModal}>
+          Ajouter un employé
+        </button>
+      </div>
 
       <div style={cardStyle}>
         <div style={{ fontWeight: 700, marginBottom: 12 }}>Utilisateur connecté</div>
@@ -613,6 +624,7 @@ export default function EmployesPage() {
               <div style={gridHeaderStyle}>
                 <div>Nom</div>
                 <div>Courriel</div>
+                <div>No mécano</div>
                 <div>Rôle</div>
                 <div>Statut</div>
                 <div style={{ textAlign: "right" }}>Action</div>
@@ -674,6 +686,16 @@ export default function EmployesPage() {
                   value={formEmail}
                   onChange={(e) => setFormEmail(e.target.value)}
                   placeholder="Courriel"
+                />
+              </div>
+
+              <div>
+                <div style={{ fontWeight: 600, marginBottom: 6 }}>Numéro mécano</div>
+                <input
+                  style={inputStyle}
+                  value={formNumeroMecano}
+                  onChange={(e) => setFormNumeroMecano(e.target.value)}
+                  placeholder="Ex: 123"
                 />
               </div>
 
@@ -755,6 +777,16 @@ export default function EmployesPage() {
                   value={formEmail}
                   onChange={(e) => setFormEmail(e.target.value)}
                   placeholder="Courriel"
+                />
+              </div>
+
+              <div>
+                <div style={{ fontWeight: 600, marginBottom: 6 }}>Numéro mécano</div>
+                <input
+                  style={inputStyle}
+                  value={formNumeroMecano}
+                  onChange={(e) => setFormNumeroMecano(e.target.value)}
+                  placeholder="Ex: 123"
                 />
               </div>
 

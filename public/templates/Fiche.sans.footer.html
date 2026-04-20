@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<!-- saved from url=(0166)file:///C:/Users/Travail/OneDrive%20-%20AUTOBUS%20BRETON%20INC/Bureau/Logiciel%20PEP/Logiciel%20PEP.V2%202025.10.14%20avant%20compile/templates/Fiche.sans.footer.html -->
+<html lang="fr"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><title>Fiche GB — Pieds collés en bas</title>
+<style>
+  @page { size: 8.5in 11in; margin: 8mm; }
+  html, body { height: 100%; }
+  body { font-family: Arial, Helvetica, sans-serif; font-size: 7.8pt; color: #1d2430; margin:0; -webkit-print-color-adjust:exact; print-color-adjust:exact; line-height: 1.15; }
+  .brandbar { background:#1f3a5f; color:#fff; padding: 6px 10px; display:flex; justify-content:space-between; align-items:center; }
+  .brand-left { font-weight:700; font-size: 10pt; }
+  .brand-right { font-size: 7.6pt; opacity:.95; }
+
+  .page { display:flex; flex-direction:column; min-height: 100vh; }
+  .content { flex: 1; display: block; }
+  .wrap { padding: 8px 10px 10px 10px; }
+
+  .page + .page { page-break-before: always; }
+
+  .row { margin:4px 0; }
+  .field { margin-right:10px; display:inline-block; vertical-align:bottom; }
+  .label { font-weight:600; color:#1f3a5f; }
+  .line { display:inline-block; border-bottom:1px solid #333; min-width:52px; margin-left:3px; }
+  .wide { min-width:120px; } .medium { min-width:80px; } .small { min-width:44px; }
+
+  table.master { width:100%; border-collapse:collapse; table-layout:fixed; }
+  table.master td { width:50%; vertical-align:top; padding:0 5px; }
+
+  .section-title { background:#1f3a5f; color:#fff; font-weight:700; padding:3px 5px; margin:6px 0 4px 0; border-radius:2px; font-size:7.8pt; }
+
+  table.tgrid { width:100%; border-collapse: collapse; table-layout:fixed; }
+  .tgrid thead th { background:#e9eef6; border:1px solid #cfd7e6; padding: 0px 2px; font-size:6.8pt; }
+  .tgrid tbody td { border:1px solid #cfd7e6; padding: 0px 2px; font-size:6.8pt; }
+  .tgrid tbody tr:nth-child(even) td { background:#f7f9fc; }
+  .so { width: 5%; text-align:center; } .loc { width: 6%; text-align:center; } .code { width: 7%; text-align:center; }
+  .item { width: 54%; } .c { width: 7%; text-align:center; } .min { width: 7%; text-align:center; } .maj { width: 7%; text-align:center; } .def { width: 7%; text-align:center; }
+  tr { break-inside: avoid; }
+
+  .panel { margin-top: 6px; }
+  .panel-grid { display:grid; grid-template-columns: 1fr 1.2fr; gap: 10px; align-items: start; }
+  .notes-title { font-weight:700; color:#1f3a5f; margin-bottom:4px; font-size:7.8pt; }
+  .notes-box { height: 200px; border:1px solid #cfd7e6; border-radius:4px; background:#fff; display:grid; grid-template-rows: repeat(12, 1fr); }
+  .notes-box div { border-bottom:1px dashed #bbb; }
+
+  .measure-title { font-weight:700; color:#1f3a5f; margin-bottom:4px; font-size:7.8pt; }
+  .meas-grid { display:grid; grid-template-columns: 1fr 200px 1fr; gap: 10px; align-items: center; }
+  .side { display:grid; grid-template-rows: auto 1fr; gap: 6px; }
+  .hdr { display:grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; text-align:center; font-weight:700; color:#1f3a5f; font-size:7.6pt; }
+  .rows { display:grid; grid-template-rows: 1fr 1fr; gap: 10px; }
+  .trip { display:grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; align-items:end; }
+  .line-meas { border-bottom: 2px solid #6c7b95; height: 16px; }
+  .center { text-align:center; }
+  .center svg { width:200px; height:190px; }
+
+  .footer { padding: 8px 10px 10px 10px; display:grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 12px; }
+  .footline { border-top:1px solid #1d2430; padding-top:3px; text-align:center; color:#2e3b4e; font-size: 7.8pt; }
+
+/* Injected: add clear spacing before the very first inspection block */
+table.master:first-of-type { margin-top: 28px !important; }
+
+
+/* Alignement vertical précis des 2 lignes de mesures avec le schéma (avant/arrière) */
+.meas-grid { align-items: center; }
+.side .rows { position: relative; height: 170px; } /* même hauteur que le SVG (190x170) */
+.side .rows .trip {
+  position: absolute;
+  left: 0; right: 0;
+  display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;
+}
+/* Avant : aligné sur l'axe avant du schéma (~y=80 => ~35px depuis le haut du SVG) */
+.side .rows .trip:nth-child(1) { top: 35px; }
+/* Arrière : centré sur l'essieu arrière (~y≈160) */
+.side .rows .trip:nth-child(2) { top: 105px; }
+
+
+.measure-title {
+  text-align: center !important;
+}
+
+
+/* Overrides footer styling: remove long top border line and indent labels from the left */
+.footer { border-top: none !important; }
+.footline { text-align: left !important; padding-left: 10mm !important; }
+
+
+/* Remove any top/bottom borders and blue lines from footer */
+.footer { border: none !important; background: none !important; }
+.footline { border: none !important; background: none !important; text-align:left !important; padding-left: 0 !important; margin-left: 0 !important; }
+.footline .line, .footline .line-mini { border-color:#000 !important; } /* keep only small black underline */
+
+</style>
+</head><body><div class="page">
+<div class="brandbar"><div class="brand-left">GROUPE BRETON</div><div class="brand-right">Fiche d’entretien – Page 1</div></div>
+<div class="content"><div class="wrap">
+
+    <div class="row">
+      <span class="field"><span class="label">Unité :</span><span class="line small"></span>&nbsp;&nbsp; <span class="label">Marque :</span><span class="line wide"></span></span>
+      <span class="field"><span class="label">Modèle :</span><span class="line wide"></span></span>
+      <span class="field"><span class="label">Année :</span><span class="line small"></span></span><span class="field"><span class="label"> Odomètre :</span><span class="line medium"></span></span>
+    </div>
+    <div class="row">
+      <span class="field"><span class="label">NIV :</span><span class="line wide"></span></span>
+      <span class="field"><span class="label">Plaque :</span><span class="line medium"></span></span>
+      <span class="field"><span class="label">PNBV :</span><span class="line small"></span></span>
+      <span class="field"><span class="label">Type :</span><span class="line medium"></span></span>
+      <span class="field"><span class="label">Raison :</span><span class="line small"></span></span>
+    </div>
+    
+<table class="master"><tbody><tr><td>
+    <div class="section-title">Éclairage et signalisation</div>
+    <table class="tgrid">
+      <thead><tr>
+        <th class="so">S/O</th><th class="loc">Loc</th><th class="code">Code</th><th class="item">Élément</th>
+        <th class="c">C</th><th class="min">Min</th><th class="maj">Maj</th><th class="def">Déf</th>
+      </tr></thead>
+      <tbody><tr><td class="so"></td><td class="loc"></td><td class="code">2</td><td class="item">Phare de croisement</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">1</td><td class="item">Phare de route</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">3</td><td class="item">Feu de jour</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">9</td><td class="item">Feu de gabarit</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">7</td><td class="item">Feu changement de direction</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">27</td><td class="item">Feu clignotant alternatif rouge</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">10</td><td class="item">Feu d’identification</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">12</td><td class="item">Feu de détresse</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">11</td><td class="item">Feu de freinage</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">17</td><td class="item">Feu de l’allée centrale</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">18</td><td class="item">Feu de marche d’entrée</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">15</td><td class="item">Feu de plaque d’immatriculation</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">6</td><td class="item">Feu de position</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">14</td><td class="item">Feu de recul</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">13</td><td class="item">Feu rouge intermittent</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">26</td><td class="item">Feu jaune d’avertissement alternatif</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">8</td><td class="item">Réflecteur</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">22</td><td class="item">Lentille</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">24</td><td class="item">Batterie</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">21</td><td class="item">Câble électrique</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">23</td><td class="item">Couvercle du coffre à batterie</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">25</td><td class="item">Fiche/Raccord/Prise de courant</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">19</td><td class="item">Interrupteur</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">5</td><td class="item">Lampe témoin</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">16</td><td class="item">Lumière d’éclairage du tableau de bord</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">20</td><td class="item">Matériau réflechissant</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr></tbody>
+    </table>
+    </td><td>
+    <div class="section-title">Freins</div>
+    <table class="tgrid">
+      <thead><tr>
+        <th class="so">S/O</th><th class="loc">Loc</th><th class="code">Code</th><th class="item">Élément</th>
+        <th class="c">C</th><th class="min">Min</th><th class="maj">Maj</th><th class="def">Déf</th>
+      </tr></thead>
+      <tbody><tr><td class="so"></td><td class="loc"></td><td class="code">126</td><td class="item">Arbre à came/Rouleau</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">140</td><td class="item">Avertisseur sonore/visuel</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">158</td><td class="item">Câble (frein de stationnement)</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">118</td><td class="item">Canalisation</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">136</td><td class="item">Commandes de freins</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">128</td><td class="item">Compresseur</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">137</td><td class="item">Courroie</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">157</td><td class="item">Course de la tige de commande</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">121</td><td class="item">Cylindre de roue/Piston</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">124</td><td class="item">Disque</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">149</td><td class="item">Élément de fixation</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">122</td><td class="item">Étrier</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">119</td><td class="item">Filtre</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">133</td><td class="item">Frein de service</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">135</td><td class="item">Frein de stationnement</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">125</td><td class="item">Garniture</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">127</td><td class="item">Levier de frein</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">132</td><td class="item">Liquide de frein</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">116</td><td class="item">Maître-cylindre</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">138</td><td class="item">Manomètre</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">130</td><td class="item">Pédale de frein</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">139</td><td class="item">Pompe électrique (à dépression)</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">129</td><td class="item">Poulie du compresseur</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">143</td><td class="item">Raccord</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">141</td><td class="item">Récepteur de freinage</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">148</td><td class="item">Régulateur de pression</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">120</td><td class="item">Réservoir</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">147</td><td class="item">Robinet de purge</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">115</td><td class="item">Segment/Rivet/Boulon (garniture)</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">117</td><td class="item">Servofrein</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">144</td><td class="item">Soupape</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">145</td><td class="item">Système de freinage ABS</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">123</td><td class="item">Tambour</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr></tbody>
+    </table>
+    </td></tr></tbody></table>
+<table class="master"><tbody><tr><td>
+    <div class="section-title">Vitrage et rétroviseurs</div>
+    <table class="tgrid">
+      <thead><tr>
+        <th class="so">S/O</th><th class="loc">Loc</th><th class="code">Code</th><th class="item">Élément</th>
+        <th class="c">C</th><th class="min">Min</th><th class="maj">Maj</th><th class="def">Déf</th>
+      </tr></thead>
+      <tbody><tr><td class="so"></td><td class="loc"></td><td class="code">260</td><td class="item">Lunette arrière</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">256</td><td class="item">Pare-brise</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">255</td><td class="item">Pare-soleil extérieur</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">258</td><td class="item">Rétroviseur extérieur</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">257</td><td class="item">Rétroviseur intérieur</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">259</td><td class="item">Vitre latérale</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr></tbody>
+    </table>
+    </td><td>
+    <div class="section-title">Échappement</div>
+    <table class="tgrid">
+      <thead><tr>
+        <th class="so">S/O</th><th class="loc">Loc</th><th class="code">Code</th><th class="item">Élément</th>
+        <th class="c">C</th><th class="min">Min</th><th class="maj">Maj</th><th class="def">Déf</th>
+      </tr></thead>
+      <tbody><tr><td class="so"></td><td class="loc"></td><td class="code">313</td><td class="item">Catalyseur</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">307</td><td class="item">Collecteur/Raccord</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">308</td><td class="item">Élément de fixation</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">312</td><td class="item">Résonateur</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">310</td><td class="item">Silencieux</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">309</td><td class="item">Structure protectrice</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">306</td><td class="item">Système d’échappement</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">311</td><td class="item">Tuyau d’échappement</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr></tbody>
+    </table>
+    </td></tr></tbody></table>
+</div></div>
+
+
+
+</div>
+<div class="page">
+<div class="brandbar"><div class="brand-left">GROUPE BRETON</div><div class="brand-right">Fiche d’entretien – Page 2</div></div>
+<div class="content"><div class="wrap">
+
+    <div class="row">
+      <span class="field"><span class="label">Plaque :</span><span class="line medium"></span></span>
+      <span class="field"><span class="label">NIV :</span><span class="line wide"></span></span>
+    </div>
+    
+<table class="master"><tbody><tr><td>
+    <div class="section-title">Suspension</div>
+    <table class="tgrid">
+      <thead><tr>
+        <th class="so">S/O</th><th class="loc">Loc</th><th class="code">Code</th><th class="item">Élément</th>
+        <th class="c">C</th><th class="min">Min</th><th class="maj">Maj</th><th class="def">Déf</th>
+      </tr></thead>
+      <tbody><tr><td class="so"></td><td class="loc"></td><td class="code">77</td><td class="item">Amortisseur</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">86</td><td class="item">Ancrage</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">103</td><td class="item">Bague d’ancrage (coussinet)</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">87</td><td class="item">Balancier</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">88</td><td class="item">Ballon de suspension</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">78</td><td class="item">Barre de torsion</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">79</td><td class="item">Barre stabilisatrice</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">82</td><td class="item">Bielle de réaction</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">76</td><td class="item">Biellette de raccordement</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">80</td><td class="item">Bras de suspension</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">90</td><td class="item">Bride de fixation</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">96</td><td class="item">Butée de débattement</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">105</td><td class="item">Canalisation</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">91</td><td class="item">Chaise de balancier</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">85</td><td class="item">Coussin de caoutchouc</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">94</td><td class="item">Élément de fixation</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">81</td><td class="item">Essieu</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">102</td><td class="item">Étrier de lames</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">98</td><td class="item">Jambe de force (MacPherson)</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">92</td><td class="item">Jumelles</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">83</td><td class="item">Lame de ressort</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">104</td><td class="item">Lame en composite</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">93</td><td class="item">Lame maîtresse</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">106</td><td class="item">Raccord</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">75</td><td class="item">Ressort hélicoïdal</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">97</td><td class="item">Soupape de niveau</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">95</td><td class="item">Support de ressort à lames</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">74</td><td class="item">Suspension</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">84</td><td class="item">Suspension pneumatique</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr></tbody>
+    </table>
+    </td><td>
+    <div class="section-title">Direction</div>
+    <table class="tgrid">
+      <thead><tr>
+        <th class="so">S/O</th><th class="loc">Loc</th><th class="code">Code</th><th class="item">Élément</th>
+        <th class="c">C</th><th class="min">Min</th><th class="maj">Maj</th><th class="def">Déf</th>
+      </tr></thead>
+      <tbody><tr><td class="so"></td><td class="loc"></td><td class="code">32</td><td class="item">Amortisseur de direction</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">37</td><td class="item">Articulation/Joint à croisillon</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">45</td><td class="item">Barre d’accouplement</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">44</td><td class="item">Bielle d’accouplement</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">40</td><td class="item">Boîtier de direction</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">50</td><td class="item">Bras de renvoi</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">56</td><td class="item">Butée de direction</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">38</td><td class="item">Colonne de direction (ancrage)</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">55</td><td class="item">Conduit/Raccord</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">53</td><td class="item">Courroie de la pompe</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">57</td><td class="item">Crémaillère</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">54</td><td class="item">Cylindre auxiliaire</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">33</td><td class="item">Direction</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">34</td><td class="item">Élément de fixation</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">43</td><td class="item">Embout</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">39</td><td class="item">Joint coulissant</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">47</td><td class="item">Levier de commande</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">48</td><td class="item">Levier de direction</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">49</td><td class="item">Levier de fusée</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">51</td><td class="item">Manchon</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">52</td><td class="item">Pivot/Support de fusée</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">42</td><td class="item">Pompe de servodirection</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">46</td><td class="item">Rotule</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">41</td><td class="item">Servodirection</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">31</td><td class="item">Soufflet</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">35</td><td class="item">Volant</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">36</td><td class="item">Volant ajustable</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr></tbody>
+    </table>
+    </td></tr></tbody></table>
+<table class="master"><tbody><tr><td>
+    <div class="section-title">Pneus – Roues</div>
+    <table class="tgrid">
+      <thead><tr>
+        <th class="so">S/O</th><th class="loc">Loc</th><th class="code">Code</th><th class="item">Élément</th>
+        <th class="c">C</th><th class="min">Min</th><th class="maj">Maj</th><th class="def">Déf</th>
+      </tr></thead>
+      <tbody><tr><td class="so"></td><td class="loc"></td><td class="code">273</td><td class="item">Boulon/Goujon/Écrou</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">279</td><td class="item">Cerceau de fixation (roue multipièces)</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">270</td><td class="item">Chapeau de moyeu</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">280</td><td class="item">Entretoise</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">281</td><td class="item">Jante</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">277</td><td class="item">Pièces de fixation</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">275</td><td class="item">Pneu</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">272</td><td class="item">Roue</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">276</td><td class="item">Roue à rayon</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">274</td><td class="item">Roue de secours</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">271</td><td class="item">Roulement de roue</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">278</td><td class="item">Valve</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr></tbody>
+    </table>
+    </td><td>
+    <div class="section-title">Cadre / Dessous de caisse</div>
+    <table class="tgrid">
+      <thead><tr>
+        <th class="so">S/O</th><th class="loc">Loc</th><th class="code">Code</th><th class="item">Élément</th>
+        <th class="c">C</th><th class="min">Min</th><th class="maj">Maj</th><th class="def">Déf</th>
+      </tr></thead>
+      <tbody><tr><td class="so"></td><td class="loc"></td><td class="code">200</td><td class="item">Arbre de transmission</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">198</td><td class="item">Attache de carrosserie</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">203</td><td class="item">Élément de fixation</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">202</td><td class="item">Joint coulissant (arbre de transmission)</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">208</td><td class="item">Joint universel (arbre de transmission)</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">196</td><td class="item">Longeron</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">193</td><td class="item">Membrure</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">205</td><td class="item">Palier intermédiaire</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">207</td><td class="item">Protège-arbre de transmission</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">206</td><td class="item">Solive/Soliveau</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">199</td><td class="item">Support de moteur</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">204</td><td class="item">Support de transmission</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">197</td><td class="item">Traverse</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr></tbody>
+    </table>
+    </td></tr></tbody></table>
+</div></div>
+
+
+</div>
+<div class="page">
+<div class="brandbar"><div class="brand-left">GROUPE BRETON</div><div class="brand-right">Fiche d’entretien – Page 3</div></div>
+<div class="content"><div class="wrap">
+
+    <div class="row">
+      <span class="field"><span class="label">Plaque :</span><span class="line medium"></span></span>
+      <span class="field"><span class="label">NIV :</span><span class="line wide"></span></span>
+    </div>
+    
+<table class="master"><tbody><tr><td>
+    <div class="section-title">Dispositif d’attelage</div>
+    <table class="tgrid">
+      <thead><tr>
+        <th class="so">S/O</th><th class="loc">Loc</th><th class="code">Code</th><th class="item">Élément</th>
+        <th class="c">C</th><th class="min">Min</th><th class="maj">Maj</th><th class="def">Déf</th>
+      </tr></thead>
+      <tbody><tr><td class="so"></td><td class="loc"></td><td class="code">178</td><td class="item">Boule d’accouplement</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">186</td><td class="item">Compensateur de jeu</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">180</td><td class="item">Crochet d’attelage</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">170</td><td class="item">Dispositif d’attelage</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">171</td><td class="item">Élément de fixation</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr></tbody>
+    </table>
+    </td><td>
+    <div class="section-title">Alimentation en carburant</div>
+    <table class="tgrid">
+      <thead><tr>
+        <th class="so">S/O</th><th class="loc">Loc</th><th class="code">Code</th><th class="item">Élément</th>
+        <th class="c">C</th><th class="min">Min</th><th class="maj">Maj</th><th class="def">Déf</th>
+      </tr></thead>
+      <tbody><tr><td class="so"></td><td class="loc"></td><td class="code">293</td><td class="item">Bouchon du réservoir</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">291</td><td class="item">Canalisation</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">299</td><td class="item">Commande de l’accélérateur</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">290</td><td class="item">Dispositif d’arrêt (moteur)</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">294</td><td class="item">Élément de fixation</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">296</td><td class="item">Jauge</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">298</td><td class="item">Raccord</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">292</td><td class="item">Réservoir à carburant</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">295</td><td class="item">Système d’alimentation</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">297</td><td class="item">Vignette (GNC/GPL)</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr></tbody>
+    </table>
+    </td></tr></tbody></table>
+<table class="master"><tbody><tr><td>
+    <div class="section-title">Carrosserie</div>
+    <table class="tgrid">
+      <thead><tr>
+        <th class="so">S/O</th><th class="loc">Loc</th><th class="code">Code</th><th class="item">Élément</th>
+        <th class="c">C</th><th class="min">Min</th><th class="maj">Maj</th><th class="def">Déf</th>
+      </tr></thead>
+      <tbody><tr><td class="so"></td><td class="loc"></td><td class="code">239</td><td class="item">Aile</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">334</td><td class="item">Appui-tête</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">250</td><td class="item">Attache de pare-chocs</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">333</td><td class="item">Banquette/Siège</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">241</td><td class="item">Cabine/Habitacle</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">237</td><td class="item">Capot</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">236</td><td class="item">Carrosserie</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">324</td><td class="item">Ceinture de sécurité</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">247</td><td class="item">Charnière</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">335</td><td class="item">Coussin/Sac gonflable</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">243</td><td class="item">Dispositif d’immobilisation</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">248</td><td class="item">Dispositif de verrouillage/de retenue</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">371</td><td class="item">Élément de sécurité</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">251</td><td class="item">Garde-boue</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">368</td><td class="item">Joint d’étanchéité</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">356</td><td class="item">Marche d’entrée</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">249</td><td class="item">Marchepied</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">240</td><td class="item">Pare-chocs</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">246</td><td class="item">Plancher (espace de chargement)</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">245</td><td class="item">Plancher (habitacle)</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">242</td><td class="item">Plateforme élévatrice</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">366</td><td class="item">Porte-bagages</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">361</td><td class="item">Porte de sortie</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">235</td><td class="item">Porte/Couvercle</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">238</td><td class="item">Portière</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">244</td><td class="item">Rampe d’accès</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">358</td><td class="item">Recouvrement plancher</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">359</td><td class="item">Rembourrage protecteur</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">365</td><td class="item">Signal d’alarme (sonore ou lumineux)</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">370</td><td class="item">Signalisation (sortie de secours)</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">362</td><td class="item">Sortie de secours</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">364</td><td class="item">Système de protection (porte)</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr></tbody>
+    </table>
+    </td><td>
+    <div class="section-title">Accessoires</div>
+    <table class="tgrid">
+      <thead><tr>
+        <th class="so">S/O</th><th class="loc">Loc</th><th class="code">Code</th><th class="item">Élément</th>
+        <th class="c">C</th><th class="min">Min</th><th class="maj">Maj</th><th class="def">Déf</th>
+      </tr></thead>
+      <tbody><tr><td class="so"></td><td class="loc"></td><td class="code">319</td><td class="item">Balai d’essuie-glace</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">318</td><td class="item">Bras d’éloignement</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">329</td><td class="item">Commande d’embrayage</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">323</td><td class="item">Dégivrage/Chauffage</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">331</td><td class="item">Essuie-glace</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">339</td><td class="item">Extincteur chimique</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">336</td><td class="item">Indicateur à cadran/lumineux</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">326</td><td class="item">Indicateur de vitesse</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">321</td><td class="item">Klaxon</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">332</td><td class="item">Lave-glace</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">330</td><td class="item">neutralisation du démarreur</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">325</td><td class="item">Odomètre (totalisateur)</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">337</td><td class="item">Panneau d’arrêt escamotable</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">327</td><td class="item">Pare-soleil intérieur</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr><tr><td class="so"></td><td class="loc"></td><td class="code">338</td><td class="item">Trousse de premiers soins</td><td class="c"></td><td class="min"></td><td class="maj"></td><td class="def"></td></tr></tbody>
+    </table>
+    </td></tr></tbody></table>
+<div class="section-title">Commentaires &amp; Prise de mesures</div>
+
+<div class="panel">
+  <div class="panel-grid">
+    <div class="notes">
+      <div class="notes-title">Commentaires</div>
+      <div class="notes-box"><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div></div>
+    </div>
+    <div class="measure">
+      <div class="measure-title">Prise de mesures</div>
+      <div class="meas-grid">
+        <div class="side">
+          <div class="hdr"><div>PNEU (/32)</div><div>FREIN (MM)</div><div>PNEU (/32)</div></div>
+          <div class="rows">
+            <div class="trip"><div class="line-meas"><span data-measure="T_AVG"></span></div><div class="line-meas"><span data-measure="B_AVG"></span></div></div>
+            <div class="trip"><div class="line-meas"><span data-measure="T_ARG"></span></div><div class="line-meas"><span data-measure="B_ARG"></span></div><div class="line-meas"><span data-measure="T_ARIG"></span></div></div>
+          </div>
+        </div>
+        <div class="center">
+          <svg viewBox="0 0 240 220" xmlns="http://www.w3.org/2000/svg" aria-label="Schéma autobus">
+            <rect x="0" y="0" width="240" height="220" fill="#ffffff"></rect>
+            <rect x="75" y="45" width="90" height="130" rx="9" fill="none" stroke="#1f3a5f" stroke-width="2"></rect>
+            <rect x="42" y="62" width="16" height="36" rx="4" fill="#f2f4f8" stroke="#1f3a5f"></rect>
+            <rect x="186" y="62" width="16" height="36" rx="4" fill="#f2f4f8" stroke="#1f3a5f"></rect>
+            
+            <line x1="120" y1="45" x2="120" y2="31" stroke="#3f5f8c" stroke-width="2"></line>
+            <rect x="32" y="144" width="12" height="34" rx="3" fill="#f2f4f8" stroke="#1f3a5f"></rect>
+            <rect x="48" y="144" width="12" height="34" rx="3" fill="#f2f4f8" stroke="#1f3a5f"></rect>
+            <rect x="180" y="144" width="12" height="34" rx="3" fill="#f2f4f8" stroke="#1f3a5f"></rect>
+            <rect x="196" y="144" width="12" height="34" rx="3" fill="#f2f4f8" stroke="#1f3a5f"></rect>
+          
+  <text x="85" y="80" text-anchor="middle" font-size="11" fill="#111" font-weight="600">20</text>
+  <text x="155" y="80" text-anchor="middle" font-size="11" fill="#111" font-weight="600">30</text>
+  <text x="85" y="161" text-anchor="middle" font-size="11" fill="#111" font-weight="600">22</text>
+  <text x="155" y="161" text-anchor="middle" font-size="11" fill="#111" font-weight="600">32</text>
+<text x="120" y="25" text-anchor="middle" font-size="11" fill="#111" font-weight="600">1</text>
+</svg>
+        </div>
+        <div class="side">
+          <div class="hdr"><div>PNEU (/32)</div><div>FREIN (MM)</div><div>PNEU (32)</div></div>
+          <div class="rows">
+            <div class="trip"><div class="-meas"></div><div class="line-meas"><span data-measure="B_AVD"></span></div><div class="line-meas"><span data-measure="T_AVD"></span></div></div>
+            <div class="trip"><div class="line-meas"><span data-measure="T_ARID"></span></div><div class="line-meas"><span data-measure="B_ARD"></span></div><div class="line-meas"><span data-measure="T_ARD"></span></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div></div>
+
+
+
+</div></body></html>
