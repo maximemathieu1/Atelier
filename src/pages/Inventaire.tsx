@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
+import { useBarcodeLabels } from "../hooks/useBarcodeLabels";
 
 type InventaireItem = {
   id: string;
@@ -162,6 +163,8 @@ function isMissingRelation(error: unknown) {
 }
 
 export default function Inventaire() {
+  const { openPrintBarcode } = useBarcodeLabels();
+
   const [items, setItems] = useState<InventaireItem[]>([]);
   const [categoriesOptions, setCategoriesOptions] = useState<PieceCategorieRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -194,8 +197,6 @@ export default function Inventaire() {
   const [supersedLoading, setSupersedLoading] = useState(false);
 
   const [menuOpen, setMenuOpen] = useState<MenuState | null>(null);
-
-
 
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -458,14 +459,13 @@ export default function Inventaire() {
   }, [items]);
 
   const totalRows = filteredSortedItems.length;
-const currentPage = page;
+  const currentPage = page;
+  const fromRow = totalRows === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+  const toRow = Math.min(currentPage * pageSize, totalRows);
 
-const fromRow = totalRows === 0 ? 0 : (currentPage - 1) * pageSize + 1;
-const toRow = Math.min(currentPage * pageSize, totalRows);
-
-function setCurrentPage(next: number) {
-  setPage(next);
-}
+  function setCurrentPage(next: number) {
+    setPage(next);
+  }
 
   function closeForm() {
     if (saving) return;
@@ -667,68 +667,63 @@ function setCurrentPage(next: number) {
         </div>
 
         <div style={headerActions}>
-          <div style={lowStockPill}>
-            <span style={lowStockDot} />
-            <span>Stock bas : {stats.lowStock}</span>
-          </div>
-
           <button type="button" onClick={openCreate} style={btnPrimary}>
             + Nouvelle pièce
           </button>
         </div>
       </div>
 
-      <div style={toolbar}>
+      <div style={toolbarCard}>
         <input
-  ref={searchInputRef}
-  value={search}
-  onChange={(e) => setSearch(e.target.value)}
-  onKeyDown={handleSearchKeyDown}
-  placeholder="Scanner ou rechercher par SKU, nom, catégorie, unité, emplacement..."
-  style={{ ...input, minWidth: 280, flex: "1 1 420px" }}
-  autoComplete="off"
-  spellCheck={false}
-/>
+          ref={searchInputRef}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          onKeyDown={handleSearchKeyDown}
+          placeholder="Scanner ou rechercher par SKU, nom, catégorie, unité, emplacement..."
+          style={inventorySearchInput}
+          autoComplete="off"
+          spellCheck={false}
+        />
 
-<select
-  value={statusFilter}
-  onChange={(e) => setStatusFilter(e.target.value as "actifs" | "inactifs" | "tous")}
-  style={{ ...input, width: 220, flex: "0 0 220px" }}
->
-  <option value="actifs">Actifs seulement</option>
-  <option value="inactifs">Inactifs seulement</option>
-  <option value="tous">Tous</option>
-</select>
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value as "actifs" | "inactifs" | "tous")}
+          style={inventorySelect}
+        >
+          <option value="actifs">Actifs seulement</option>
+          <option value="inactifs">Inactifs seulement</option>
+          <option value="tous">Tous</option>
+        </select>
 
-<label style={checkboxWrap}>
-  <input
-    type="checkbox"
-    checked={showLowStockOnly}
-    onChange={(e) => setShowLowStockOnly(e.target.checked)}
-  />
-  <span>Stock bas seulement</span>
-</label>
+        <select
+          value={pageSize}
+          onChange={(e) => setPageSize(Number(e.target.value))}
+          style={inventorySelect}
+        >
+          <option value={10}>10 / page</option>
+          <option value={25}>25 / page</option>
+          <option value={50}>50 / page</option>
+          <option value={100}>100 / page</option>
+        </select>
 
-<select
-  value={pageSize}
-  onChange={(e) => setPageSize(Number(e.target.value))}
-  style={{ ...input, width: 140, flex: "0 0 140px" }}
->
-  <option value={10}>10 / page</option>
-  <option value={25}>25 / page</option>
-  <option value={50}>50 / page</option>
-  <option value={100}>100 / page</option>
-</select>
-      </div>
+        <div style={toolbarRight}>
+          <label style={inventoryCheckboxWrap}>
+            <input
+              type="checkbox"
+              checked={showLowStockOnly}
+              onChange={(e) => setShowLowStockOnly(e.target.checked)}
+            />
+            <span>Stock bas seulement</span>
+            <span style={lowStockInlineCount}>{stats.lowStock}</span>
+          </label>
 
-      <div style={scanHintBox}>
-        Lecteur code-barres compatible clavier : clique dans la recherche, scanne le SKU, puis
-        appuie sur Entrée. Si une seule pièce correspond, elle s’ouvre automatiquement.
+          <div style={resultsText}>
+            {filteredSortedItems.length} résultat{filteredSortedItems.length > 1 ? "s" : ""}
+          </div>
+        </div>
       </div>
 
       <div style={panel}>
-        <div style={panelTitle}>Liste des pièces</div>
-
         {loading ? (
           <div style={emptyBox}>Chargement...</div>
         ) : filteredSortedItems.length === 0 ? (
@@ -781,27 +776,34 @@ function setCurrentPage(next: number) {
                     <th style={thActions}>Actions</th>
                   </tr>
                 </thead>
+
                 <tbody>
-                  {paginatedItems.map((item) => {
-                    const isLow = Number(item.quantite ?? 0) <= Number(item.seuil_alerte ?? 0);
+                  {paginatedItems.map((item, index) => {
+                    const isLow =
+                      Number(item.quantite ?? 0) <= Number(item.seuil_alerte ?? 0);
+
+                    const rowBg = index % 2 === 0 ? "#ffffff" : "#f8fafc";
+                    const bg = isLow ? "#fff8e1" : rowBg;
 
                     return (
-                      <tr key={item.id} style={isLow ? rowLowStock : undefined}>
-                        <td style={td}>{item.sku || "—"}</td>
-                        <td style={tdStrong}>{item.nom}</td>
-                        <td style={td}>{item.categorie || "—"}</td>
-                        <td style={tdRight}>{fmtQty(item.quantite)}</td>
-                        <td style={td}>{item.unite || "—"}</td>
-                        <td style={tdRight}>{fmtMoney(item.cout_unitaire)}</td>
-                        <td style={tdRight}>{fmtQty(item.seuil_alerte)}</td>
-                        <td style={td}>{item.emplacement || "—"}</td>
-                        <td style={td}>
+                      <tr key={item.id} style={{ background: bg }}>
+                        <td style={{ ...td, background: bg }}>{item.sku || "—"}</td>
+                        <td style={{ ...td, background: bg }}>{item.nom}</td>
+                        <td style={{ ...td, background: bg }}>{item.categorie || "—"}</td>
+                        <td style={{ ...tdRight, background: bg }}>{fmtQty(item.quantite)}</td>
+                        <td style={{ ...td, background: bg }}>{item.unite || "—"}</td>
+                        <td style={{ ...tdRight, background: bg }}>{fmtMoney(item.cout_unitaire)}</td>
+                        <td style={{ ...tdRight, background: bg }}>{fmtQty(item.seuil_alerte)}</td>
+                        <td style={{ ...td, background: bg }}>{item.emplacement || "—"}</td>
+
+                        <td style={{ ...td, background: bg }}>
                           <span style={item.actif ? badgeActive : badgeInactive}>
                             {item.actif ? "Actif" : "Inactif"}
                           </span>
                           {isLow && <span style={badgeLow}>Stock bas</span>}
                         </td>
-                        <td style={td}>
+
+                        <td style={{ ...td, background: bg }}>
                           <div style={actionMenuWrap}>
                             <button
                               type="button"
@@ -818,72 +820,58 @@ function setCurrentPage(next: number) {
                     );
                   })}
                 </tbody>
-             </table>
+              </table>
             </div>
 
-            <div
-  style={{
-    display: "flex",
-    gap: 8,
-    alignItems: "center",
-    justifyContent: "space-between",
-    flexWrap: "wrap",
-    marginTop: 14,
-    paddingTop: 12,
-    borderTop: "1px solid rgba(0,0,0,.08)",
-  }}
->
-  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-    <span style={{ color: "rgba(0,0,0,.6)" }}>
-      Affichage {fromRow} à {toRow} sur {totalRows}
-    </span>
-  </div>
+            <div style={pagerWrap}>
+              <div style={pagerLeft}>
+                <span style={resultsText}>
+                  Affichage {fromRow} à {toRow} sur {totalRows}
+                </span>
+              </div>
 
-  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-    <button
-      type="button"
-      style={currentPage <= 1 ? btnPagerInactive : btnPagerGhost}
-      disabled={currentPage <= 1}
-      onClick={() => setCurrentPage(1)}
-    >
-      « Première
-    </button>
+              <div style={pagerRight}>
+                <button
+                  type="button"
+                  style={currentPage <= 1 ? btnPagerInactive : btnPagerGhost}
+                  disabled={currentPage <= 1}
+                  onClick={() => setCurrentPage(1)}
+                >
+                  « Première
+                </button>
 
-    <button
-      type="button"
-      style={currentPage <= 1 ? btnPagerInactive : btnPagerGhost}
-      disabled={currentPage <= 1}
-      onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-    >
-      ‹ Précédente
-    </button>
+                <button
+                  type="button"
+                  style={currentPage <= 1 ? btnPagerInactive : btnPagerGhost}
+                  disabled={currentPage <= 1}
+                  onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                >
+                  ‹ Précédente
+                </button>
 
-    <button
-      type="button"
-      style={btnPagerActive}
-    >
-      Page {currentPage} / {totalPages}
-    </button>
+                <button type="button" style={btnPagerActive}>
+                  Page {currentPage} / {totalPages}
+                </button>
 
-    <button
-      type="button"
-      style={currentPage >= totalPages ? btnPagerInactive : btnPagerGhost}
-      disabled={currentPage >= totalPages}
-      onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
-    >
-      Suivante ›
-    </button>
+                <button
+                  type="button"
+                  style={currentPage >= totalPages ? btnPagerInactive : btnPagerGhost}
+                  disabled={currentPage >= totalPages}
+                  onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                >
+                  Suivante ›
+                </button>
 
-    <button
-      type="button"
-      style={currentPage >= totalPages ? btnPagerInactive : btnPagerGhost}
-      disabled={currentPage >= totalPages}
-      onClick={() => setCurrentPage(totalPages)}
-    >
-      Dernière »
-    </button>
-  </div>
-</div>
+                <button
+                  type="button"
+                  style={currentPage >= totalPages ? btnPagerInactive : btnPagerGhost}
+                  disabled={currentPage >= totalPages}
+                  onClick={() => setCurrentPage(totalPages)}
+                >
+                  Dernière »
+                </button>
+              </div>
+            </div>
           </>
         )}
       </div>
@@ -912,6 +900,17 @@ function setCurrentPage(next: number) {
               }}
             >
               Modifier
+            </button>
+
+            <button
+              type="button"
+              style={dropdownItem}
+              onClick={() => {
+                openPrintBarcode(menuItem);
+                setMenuOpen(null);
+              }}
+            >
+              Code-barres
             </button>
 
             <button
@@ -1043,15 +1042,18 @@ function setCurrentPage(next: number) {
                           </tr>
                         </thead>
                         <tbody>
-                          {history.map((h) => (
-                            <tr key={h.id}>
-                              <td style={td}>{fmtDateTime(h.date_effective)}</td>
-                              <td style={tdRight}>{fmtMoney(h.cout_unitaire)}</td>
-                              <td style={td}>{h.fournisseur || "—"}</td>
-                              <td style={td}>{h.numero_facture || "—"}</td>
-                              <td style={td}>{h.note || "—"}</td>
-                            </tr>
-                          ))}
+                          {history.map((h, index) => {
+                            const rowBg = index % 2 === 0 ? "#ffffff" : "#f8fafc";
+                            return (
+                              <tr key={h.id} style={{ background: rowBg }}>
+                                <td style={{ ...td, background: rowBg }}>{fmtDateTime(h.date_effective)}</td>
+                                <td style={{ ...tdRight, background: rowBg }}>{fmtMoney(h.cout_unitaire)}</td>
+                                <td style={{ ...td, background: rowBg }}>{h.fournisseur || "—"}</td>
+                                <td style={{ ...td, background: rowBg }}>{h.numero_facture || "—"}</td>
+                                <td style={{ ...td, background: rowBg }}>{h.note || "—"}</td>
+                              </tr>
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
@@ -1079,14 +1081,17 @@ function setCurrentPage(next: number) {
                           </tr>
                         </thead>
                         <tbody>
-                          {installHistory.map((row) => (
-                            <tr key={row.id}>
-                              <td style={td}>{fmtDateTime(row.installed_at)}</td>
-                              <td style={td}>{row.unite || "—"}</td>
-                              <td style={td}>{row.bt_numero || "—"}</td>
-                              <td style={tdRight}>{fmtQty(row.quantite)}</td>
-                            </tr>
-                          ))}
+                          {installHistory.map((row, index) => {
+                            const rowBg = index % 2 === 0 ? "#ffffff" : "#f8fafc";
+                            return (
+                              <tr key={row.id} style={{ background: rowBg }}>
+                                <td style={{ ...td, background: rowBg }}>{fmtDateTime(row.installed_at)}</td>
+                                <td style={{ ...td, background: rowBg }}>{row.unite || "—"}</td>
+                                <td style={{ ...td, background: rowBg }}>{row.bt_numero || "—"}</td>
+                                <td style={{ ...tdRight, background: rowBg }}>{fmtQty(row.quantite)}</td>
+                              </tr>
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
@@ -1117,19 +1122,22 @@ function setCurrentPage(next: number) {
                           </tr>
                         </thead>
                         <tbody>
-                          {supersedRows.map((row) => (
-                            <tr key={row.id}>
-                              <td style={td}>{row.sku_remplacement || "—"}</td>
-                              <td style={td}>{row.nom_remplacement || "—"}</td>
-                              <td style={td}>
-                                <span style={row.actif ? badgeActive : badgeInactive}>
-                                  {row.actif ? "Actif" : "Inactif"}
-                                </span>
-                              </td>
-                              <td style={td}>{row.note || "—"}</td>
-                              <td style={td}>{fmtDateTime(row.created_at)}</td>
-                            </tr>
-                          ))}
+                          {supersedRows.map((row, index) => {
+                            const rowBg = index % 2 === 0 ? "#ffffff" : "#f8fafc";
+                            return (
+                              <tr key={row.id} style={{ background: rowBg }}>
+                                <td style={{ ...td, background: rowBg }}>{row.sku_remplacement || "—"}</td>
+                                <td style={{ ...td, background: rowBg }}>{row.nom_remplacement || "—"}</td>
+                                <td style={{ ...td, background: rowBg }}>
+                                  <span style={row.actif ? badgeActive : badgeInactive}>
+                                    {row.actif ? "Actif" : "Inactif"}
+                                  </span>
+                                </td>
+                                <td style={{ ...td, background: rowBg }}>{row.note || "—"}</td>
+                                <td style={{ ...td, background: rowBg }}>{fmtDateTime(row.created_at)}</td>
+                              </tr>
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
@@ -1164,7 +1172,7 @@ function setCurrentPage(next: number) {
                 <div>
                   <label style={label}>SKU</label>
                   <input
-                    style={input}
+                    style={inputClassic}
                     value={form.sku}
                     onChange={(e) => setForm((p) => ({ ...p, sku: e.target.value }))}
                     autoComplete="off"
@@ -1176,7 +1184,7 @@ function setCurrentPage(next: number) {
                 <div>
                   <label style={label}>Nom *</label>
                   <input
-                    style={input}
+                    style={inputClassic}
                     value={form.nom}
                     onChange={(e) => setForm((p) => ({ ...p, nom: e.target.value }))}
                     required
@@ -1186,7 +1194,7 @@ function setCurrentPage(next: number) {
                 <div>
                   <label style={label}>Catégorie</label>
                   <select
-                    style={input}
+                    style={inputClassic}
                     value={form.categorie}
                     onChange={(e) => setForm((p) => ({ ...p, categorie: e.target.value }))}
                   >
@@ -1202,7 +1210,7 @@ function setCurrentPage(next: number) {
                 <div>
                   <label style={label}>Unité</label>
                   <input
-                    style={input}
+                    style={inputClassic}
                     value={form.unite}
                     onChange={(e) => setForm((p) => ({ ...p, unite: e.target.value }))}
                     placeholder="Ex.: UN, L, FT, Boîte..."
@@ -1212,7 +1220,7 @@ function setCurrentPage(next: number) {
                 <div>
                   <label style={label}>Quantité en stock</label>
                   <input
-                    style={input}
+                    style={inputClassic}
                     value={form.quantite}
                     onChange={(e) => setForm((p) => ({ ...p, quantite: e.target.value }))}
                     inputMode="decimal"
@@ -1222,7 +1230,7 @@ function setCurrentPage(next: number) {
                 <div>
                   <label style={label}>Coût unitaire</label>
                   <input
-                    style={input}
+                    style={inputClassic}
                     value={form.cout_unitaire}
                     onChange={(e) => setForm((p) => ({ ...p, cout_unitaire: e.target.value }))}
                     inputMode="decimal"
@@ -1232,7 +1240,7 @@ function setCurrentPage(next: number) {
                 <div>
                   <label style={label}>Seuil alerte</label>
                   <input
-                    style={input}
+                    style={inputClassic}
                     value={form.seuil_alerte}
                     onChange={(e) => setForm((p) => ({ ...p, seuil_alerte: e.target.value }))}
                     inputMode="decimal"
@@ -1242,7 +1250,7 @@ function setCurrentPage(next: number) {
                 <div>
                   <label style={label}>Emplacement</label>
                   <input
-                    style={input}
+                    style={inputClassic}
                     value={form.emplacement}
                     onChange={(e) => setForm((p) => ({ ...p, emplacement: e.target.value }))}
                   />
@@ -1251,7 +1259,7 @@ function setCurrentPage(next: number) {
                 <div style={{ gridColumn: "1 / -1" }}>
                   <label style={label}>Note</label>
                   <textarea
-                    style={{ ...input, minHeight: 90, resize: "vertical" }}
+                    style={{ ...inputClassic, minHeight: 90, resize: "vertical" }}
                     value={form.note}
                     onChange={(e) => setForm((p) => ({ ...p, note: e.target.value }))}
                   />
@@ -1293,6 +1301,8 @@ const pageWrap: React.CSSProperties = {
   padding: 20,
   display: "grid",
   gap: 14,
+  background: "#f5f7fb",
+  minHeight: "100%",
 };
 
 const headerRow: React.CSSProperties = {
@@ -1313,68 +1323,100 @@ const headerActions: React.CSSProperties = {
 const title: React.CSSProperties = {
   margin: 0,
   fontSize: 30,
-  fontWeight: 800,
+  fontWeight: 950,
+  color: "#0f172a",
+  letterSpacing: "-0.02em",
 };
 
 const subtitle: React.CSSProperties = {
-  opacity: 0.75,
+  color: "#64748b",
   marginTop: 4,
-};
-
-const lowStockPill: React.CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  gap: 8,
-  border: "1px solid #fcd34d",
-  background: "#fffbeb",
-  color: "#92400e",
-  borderRadius: 999,
-  padding: "10px 14px",
   fontSize: 14,
-  fontWeight: 800,
-};
-
-const lowStockDot: React.CSSProperties = {
-  width: 10,
-  height: 10,
-  borderRadius: "50%",
-  background: "#f59e0b",
-  display: "inline-block",
-};
-
-const toolbar: React.CSSProperties = {
-  display: "flex",
-  gap: 10,
-  flexWrap: "wrap",
-  alignItems: "center",
-};
-
-const scanHintBox: React.CSSProperties = {
-  border: "1px solid #dbeafe",
-  background: "#eff6ff",
-  color: "#1d4ed8",
-  borderRadius: 12,
-  padding: "10px 12px",
-  fontSize: 13,
   fontWeight: 600,
 };
 
-const panel: React.CSSProperties = {
-  border: "1px solid #e5e7eb",
-  borderRadius: 16,
+const toolbarCard: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 12,
+  flexWrap: "wrap",
   background: "#fff",
+  border: "1px solid #e2e8f0",
+  borderRadius: 18,
   padding: 14,
-  overflow: "visible",
+  marginBottom: 14,
+  boxShadow: "0 10px 24px rgba(15,23,42,.04)",
 };
 
-const panelTitle: React.CSSProperties = {
-  fontWeight: 800,
-  fontSize: 18,
-  marginBottom: 12,
+const toolbarRight: React.CSSProperties = {
+  marginLeft: "auto",
+  display: "flex",
+  alignItems: "center",
+  gap: 10,
+  flexWrap: "wrap",
+};
+
+const inventorySearchInput: React.CSSProperties = {
+  height: 44,
+  borderRadius: 14,
+  border: "1px solid #d6dbe7",
+  background: "#fff",
+  padding: "0 14px",
+  fontSize: 14,
+  color: "#0f172a",
+  outline: "none",
+  minWidth: 280,
+  flex: 1,
+  boxSizing: "border-box",
+};
+
+const inventorySelect: React.CSSProperties = {
+  height: 44,
+  borderRadius: 14,
+  border: "1px solid #d6dbe7",
+  background: "#fff",
+  padding: "0 12px",
+  fontSize: 14,
+  color: "#0f172a",
+  outline: "none",
+  minWidth: 160,
+  boxSizing: "border-box",
+};
+
+const inventoryCheckboxWrap: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 8,
+  fontWeight: 600,
+  color: "#0f172a",
+  whiteSpace: "nowrap",
+};
+
+const lowStockInlineCount: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  minWidth: 24,
+  height: 24,
+  padding: "0 8px",
+  borderRadius: 999,
+  background: "#eef2f7",
+  color: "#475569",
+  fontSize: 12,
+  fontWeight: 900,
+};
+
+const panel: React.CSSProperties = {
+  border: "1px solid #e2e8f0",
+  borderRadius: 18,
+  background: "#fff",
+  overflow: "hidden",
+  boxShadow: "0 10px 24px rgba(15,23,42,.04)",
 };
 
 const emptyBox: React.CSSProperties = {
   padding: 18,
+  margin: 14,
   border: "1px dashed #d1d5db",
   borderRadius: 12,
   color: "#6b7280",
@@ -1383,17 +1425,19 @@ const emptyBox: React.CSSProperties = {
 
 const table: React.CSSProperties = {
   width: "100%",
-  borderCollapse: "collapse",
+  borderCollapse: "separate",
+  borderSpacing: 0,
   fontSize: 14,
 };
 
 const th: React.CSSProperties = {
   textAlign: "left",
-  padding: "10px 8px",
-  borderBottom: "1px solid #e5e7eb",
+  padding: "14px 12px",
+  borderBottom: "1px solid #e2e8f0",
   whiteSpace: "nowrap",
-  fontWeight: 700,
-  background: "#fafafa",
+  fontWeight: 900,
+  background: "#f8fafc",
+  color: "#0f172a",
 };
 
 const thRight: React.CSSProperties = {
@@ -1422,24 +1466,17 @@ const sortHeadInnerRight: React.CSSProperties = {
 };
 
 const td: React.CSSProperties = {
-  padding: "10px 8px",
-  borderBottom: "1px solid #f0f0f0",
+  padding: "14px 12px",
+  borderBottom: "1px solid #eef2f7",
   verticalAlign: "top",
-};
-
-const tdStrong: React.CSSProperties = {
-  ...td,
-  fontWeight: 700,
+  fontWeight: 400,
+  color: "#0f172a",
 };
 
 const tdRight: React.CSSProperties = {
   ...td,
   textAlign: "right",
   whiteSpace: "nowrap",
-};
-
-const rowLowStock: React.CSSProperties = {
-  background: "#fff8e1",
 };
 
 const badgeBase: React.CSSProperties = {
@@ -1555,7 +1592,7 @@ const label: React.CSSProperties = {
   fontSize: 14,
 };
 
-const input: React.CSSProperties = {
+const inputClassic: React.CSSProperties = {
   width: "100%",
   border: "1px solid #d1d5db",
   borderRadius: 10,
@@ -1570,12 +1607,13 @@ const checkboxWrap: React.CSSProperties = {
   alignItems: "center",
   gap: 8,
   fontWeight: 600,
+  color: "#0f172a",
 };
 
 const btnBase: React.CSSProperties = {
-  borderRadius: 10,
-  padding: "10px 14px",
-  fontWeight: 700,
+  borderRadius: 14,
+  padding: "10px 16px",
+  fontWeight: 800,
   cursor: "pointer",
   border: "1px solid transparent",
 };
@@ -1592,6 +1630,36 @@ const btnDanger: React.CSSProperties = {
   color: "#fff",
 };
 
+const resultsText: React.CSSProperties = {
+  color: "#64748b",
+  fontSize: 13,
+  fontWeight: 700,
+};
+
+const pagerWrap: React.CSSProperties = {
+  display: "flex",
+  gap: 8,
+  alignItems: "center",
+  justifyContent: "space-between",
+  flexWrap: "wrap",
+  marginTop: 0,
+  padding: 16,
+  borderTop: "1px solid #e2e8f0",
+  background: "#fff",
+};
+
+const pagerLeft: React.CSSProperties = {
+  display: "flex",
+  gap: 8,
+  alignItems: "center",
+};
+
+const pagerRight: React.CSSProperties = {
+  display: "flex",
+  gap: 8,
+  alignItems: "center",
+  flexWrap: "wrap",
+};
 
 const btnPagerGhost: React.CSSProperties = {
   borderRadius: 10,

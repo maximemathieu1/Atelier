@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
-import { getEmployeConnecte, type EmployeConnecte } from "../lib/getEmployeConnecte";
 
 type EmployeRow = {
   id: string;
@@ -12,11 +11,6 @@ type EmployeRow = {
   created_at?: string;
 };
 
-type AuthUser = {
-  id: string;
-  email: string | null;
-};
-
 const roles = [
   { value: "mecano", label: "Mécano" },
   { value: "admin", label: "Admin" },
@@ -24,357 +18,26 @@ const roles = [
   { value: "gestion", label: "Gestion" },
 ];
 
-const pageStyle: React.CSSProperties = {
-  padding: 16,
+type SortKey = "nom_complet" | "email" | "numero_mecano" | "role" | "actif";
+type SortDir = "asc" | "desc";
+
+type MenuState = {
+  id: string;
+  x: number;
+  y: number;
 };
-
-const cardStyle: React.CSSProperties = {
-  background: "#fff",
-  border: "1px solid #e5e7eb",
-  borderRadius: 12,
-  padding: 16,
-  marginBottom: 16,
-};
-
-const titleStyle: React.CSSProperties = {
-  fontSize: 24,
-  fontWeight: 700,
-  marginBottom: 16,
-};
-
-const inputStyle: React.CSSProperties = {
-  width: "100%",
-  padding: "10px 12px",
-  borderRadius: 8,
-  border: "1px solid #d1d5db",
-  fontSize: 14,
-  boxSizing: "border-box",
-  background: "#fff",
-};
-
-const selectStyle: React.CSSProperties = {
-  ...inputStyle,
-};
-
-const btnBlueStyle: React.CSSProperties = {
-  padding: "10px 14px",
-  borderRadius: 8,
-  border: "1px solid #2563eb",
-  background: "#2563eb",
-  color: "#fff",
-  cursor: "pointer",
-  fontWeight: 600,
-};
-
-const btnGhostStyle: React.CSSProperties = {
-  padding: "10px 14px",
-  borderRadius: 8,
-  border: "1px solid #d1d5db",
-  background: "#fff",
-  color: "#111827",
-  cursor: "pointer",
-  fontWeight: 600,
-};
-
-const btnDangerTextStyle: React.CSSProperties = {
-  width: "100%",
-  textAlign: "left",
-  padding: "10px 12px",
-  borderRadius: 8,
-  border: "none",
-  background: "transparent",
-  color: "#b91c1c",
-  cursor: "pointer",
-  fontWeight: 600,
-};
-
-const btnMenuTextStyle: React.CSSProperties = {
-  width: "100%",
-  textAlign: "left",
-  padding: "10px 12px",
-  borderRadius: 8,
-  border: "none",
-  background: "transparent",
-  color: "#111827",
-  cursor: "pointer",
-  fontWeight: 600,
-};
-
-const gridHeaderStyle: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns:
-    "minmax(220px,1.5fr) minmax(240px,1.4fr) 120px minmax(140px,1fr) 120px 90px",
-  gap: 12,
-  alignItems: "center",
-  fontWeight: 700,
-  paddingBottom: 10,
-  marginBottom: 10,
-  borderBottom: "1px solid #e5e7eb",
-};
-
-const rowStyle: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns:
-    "minmax(220px,1.5fr) minmax(240px,1.4fr) 120px minmax(140px,1fr) 120px 90px",
-  gap: 12,
-  alignItems: "center",
-  padding: "10px 0",
-  borderBottom: "1px solid #f3f4f6",
-};
-
-const mobileRowStyle: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: 10,
-  padding: "12px 0",
-  borderBottom: "1px solid #f3f4f6",
-};
-
-const modalBackdropStyle: React.CSSProperties = {
-  position: "fixed",
-  inset: 0,
-  background: "rgba(17,24,39,0.45)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  zIndex: 9999,
-  padding: 16,
-};
-
-const modalCardStyle: React.CSSProperties = {
-  width: "100%",
-  maxWidth: 560,
-  background: "#fff",
-  borderRadius: 16,
-  border: "1px solid #e5e7eb",
-  boxShadow: "0 20px 50px rgba(0,0,0,0.18)",
-  overflow: "hidden",
-};
-
-const modalHeaderStyle: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  gap: 12,
-  padding: "16px 18px",
-  borderBottom: "1px solid #e5e7eb",
-};
-
-const modalBodyStyle: React.CSSProperties = {
-  padding: 18,
-  display: "grid",
-  gap: 14,
-};
-
-const modalFooterStyle: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "flex-end",
-  gap: 10,
-  padding: "16px 18px",
-  borderTop: "1px solid #e5e7eb",
-};
-
-const actionWrapStyle: React.CSSProperties = {
-  position: "relative",
-  display: "inline-block",
-};
-
-const actionBtnStyle: React.CSSProperties = {
-  width: 42,
-  height: 38,
-  borderRadius: 8,
-  border: "1px solid #d1d5db",
-  background: "#fff",
-  color: "#111827",
-  cursor: "pointer",
-  fontWeight: 800,
-  fontSize: 18,
-};
-
-const actionMenuStyle: React.CSSProperties = {
-  position: "absolute",
-  top: "calc(100% + 6px)",
-  right: 0,
-  minWidth: 180,
-  background: "#fff",
-  border: "1px solid #e5e7eb",
-  borderRadius: 12,
-  boxShadow: "0 18px 45px rgba(0,0,0,0.16)",
-  padding: 6,
-  zIndex: 1000,
-};
-
-function useIsMobile(bp = 980) {
-  const [isMobile, setIsMobile] = useState(() =>
-    typeof window !== "undefined" ? window.innerWidth < bp : false
-  );
-
-  useEffect(() => {
-    const onResize = () => setIsMobile(window.innerWidth < bp);
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, [bp]);
-
-  return isMobile;
-}
-
-function StatutText({ actif }: { actif: boolean }) {
-  return (
-    <span style={{ fontWeight: 600, color: actif ? "#111827" : "#6b7280" }}>
-      {actif ? "Actif" : "Inactif"}
-    </span>
-  );
-}
-
-function EmployeRowItem({
-  employe,
-  isMobile,
-  onRefresh,
-  onEdit,
-  openMenuId,
-  setOpenMenuId,
-}: {
-  employe: EmployeRow;
-  isMobile: boolean;
-  onRefresh: () => Promise<void>;
-  onEdit: (employe: EmployeRow) => void;
-  openMenuId: string | null;
-  setOpenMenuId: (id: string | null) => void;
-}) {
-  const [busy, setBusy] = useState(false);
-  const menuRef = useRef<HTMLDivElement | null>(null);
-  const isOpen = openMenuId === employe.id;
-
-  useEffect(() => {
-    function handleOutside(e: MouseEvent) {
-      if (!menuRef.current) return;
-      if (!menuRef.current.contains(e.target as Node)) {
-        setOpenMenuId(null);
-      }
-    }
-
-    if (isOpen) {
-      document.addEventListener("mousedown", handleOutside);
-    }
-
-    return () => document.removeEventListener("mousedown", handleOutside);
-  }, [isOpen, setOpenMenuId]);
-
-  async function handleToggleActif() {
-    setBusy(true);
-
-    const { error } = await supabase
-      .from("employes")
-      .update({ actif: !employe.actif })
-      .eq("id", employe.id);
-
-    setBusy(false);
-    setOpenMenuId(null);
-
-    if (error) {
-      alert("Erreur lors du changement de statut : " + error.message);
-      return;
-    }
-
-    await onRefresh();
-  }
-
-  async function handleDelete() {
-    const ok = window.confirm(`Supprimer l'employé "${employe.nom_complet}" ?`);
-    if (!ok) return;
-
-    setBusy(true);
-
-    const { error } = await supabase.from("employes").delete().eq("id", employe.id);
-
-    setBusy(false);
-    setOpenMenuId(null);
-
-    if (error) {
-      alert("Erreur lors de la suppression : " + error.message);
-      return;
-    }
-
-    await onRefresh();
-  }
-
-  return (
-    <div style={isMobile ? mobileRowStyle : rowStyle}>
-      <div style={{ fontWeight: 600 }}>{employe.nom_complet || "—"}</div>
-
-      <div>{employe.email || "—"}</div>
-
-      <div>{employe.numero_mecano || "—"}</div>
-
-      <div>{roles.find((r) => r.value === employe.role)?.label || employe.role || "—"}</div>
-
-      <div>
-        <StatutText actif={!!employe.actif} />
-      </div>
-
-      <div
-        style={{
-          display: "flex",
-          justifyContent: isMobile ? "flex-start" : "flex-end",
-        }}
-      >
-        <div style={actionWrapStyle} ref={menuRef}>
-          <button
-            type="button"
-            style={actionBtnStyle}
-            disabled={busy}
-            onClick={() => setOpenMenuId(isOpen ? null : employe.id)}
-          >
-            ...
-          </button>
-
-          {isOpen && (
-            <div style={actionMenuStyle}>
-              <button
-                type="button"
-                style={btnMenuTextStyle}
-                onClick={() => {
-                  setOpenMenuId(null);
-                  onEdit(employe);
-                }}
-              >
-                Modifier
-              </button>
-
-              <button
-                type="button"
-                style={btnMenuTextStyle}
-                onClick={handleToggleActif}
-                disabled={busy}
-              >
-                {employe.actif ? "Inactif" : "Actif"}
-              </button>
-
-              <button
-                type="button"
-                style={btnDangerTextStyle}
-                onClick={handleDelete}
-                disabled={busy}
-              >
-                Supprimer
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 export default function EmployesPage() {
-  const isMobile = useIsMobile(980);
-
-  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
-  const [employeConnecte, setEmployeConnecte] = useState<EmployeConnecte | null>(null);
   const [employes, setEmployes] = useState<EmployeRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [pageSize, setPageSize] = useState(25);
+  const [page, setPage] = useState(1);
+
+  const [sortKey, setSortKey] = useState<SortKey>("nom_complet");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+
+  const [menuOpen, setMenuOpen] = useState<MenuState | null>(null);
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -388,25 +51,6 @@ export default function EmployesPage() {
   const [formNumeroMecano, setFormNumeroMecano] = useState("");
   const [formRole, setFormRole] = useState("mecano");
   const [formActif, setFormActif] = useState(true);
-
-  async function loadAuthUser() {
-    const { data, error } = await supabase.auth.getUser();
-
-    if (error || !data?.user) {
-      setAuthUser(null);
-      return;
-    }
-
-    setAuthUser({
-      id: data.user.id,
-      email: data.user.email ?? null,
-    });
-  }
-
-  async function loadEmployeConnecte() {
-    const employe = await getEmployeConnecte();
-    setEmployeConnecte(employe);
-  }
 
   async function loadEmployes() {
     setLoading(true);
@@ -427,12 +71,22 @@ export default function EmployesPage() {
     setLoading(false);
   }
 
-  async function refreshAll() {
-    await Promise.all([loadAuthUser(), loadEmployeConnecte(), loadEmployes()]);
-  }
+  useEffect(() => {
+    loadEmployes();
+  }, []);
 
   useEffect(() => {
-    refreshAll();
+    function closeMenu() {
+      setMenuOpen(null);
+    }
+
+    window.addEventListener("scroll", closeMenu, true);
+    window.addEventListener("resize", closeMenu);
+
+    return () => {
+      window.removeEventListener("scroll", closeMenu, true);
+      window.removeEventListener("resize", closeMenu);
+    };
   }, []);
 
   function resetForm() {
@@ -503,7 +157,7 @@ export default function EmployesPage() {
 
     setShowAddModal(false);
     resetForm();
-    await refreshAll();
+    await loadEmployes();
   }
 
   async function handleSaveEdit() {
@@ -544,7 +198,67 @@ export default function EmployesPage() {
     }
 
     closeEditModal();
-    await refreshAll();
+    await loadEmployes();
+  }
+
+  async function handleToggleActif(employe: EmployeRow) {
+    const { error } = await supabase
+      .from("employes")
+      .update({ actif: !employe.actif })
+      .eq("id", employe.id);
+
+    if (error) {
+      alert("Erreur lors du changement de statut : " + error.message);
+      return;
+    }
+
+    await loadEmployes();
+    setMenuOpen(null);
+  }
+
+  async function handleDelete(employe: EmployeRow) {
+    const ok = window.confirm(`Supprimer l'employé "${employe.nom_complet}" ?`);
+    if (!ok) return;
+
+    const { error } = await supabase.from("employes").delete().eq("id", employe.id);
+
+    if (error) {
+      alert("Erreur lors de la suppression : " + error.message);
+      return;
+    }
+
+    await loadEmployes();
+    setMenuOpen(null);
+  }
+
+  function resolveRoleLabel(role: string | null) {
+    return roles.find((r) => r.value === role)?.label || role || "—";
+  }
+
+  function handleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+      return;
+    }
+    setSortKey(key);
+    setSortDir("asc");
+  }
+
+  function getSortValue(row: EmployeRow, key: SortKey) {
+    switch (key) {
+      case "nom_complet":
+        return row.nom_complet ?? "";
+      case "email":
+        return row.email ?? "";
+      case "numero_mecano":
+        return row.numero_mecano ?? "";
+      case "role":
+        return resolveRoleLabel(row.role);
+      case "actif":
+        return row.actif ? 1 : 0;
+      default:
+        return "";
+    }
   }
 
   const filteredEmployes = useMemo(() => {
@@ -556,123 +270,312 @@ export default function EmployesPage() {
         (e.nom_complet || "").toLowerCase().includes(q) ||
         (e.email || "").toLowerCase().includes(q) ||
         (e.numero_mecano || "").toLowerCase().includes(q) ||
-        (e.role || "").toLowerCase().includes(q) ||
+        (resolveRoleLabel(e.role) || "").toLowerCase().includes(q) ||
         (e.actif ? "actif" : "inactif").includes(q)
       );
     });
   }, [employes, search]);
 
-  return (
-    <div style={pageStyle}>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 16,
-          gap: 12,
-          flexWrap: "wrap",
-        }}
-      >
-        <div style={titleStyle}>Employés</div>
+  const sortedEmployes = useMemo(() => {
+    const copy = [...filteredEmployes];
 
-        <button type="button" style={btnBlueStyle} onClick={openAddModal}>
-          Ajouter un employé
+    copy.sort((a, b) => {
+      const av = getSortValue(a, sortKey);
+      const bv = getSortValue(b, sortKey);
+
+      if (typeof av === "number" && typeof bv === "number") {
+        return sortDir === "asc" ? av - bv : bv - av;
+      }
+
+      return sortDir === "asc"
+        ? String(av).localeCompare(String(bv), "fr", { numeric: true, sensitivity: "base" })
+        : String(bv).localeCompare(String(av), "fr", { numeric: true, sensitivity: "base" });
+    });
+
+    return copy;
+  }, [filteredEmployes, sortKey, sortDir]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, sortKey, sortDir, pageSize]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedEmployes.length / pageSize));
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
+  const paginatedRows = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return sortedEmployes.slice(start, start + pageSize);
+  }, [sortedEmployes, page, pageSize]);
+
+  const fromRow = sortedEmployes.length === 0 ? 0 : (page - 1) * pageSize + 1;
+  const toRow = Math.min(page * pageSize, sortedEmployes.length);
+
+  function SortArrow({ col }: { col: SortKey }) {
+    if (sortKey !== col) return <span style={{ opacity: 0.35 }}>↕</span>;
+    return <span>{sortDir === "asc" ? "↑" : "↓"}</span>;
+  }
+
+  function renderHeader(label: string, key: SortKey, alignRight = false) {
+    return (
+      <th style={alignRight ? styles.thRight : styles.th}>
+        <button type="button" style={styles.sortBtn} onClick={() => handleSort(key)}>
+          <span>{label}</span>
+          <SortArrow col={key} />
+        </button>
+      </th>
+    );
+  }
+
+  function openActionMenu(
+    ev: React.MouseEvent<HTMLButtonElement>,
+    employeId: string
+  ) {
+    ev.stopPropagation();
+    const rect = ev.currentTarget.getBoundingClientRect();
+
+    if (menuOpen?.id === employeId) {
+      setMenuOpen(null);
+      return;
+    }
+
+    setMenuOpen({
+      id: employeId,
+      x: rect.right,
+      y: rect.bottom,
+    });
+  }
+
+  const menuEmploye = menuOpen
+    ? employes.find((e) => e.id === menuOpen.id) ?? null
+    : null;
+
+  return (
+    <div style={styles.page}>
+      <div style={styles.headerWrap}>
+        <div>
+          <h1 style={styles.h1}>Employés</h1>
+          <div style={styles.subtitle}>Gestion des employés et accès atelier</div>
+        </div>
+
+        <button type="button" style={styles.primaryBtn} onClick={openAddModal}>
+          + Nouvel employé
         </button>
       </div>
 
-      <div style={cardStyle}>
-        <div style={{ fontWeight: 700, marginBottom: 12 }}>Utilisateur connecté</div>
-        <div style={{ marginBottom: 6 }}>
-          <strong>Nom :</strong> {employeConnecte?.nom_complet || "Non trouvé"}
-        </div>
-        <div>
-          <strong>Email :</strong> {authUser?.email || "—"}
+      <div style={styles.toolbarCard}>
+        <input
+          style={styles.searchInput}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Rechercher par nom, courriel, no mécano, rôle..."
+        />
+
+        <select
+          style={styles.select}
+          value={String(pageSize)}
+          onChange={(e) => setPageSize(Number(e.target.value))}
+        >
+          <option value="10">10 / page</option>
+          <option value="25">25 / page</option>
+          <option value="50">50 / page</option>
+          <option value="100">100 / page</option>
+        </select>
+
+        <div style={styles.resultsText}>
+          {sortedEmployes.length} résultat{sortedEmployes.length > 1 ? "s" : ""}
         </div>
       </div>
 
-      <div style={cardStyle}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            gap: 12,
-            flexWrap: "wrap",
-            marginBottom: 12,
-          }}
-        >
-          <div style={{ fontWeight: 700 }}>Liste des employés</div>
-
-          <div style={{ width: isMobile ? "100%" : 320 }}>
-            <input
-              style={inputStyle}
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Rechercher un employé"
-            />
-          </div>
-        </div>
-
+      <div style={styles.tableShell}>
         {loading ? (
-          <div>Chargement...</div>
-        ) : filteredEmployes.length === 0 ? (
-          <div>Aucun employé.</div>
+          <div style={styles.emptyWrap}>Chargement...</div>
+        ) : paginatedRows.length === 0 ? (
+          <div style={styles.emptyWrap}>Aucun employé.</div>
         ) : (
           <>
-            {!isMobile && (
-              <div style={gridHeaderStyle}>
-                <div>Nom</div>
-                <div>Courriel</div>
-                <div>No mécano</div>
-                <div>Rôle</div>
-                <div>Statut</div>
-                <div style={{ textAlign: "right" }}>Action</div>
-              </div>
-            )}
+            <div style={styles.tableWrap}>
+              <table style={styles.table}>
+                <thead>
+                  <tr style={styles.theadRow}>
+                    {renderHeader("Nom", "nom_complet")}
+                    {renderHeader("Courriel", "email")}
+                    {renderHeader("No mécano", "numero_mecano")}
+                    {renderHeader("Rôle", "role")}
+                    {renderHeader("Statut", "actif")}
+                    <th style={styles.thActions}>Actions</th>
+                  </tr>
+                </thead>
 
-            {filteredEmployes.map((employe) => (
-              <EmployeRowItem
-                key={employe.id}
-                employe={employe}
-                isMobile={isMobile}
-                onRefresh={refreshAll}
-                onEdit={openEditModal}
-                openMenuId={openMenuId}
-                setOpenMenuId={setOpenMenuId}
-              />
-            ))}
+                <tbody>
+                  {paginatedRows.map((e, index) => {
+                    const rowBg = index % 2 === 0 ? "#ffffff" : "#f8fafc";
+
+                    return (
+                      <tr key={e.id} style={{ background: rowBg }}>
+                        <td style={{ ...styles.td, background: rowBg }}>
+                          <div style={styles.mainValue}>{e.nom_complet || "—"}</div>
+                        </td>
+
+                        <td style={{ ...styles.td, background: rowBg }}>
+                          <div style={styles.cellPrimary}>{e.email || "—"}</div>
+                        </td>
+
+                        <td style={{ ...styles.td, background: rowBg }}>
+                          <div style={styles.cellPrimary}>{e.numero_mecano || "—"}</div>
+                        </td>
+
+                        <td style={{ ...styles.td, background: rowBg }}>
+                          <div style={styles.cellPrimary}>{resolveRoleLabel(e.role)}</div>
+                        </td>
+
+                        <td style={{ ...styles.td, background: rowBg }}>
+                          <span
+                            style={{
+                              ...styles.statusPill,
+                              ...(e.actif ? styles.statusActive : styles.statusInactive),
+                            }}
+                          >
+                            {e.actif ? "Actif" : "Inactif"}
+                          </span>
+                        </td>
+
+                        <td style={{ ...styles.tdCenter, background: rowBg }}>
+                          <div style={styles.actionMenuWrap}>
+                            <button
+                              type="button"
+                              style={styles.menuBtn}
+                              onClick={(ev) => openActionMenu(ev, e.id)}
+                              aria-label="Actions"
+                              title="Actions"
+                            >
+                              ...
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div style={styles.pagerWrap}>
+              <div style={styles.pagerLeft}>
+                <span style={styles.resultsText}>
+                  Affichage {fromRow} à {toRow} sur {sortedEmployes.length}
+                </span>
+              </div>
+
+              <div style={styles.pagerRight}>
+                <button
+                  type="button"
+                  style={page <= 1 ? styles.ghostBtnDisabled : styles.ghostBtn}
+                  onClick={() => setPage(1)}
+                  disabled={page <= 1}
+                >
+                  « Première
+                </button>
+
+                <button
+                  type="button"
+                  style={page <= 1 ? styles.ghostBtnDisabled : styles.ghostBtn}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page <= 1}
+                >
+                  ‹ Précédente
+                </button>
+
+                <button type="button" style={styles.primaryBtnPage}>
+                  Page {page} / {totalPages}
+                </button>
+
+                <button
+                  type="button"
+                  style={page >= totalPages ? styles.ghostBtnDisabled : styles.ghostBtn}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={page >= totalPages}
+                >
+                  Suivante ›
+                </button>
+
+                <button
+                  type="button"
+                  style={page >= totalPages ? styles.ghostBtnDisabled : styles.ghostBtn}
+                  onClick={() => setPage(totalPages)}
+                  disabled={page >= totalPages}
+                >
+                  Dernière »
+                </button>
+              </div>
+            </div>
           </>
         )}
       </div>
 
-      {showAddModal && (
-        <div style={modalBackdropStyle} onClick={closeAddModal}>
-          <div style={modalCardStyle} onClick={(e) => e.stopPropagation()}>
-            <div style={modalHeaderStyle}>
-              <div style={{ fontSize: 18, fontWeight: 700 }}>Ajouter un employé</div>
+      {menuOpen && menuEmploye && (
+        <>
+          <div style={styles.menuBackdrop} onClick={() => setMenuOpen(null)} />
+          <div
+            style={{
+              ...styles.dropdownMenuFixed,
+              top: menuOpen.y + 6,
+              left: Math.max(12, menuOpen.x - 180),
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              style={styles.dropdownItem}
+              onClick={() => {
+                setMenuOpen(null);
+                openEditModal(menuEmploye);
+              }}
+            >
+              Modifier
+            </button>
 
-              <button
-                type="button"
-                onClick={closeAddModal}
-                style={{
-                  border: "none",
-                  background: "transparent",
-                  fontSize: 22,
-                  lineHeight: 1,
-                  cursor: "pointer",
-                  color: "#6b7280",
-                }}
-              >
+            <button
+              type="button"
+              style={styles.dropdownItem}
+              onClick={() => {
+                handleToggleActif(menuEmploye);
+              }}
+            >
+              {menuEmploye.actif ? "Mettre inactif" : "Mettre actif"}
+            </button>
+
+            <button
+              type="button"
+              style={styles.dropdownItemDanger}
+              onClick={() => {
+                handleDelete(menuEmploye);
+              }}
+            >
+              Supprimer
+            </button>
+          </div>
+        </>
+      )}
+
+      {showAddModal && (
+        <div style={styles.modalBackdrop} onClick={closeAddModal}>
+          <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <div style={styles.modalTitle}>Ajouter un employé</div>
+
+              <button type="button" onClick={closeAddModal} style={styles.modalClose}>
                 ×
               </button>
             </div>
 
-            <div style={modalBodyStyle}>
+            <div style={styles.modalBody}>
               <div>
-                <div style={{ fontWeight: 600, marginBottom: 6 }}>Nom complet</div>
+                <div style={styles.fieldLabel}>Nom complet</div>
                 <input
-                  style={inputStyle}
+                  style={styles.input}
                   value={formNomComplet}
                   onChange={(e) => setFormNomComplet(e.target.value)}
                   placeholder="Nom complet"
@@ -680,9 +583,9 @@ export default function EmployesPage() {
               </div>
 
               <div>
-                <div style={{ fontWeight: 600, marginBottom: 6 }}>Courriel</div>
+                <div style={styles.fieldLabel}>Courriel</div>
                 <input
-                  style={inputStyle}
+                  style={styles.input}
                   value={formEmail}
                   onChange={(e) => setFormEmail(e.target.value)}
                   placeholder="Courriel"
@@ -690,9 +593,9 @@ export default function EmployesPage() {
               </div>
 
               <div>
-                <div style={{ fontWeight: 600, marginBottom: 6 }}>Numéro mécano</div>
+                <div style={styles.fieldLabel}>Numéro mécano</div>
                 <input
-                  style={inputStyle}
+                  style={styles.input}
                   value={formNumeroMecano}
                   onChange={(e) => setFormNumeroMecano(e.target.value)}
                   placeholder="Ex: 123"
@@ -700,9 +603,9 @@ export default function EmployesPage() {
               </div>
 
               <div>
-                <div style={{ fontWeight: 600, marginBottom: 6 }}>Rôle</div>
+                <div style={styles.fieldLabel}>Rôle</div>
                 <select
-                  style={selectStyle}
+                  style={styles.input}
                   value={formRole}
                   onChange={(e) => setFormRole(e.target.value)}
                 >
@@ -714,7 +617,7 @@ export default function EmployesPage() {
                 </select>
               </div>
 
-              <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <label style={styles.checkboxRow}>
                 <input
                   type="checkbox"
                   checked={formActif}
@@ -724,12 +627,22 @@ export default function EmployesPage() {
               </label>
             </div>
 
-            <div style={modalFooterStyle}>
-              <button type="button" style={btnGhostStyle} onClick={closeAddModal} disabled={adding}>
+            <div style={styles.modalFooter}>
+              <button
+                type="button"
+                style={styles.ghostBtn}
+                onClick={closeAddModal}
+                disabled={adding}
+              >
                 Annuler
               </button>
 
-              <button type="button" style={btnBlueStyle} onClick={handleAdd} disabled={adding}>
+              <button
+                type="button"
+                style={styles.primaryBtn}
+                onClick={handleAdd}
+                disabled={adding}
+              >
                 Ajouter
               </button>
             </div>
@@ -738,32 +651,21 @@ export default function EmployesPage() {
       )}
 
       {showEditModal && (
-        <div style={modalBackdropStyle} onClick={closeEditModal}>
-          <div style={modalCardStyle} onClick={(e) => e.stopPropagation()}>
-            <div style={modalHeaderStyle}>
-              <div style={{ fontSize: 18, fontWeight: 700 }}>Modifier l’employé</div>
+        <div style={styles.modalBackdrop} onClick={closeEditModal}>
+          <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <div style={styles.modalTitle}>Modifier l’employé</div>
 
-              <button
-                type="button"
-                onClick={closeEditModal}
-                style={{
-                  border: "none",
-                  background: "transparent",
-                  fontSize: 22,
-                  lineHeight: 1,
-                  cursor: "pointer",
-                  color: "#6b7280",
-                }}
-              >
+              <button type="button" onClick={closeEditModal} style={styles.modalClose}>
                 ×
               </button>
             </div>
 
-            <div style={modalBodyStyle}>
+            <div style={styles.modalBody}>
               <div>
-                <div style={{ fontWeight: 600, marginBottom: 6 }}>Nom complet</div>
+                <div style={styles.fieldLabel}>Nom complet</div>
                 <input
-                  style={inputStyle}
+                  style={styles.input}
                   value={formNomComplet}
                   onChange={(e) => setFormNomComplet(e.target.value)}
                   placeholder="Nom complet"
@@ -771,9 +673,9 @@ export default function EmployesPage() {
               </div>
 
               <div>
-                <div style={{ fontWeight: 600, marginBottom: 6 }}>Courriel</div>
+                <div style={styles.fieldLabel}>Courriel</div>
                 <input
-                  style={inputStyle}
+                  style={styles.input}
                   value={formEmail}
                   onChange={(e) => setFormEmail(e.target.value)}
                   placeholder="Courriel"
@@ -781,9 +683,9 @@ export default function EmployesPage() {
               </div>
 
               <div>
-                <div style={{ fontWeight: 600, marginBottom: 6 }}>Numéro mécano</div>
+                <div style={styles.fieldLabel}>Numéro mécano</div>
                 <input
-                  style={inputStyle}
+                  style={styles.input}
                   value={formNumeroMecano}
                   onChange={(e) => setFormNumeroMecano(e.target.value)}
                   placeholder="Ex: 123"
@@ -791,9 +693,9 @@ export default function EmployesPage() {
               </div>
 
               <div>
-                <div style={{ fontWeight: 600, marginBottom: 6 }}>Rôle</div>
+                <div style={styles.fieldLabel}>Rôle</div>
                 <select
-                  style={selectStyle}
+                  style={styles.input}
                   value={formRole}
                   onChange={(e) => setFormRole(e.target.value)}
                 >
@@ -805,7 +707,7 @@ export default function EmployesPage() {
                 </select>
               </div>
 
-              <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <label style={styles.checkboxRow}>
                 <input
                   type="checkbox"
                   checked={formActif}
@@ -815,10 +717,10 @@ export default function EmployesPage() {
               </label>
             </div>
 
-            <div style={modalFooterStyle}>
+            <div style={styles.modalFooter}>
               <button
                 type="button"
-                style={btnGhostStyle}
+                style={styles.ghostBtn}
                 onClick={closeEditModal}
                 disabled={savingEdit}
               >
@@ -827,7 +729,7 @@ export default function EmployesPage() {
 
               <button
                 type="button"
-                style={btnBlueStyle}
+                style={styles.primaryBtn}
                 onClick={handleSaveEdit}
                 disabled={savingEdit}
               >
@@ -840,3 +742,435 @@ export default function EmployesPage() {
     </div>
   );
 }
+
+const styles: Record<string, React.CSSProperties> = {
+  page: {
+    width: "100%",
+    padding: 20,
+    background: "#f5f7fb",
+    minHeight: "100%",
+  },
+
+  headerWrap: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 12,
+    flexWrap: "wrap",
+    marginBottom: 16,
+  },
+
+  h1: {
+    margin: 0,
+    fontSize: 30,
+    fontWeight: 950,
+    color: "#0f172a",
+    letterSpacing: "-0.02em",
+  },
+
+  subtitle: {
+    color: "#64748b",
+    fontSize: 14,
+    fontWeight: 600,
+    marginTop: 4,
+  },
+
+  primaryBtn: {
+    height: 48,
+    padding: "0 18px",
+    borderRadius: 18,
+    border: "1px solid #2563eb",
+    background: "#2563eb",
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: 900,
+    cursor: "pointer",
+    boxShadow: "0 1px 0 rgba(255,255,255,.22) inset",
+  },
+
+  primaryBtnPage: {
+    height: 40,
+    padding: "0 16px",
+    borderRadius: 10,
+    border: "1px solid #2563eb",
+    background: "#2563eb",
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+
+  ghostBtn: {
+    height: 40,
+    padding: "0 16px",
+    borderRadius: 14,
+    border: "1px solid #d6dbe7",
+    background: "#fff",
+    color: "#0f172a",
+    fontSize: 14,
+    fontWeight: 800,
+    cursor: "pointer",
+  },
+
+  ghostBtnDisabled: {
+    height: 40,
+    padding: "0 16px",
+    borderRadius: 14,
+    border: "1px solid #e5e7eb",
+    background: "#f8fafc",
+    color: "#9ca3af",
+    fontSize: 14,
+    fontWeight: 800,
+    cursor: "not-allowed",
+  },
+
+  toolbarCard: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    flexWrap: "wrap",
+    background: "#fff",
+    border: "1px solid #e2e8f0",
+    borderRadius: 18,
+    padding: 14,
+    marginBottom: 14,
+  },
+
+  searchInput: {
+    height: 44,
+    borderRadius: 14,
+    border: "1px solid #d6dbe7",
+    background: "#fff",
+    padding: "0 14px",
+    fontSize: 14,
+    color: "#0f172a",
+    outline: "none",
+    minWidth: 320,
+    flex: 1,
+  },
+
+  select: {
+    height: 44,
+    borderRadius: 14,
+    border: "1px solid #d6dbe7",
+    background: "#fff",
+    padding: "0 12px",
+    fontSize: 14,
+    color: "#0f172a",
+    outline: "none",
+    minWidth: 160,
+  },
+
+  resultsText: {
+    color: "#64748b",
+    fontSize: 13,
+    fontWeight: 700,
+    whiteSpace: "nowrap",
+  },
+
+  tableShell: {
+    background: "#fff",
+    border: "1px solid #e2e8f0",
+    borderRadius: 18,
+    overflow: "hidden",
+  },
+
+  tableWrap: {
+    width: "100%",
+    overflowX: "auto",
+  },
+
+  table: {
+    width: "100%",
+    minWidth: 980,
+    borderCollapse: "separate",
+    borderSpacing: 0,
+    tableLayout: "fixed",
+  },
+
+  theadRow: {
+    background: "#f8fafc",
+  },
+
+  th: {
+    padding: "16px 14px",
+    fontSize: 13,
+    fontWeight: 900,
+    color: "#0f172a",
+    textAlign: "left",
+    borderBottom: "1px solid #e2e8f0",
+    whiteSpace: "nowrap",
+    background: "#f8fafc",
+  },
+
+  thRight: {
+    padding: "16px 14px",
+    fontSize: 13,
+    fontWeight: 900,
+    color: "#0f172a",
+    textAlign: "right",
+    borderBottom: "1px solid #e2e8f0",
+    whiteSpace: "nowrap",
+    background: "#f8fafc",
+  },
+
+  thActions: {
+    padding: "16px 14px",
+    fontSize: 13,
+    fontWeight: 900,
+    color: "#0f172a",
+    textAlign: "center",
+    borderBottom: "1px solid #e2e8f0",
+    whiteSpace: "nowrap",
+    background: "#f8fafc",
+    width: 90,
+  },
+
+  td: {
+    padding: "16px 14px",
+    fontSize: 14,
+    color: "#0f172a",
+    borderBottom: "1px solid #eef2f7",
+    verticalAlign: "middle",
+    whiteSpace: "nowrap",
+    fontWeight: 400,
+  },
+
+  tdCenter: {
+    padding: "16px 14px",
+    fontSize: 14,
+    color: "#0f172a",
+    borderBottom: "1px solid #eef2f7",
+    verticalAlign: "middle",
+    whiteSpace: "nowrap",
+    fontWeight: 400,
+    textAlign: "center",
+  },
+
+  sortBtn: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    background: "transparent",
+    border: "none",
+    padding: 0,
+    margin: 0,
+    font: "inherit",
+    color: "inherit",
+    cursor: "pointer",
+    fontWeight: 900,
+  },
+
+  mainValue: {
+    color: "#0f172a",
+    fontWeight: 900,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  },
+
+  cellPrimary: {
+    fontWeight: 400,
+    color: "#0f172a",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+
+  statusPill: {
+    display: "inline-flex",
+    alignItems: "center",
+    padding: "6px 12px",
+    borderRadius: 999,
+    border: "1px solid",
+    fontSize: 12,
+    fontWeight: 700,
+    lineHeight: 1,
+  },
+
+  statusActive: {
+    background: "#dcfce7",
+    borderColor: "#bbf7d0",
+    color: "#166534",
+  },
+
+  statusInactive: {
+    background: "#f3f4f6",
+    borderColor: "#d1d5db",
+    color: "#374151",
+  },
+
+  actionMenuWrap: {
+    display: "flex",
+    justifyContent: "center",
+  },
+
+  menuBtn: {
+    border: "1px solid #d1d5db",
+    background: "#fff",
+    color: "#111827",
+    borderRadius: 10,
+    padding: "6px 12px",
+    fontWeight: 800,
+    cursor: "pointer",
+    minWidth: 42,
+  },
+
+  menuBackdrop: {
+    position: "fixed",
+    inset: 0,
+    background: "transparent",
+    zIndex: 99998,
+  },
+
+  dropdownMenuFixed: {
+    position: "fixed",
+    width: 180,
+    background: "#fff",
+    border: "1px solid #e5e7eb",
+    borderRadius: 12,
+    boxShadow: "0 20px 50px rgba(0,0,0,0.20)",
+    padding: 6,
+    zIndex: 99999,
+    display: "grid",
+    gap: 4,
+  },
+
+  dropdownItem: {
+    border: "none",
+    background: "#fff",
+    textAlign: "left",
+    padding: "10px 12px",
+    borderRadius: 8,
+    cursor: "pointer",
+    fontWeight: 600,
+    fontSize: 14,
+    color: "#111827",
+  },
+
+  dropdownItemDanger: {
+    border: "none",
+    background: "#fff",
+    textAlign: "left",
+    padding: "10px 12px",
+    borderRadius: 8,
+    cursor: "pointer",
+    fontWeight: 700,
+    fontSize: 14,
+    color: "#991b1b",
+  },
+
+  emptyWrap: {
+    padding: 28,
+    textAlign: "center",
+    color: "#64748b",
+    fontWeight: 700,
+  },
+
+  pagerWrap: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    flexWrap: "wrap",
+    padding: 16,
+    background: "#fff",
+  },
+
+  pagerLeft: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    flexWrap: "wrap",
+  },
+
+  pagerRight: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",
+  },
+
+  modalBackdrop: {
+    position: "fixed",
+    inset: 0,
+    background: "rgba(17,24,39,0.45)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 9999,
+    padding: 16,
+  },
+
+  modalCard: {
+    width: "100%",
+    maxWidth: 560,
+    background: "#fff",
+    borderRadius: 16,
+    border: "1px solid #e5e7eb",
+    boxShadow: "0 20px 50px rgba(0,0,0,0.18)",
+    overflow: "hidden",
+  },
+
+  modalHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+    padding: "16px 18px",
+    borderBottom: "1px solid #e5e7eb",
+  },
+
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 700,
+    color: "#111827",
+  },
+
+  modalClose: {
+    border: "none",
+    background: "transparent",
+    fontSize: 22,
+    lineHeight: 1,
+    cursor: "pointer",
+    color: "#6b7280",
+  },
+
+  modalBody: {
+    padding: 18,
+    display: "grid",
+    gap: 14,
+  },
+
+  modalFooter: {
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: 10,
+    padding: "16px 18px",
+    borderTop: "1px solid #e5e7eb",
+  },
+
+  input: {
+    width: "100%",
+    padding: "10px 12px",
+    borderRadius: 8,
+    border: "1px solid #d1d5db",
+    fontSize: 14,
+    boxSizing: "border-box",
+    background: "#fff",
+  },
+
+  fieldLabel: {
+    fontWeight: 600,
+    marginBottom: 6,
+    color: "#111827",
+    fontSize: 14,
+  },
+
+  checkboxRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    color: "#111827",
+    fontSize: 14,
+  },
+};
