@@ -144,6 +144,7 @@ type SpeechRecognitionLike = {
   lang: string;
   interimResults: boolean;
   continuous: boolean;
+  maxAlternatives?: number;
   onstart: null | (() => void);
   onerror: null | ((event: { error?: string }) => void);
   onend: null | (() => void);
@@ -155,6 +156,13 @@ type SpeechRecognitionLike = {
 type WindowWithSpeechRecognition = Window & {
   SpeechRecognition?: new () => SpeechRecognitionLike;
   webkitSpeechRecognition?: new () => SpeechRecognitionLike;
+};
+
+type VoiceCorrection = {
+  id: string;
+  entendu: string;
+  remplacement: string;
+  actif: boolean;
 };
 
 function fmtDateTime(v: string | null | undefined) {
@@ -205,6 +213,117 @@ function daysBetween(a: Date, b: Date) {
   return Math.ceil((b.getTime() - a.getTime()) / 86400000);
 }
 
+
+
+function normalizeText(value: string) {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[’']/g, "'")
+    .replace(/[^a-z0-9'\s]/g, " ")
+    .replace(/\b(c|ce|cest|c'est)\b/g, "cest")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+
+
+function levenshtein(a: string, b: string) {
+  const aa = normalizeText(a);
+  const bb = normalizeText(b);
+
+  const rows = aa.length + 1;
+  const cols = bb.length + 1;
+  const dp: number[][] = Array.from({ length: rows }, () => Array(cols).fill(0));
+
+  for (let i = 0; i < rows; i += 1) dp[i][0] = i;
+  for (let j = 0; j < cols; j += 1) dp[0][j] = j;
+
+  for (let i = 1; i < rows; i += 1) {
+    for (let j = 1; j < cols; j += 1) {
+      const cost = aa[i - 1] === bb[j - 1] ? 0 : 1;
+      dp[i][j] = Math.min(
+        dp[i - 1][j] + 1,
+        dp[i][j - 1] + 1,
+        dp[i - 1][j - 1] + cost
+      );
+    }
+  }
+
+  return dp[rows - 1][cols - 1];
+}
+
+function areTokensClose(a: string, b: string) {
+  const aa = normalizeText(a);
+  const bb = normalizeText(b);
+
+  if (!aa || !bb) return false;
+  if (aa === bb) return true;
+
+  const dist = levenshtein(aa, bb);
+  const maxLen = Math.max(aa.length, bb.length);
+
+  if (maxLen <= 4) return dist <= 1;
+  if (maxLen <= 7) return dist <= 2;
+  return dist <= 3;
+}
+
+
+
+function normalizeVoiceNote(input: string, corrections: VoiceCorrection[]) {
+  let text = input.toLowerCase();
+
+  // 1️⃣ expressions longues en premier
+  const multiWordRules = corrections
+    .filter(c => c.actif && c.entendu.includes(" "))
+    .sort((a, b) => b.entendu.length - a.entendu.length);
+
+  for (const rule of multiWordRules) {
+    const pattern = normalizeText(rule.entendu);
+    const replacement = rule.remplacement.toLowerCase();
+
+    if (!pattern) continue;
+
+    if (normalizeText(text).includes(pattern)) {
+      const regex = new RegExp(rule.entendu, "gi");
+      text = text.replace(regex, replacement);
+    }
+  }
+
+  // 2️⃣ correction mot par mot (très important)
+  const words = text.split(/\s+/);
+
+  const singleWordRules = corrections.filter(
+    c => c.actif && !c.entendu.includes(" ")
+  );
+
+  const correctedWords = words.map(word => {
+  const normWord = normalizeText(word);
+
+  // 🔒 FIX BUG GAUCHE
+  if (normWord === "gauche") return word;
+
+  for (const rule of singleWordRules) {
+    const normRule = normalizeText(rule.entendu);
+
+    if (areTokensClose(normWord, normRule)) {
+      return rule.remplacement.toLowerCase();
+    }
+  }
+
+  return word;
+});
+
+  text = correctedWords.join(" ");
+
+  // nettoyage
+  return text
+    .replace(/\s+,/g, ",")
+    .replace(/\s+\./g, ".")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
 function dueStatus(row: ItemRow, currentKm: number | null) {
   const h = row.lastDone;
   const today = new Date();
@@ -352,6 +471,7 @@ export default function BonTravailMecanoPage() {
   const [editKmInput, setEditKmInput] = useState("");
 
   const [taskModalOpen, setTaskModalOpen] = useState(false);
+  const [voiceCorrections, setVoiceCorrections] = useState<VoiceCorrection[]>([]);
 
   useEffect(() => {
     const w = window as WindowWithSpeechRecognition;
@@ -365,6 +485,25 @@ export default function BonTravailMecanoPage() {
       } catch {}
       recognitionRef.current = null;
     };
+  }, []);
+
+  async function loadVoiceCorrections() {
+    try {
+      const { data, error } = await supabase
+        .from("systeme_dictee_corrections")
+        .select("id,entendu,remplacement,actif")
+        .eq("actif", true)
+        .order("entendu", { ascending: true });
+
+      if (error) throw error;
+      setVoiceCorrections((data || []) as VoiceCorrection[]);
+    } catch {
+      setVoiceCorrections([]);
+    }
+  }
+
+  useEffect(() => {
+    loadVoiceCorrections();
   }, []);
 
   function stopDictation() {
@@ -391,6 +530,7 @@ export default function BonTravailMecanoPage() {
       recognition.lang = "fr-CA";
       recognition.interimResults = true;
       recognition.continuous = true;
+      recognition.maxAlternatives = 1;
 
       recognition.onstart = () => {
         setSpeechListening(true);
@@ -428,11 +568,13 @@ export default function BonTravailMecanoPage() {
         setTaskInterim(interim.trim());
 
         if (final.trim()) {
+          const corrected = normalizeVoiceNote(final.trim(), voiceCorrections);
+
           setNewTask((prev) => {
             const base = prev.trim();
-            const extra = final.trim();
-            return base ? `${base} ${extra}` : extra;
+            return base ? `${base} ${corrected}` : corrected;
           });
+
           setTaskInterim("");
         }
       };
@@ -636,7 +778,7 @@ export default function BonTravailMecanoPage() {
             "id,bt_id,unite_id,unite_note_id,titre,details,date_effectuee,entretien_template_item_id,entretien_unite_item_id,entretien_auto"
           )
           .eq("bt_id", btRow.id)
-          .order("date_effectuee", { ascending: false }),
+          .order("date_effectuee", { ascending: true }),
 
         supabase
           .from("unite_entretien_templates")
@@ -705,7 +847,7 @@ export default function BonTravailMecanoPage() {
     loadAll();
   }, [id]);
 
-    async function saveKmValue(
+  async function saveKmValue(
     value: string,
     force = false,
     overrideReason?: string | null
@@ -1715,7 +1857,7 @@ export default function BonTravailMecanoPage() {
       )}
 
       {taskModalOpen && (
-        <div style={styles.modalBackdrop} onClick={resetTaskModalState}>
+        <div style={styles.modalBackdrop}>
           <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
             <div style={{ fontSize: 18, fontWeight: 950, marginBottom: 10 }}>
               Ajouter une tâche

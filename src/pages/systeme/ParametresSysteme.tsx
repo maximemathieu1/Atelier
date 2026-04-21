@@ -3,11 +3,13 @@ import ParametresConfiguration from "./ParametresConfiguration";
 import ParametresCompatibilite from "./ParametresCompatibilite";
 import ParametresAcomba from "./ParametresAcomba";
 import ParametresEntrepriseFacturation from "./ParametresEntrepriseFacturation";
+import ParametresDicteeVocalePage from "./ParametresDicteeVocale";
 
 function getTabFromPath(pathname: string) {
   if (pathname.includes("/compatibilite")) return "compatibilite";
   if (pathname.includes("/acomba")) return "acomba";
   if (pathname.includes("/entreprise-facturation")) return "entreprise-facturation";
+  if (pathname.includes("/dictee-vocale")) return "dictee-vocale";
   return "configuration";
 }
 
@@ -35,7 +37,7 @@ export default function ParametresSysteme() {
         <div className="page-title">
           <h1 style={{ margin: 0 }}>Paramètres système</h1>
           <div className="muted">
-            Configuration générale, compatibilité, facturation et paramètres Acomba.
+            Configuration générale, compatibilité, facturation, paramètres Acomba et dictée vocale.
           </div>
         </div>
       </div>
@@ -68,12 +70,20 @@ export default function ParametresSysteme() {
         >
           Acomba
         </NavLink>
+
+        <NavLink
+          to="/parametres-systeme/dictee-vocale"
+          style={tabStyle(activeTab === "dictee-vocale")}
+        >
+          Dictée vocale
+        </NavLink>
       </div>
 
       {activeTab === "configuration" && <ParametresConfiguration />}
       {activeTab === "compatibilite" && <ParametresCompatibilite />}
       {activeTab === "entreprise-facturation" && <ParametresEntrepriseFacturation />}
       {activeTab === "acomba" && <ParametresAcomba />}
+      {activeTab === "dictee-vocale" && <ParametresDicteeVocalePage />}
     </div>
   );
 }

@@ -28,6 +28,7 @@ import ParametresConfiguration from "./pages/systeme/ParametresConfiguration";
 import ParametresUnitesPage from "./pages/systeme/ParametresUnitesPage";
 import ParametresPiecesPage from "./pages/systeme/ParametresPiecesPage";
 import ParametresTemplatesPage from "./pages/systeme/ParametresTemplatesPage";
+import ParametresDicteeVocalePage from "./pages/systeme/ParametresDicteeVocale";
 
 import PepAccueil from "./pages/pep/PepAccueil";
 import PepNouvelle from "./pages/pep/PepNouvelle";
@@ -94,8 +95,8 @@ function AppShell({ onLogout }: { onLogout: () => void | Promise<void> }) {
         }
       >
         <div className="brand">
-  <img src="/logo-groupe-breton.png" className="brand-logo" />
-</div>
+          <img src="/logo-groupe-breton.png" className="brand-logo" />
+        </div>
 
         <div className="section">
           <div className="section-title">ADMINISTRATION</div>
@@ -192,13 +193,13 @@ function AppShell({ onLogout }: { onLogout: () => void | Promise<void> }) {
           <Route path="/operation-temps-reel" element={<OperationTempsReelPage />} />
 
           <Route path="/pep" element={<PepAccueil />}>
-  <Route index element={<Navigate to="suivi" replace />} />
-  <Route path="nouvelle" element={<PepNouvelle />} />
-  <Route path="suivi" element={<PepSuivi />} />
-  <Route path="admin" element={<PepAdmin />} />
-</Route>
+            <Route index element={<Navigate to="suivi" replace />} />
+            <Route path="nouvelle" element={<PepNouvelle />} />
+            <Route path="suivi" element={<PepSuivi />} />
+            <Route path="admin" element={<PepAdmin />} />
+          </Route>
 
-<Route path="/pep/final" element={<PepFinal />} />
+          <Route path="/pep/final" element={<PepFinal />} />
 
           <Route path="/facturation" element={<FacturationBT />} />
 
@@ -210,11 +211,16 @@ function AppShell({ onLogout }: { onLogout: () => void | Promise<void> }) {
             element={<ParametresSysteme />}
           />
           <Route path="/parametres-systeme/acomba" element={<ParametresSysteme />} />
+          <Route path="/parametres-systeme/dictee-vocale" element={<ParametresSysteme />} />
 
           <Route path="/systeme/parametres" element={<ParametresConfiguration />} />
           <Route path="/systeme/parametres/unites" element={<ParametresUnitesPage />} />
           <Route path="/systeme/parametres/pieces" element={<ParametresPiecesPage />} />
           <Route path="/systeme/parametres/templates" element={<ParametresTemplatesPage />} />
+          <Route
+            path="/systeme/parametres/dictee-vocale"
+            element={<ParametresDicteeVocalePage />}
+          />
 
           <Route path="*" element={<Navigate to="/clients" replace />} />
         </Routes>
