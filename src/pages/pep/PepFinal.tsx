@@ -2,10 +2,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "../../lib/supabaseClient";
 
-
-
 type PepPayload = {
   unite_id?: string;
+  mecano_id?: string;
+  mecano_nom?: string;
+  type_pep?: string;
   unite?: string;
   marque?: string;
   modele?: string;
@@ -44,6 +45,8 @@ type PepArchiveInsert = {
   html_complet: string;
   pages_html: string[];
 };
+
+const PEP_TEMPLATE_ID = "d71006cc-cfd7-4e49-83dd-918ee4201b89";
 
 const EXTRA_STYLE = `
 <style>
@@ -503,6 +506,391 @@ ${doc.body ? doc.body.innerHTML : ""}
 </html>`;
 }
 
+function dateOnlyOrToday(value?: string | null) {
+  const s = String(value || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  return new Date().toISOString().slice(0, 10);
+}
+
+function dateOnlyToIsoMidday(value?: string | null) {
+  return `${dateOnlyOrToday(value)}T12:00:00.000Z`;
+}
+
+function isPepTaskLabel(value: unknown) {
+  const v = normalizeText(value);
+  return v.includes("pep") || v.includes("inspection periodique");
+}
+
+async function resolvePepHourlyRate(uniteId: string) {
+  const { data: uniteRow } = await supabase
+    .from("unites")
+    .select("client_id,type_unite_id")
+    .eq("id", uniteId)
+    .maybeSingle();
+
+  const clientId = (uniteRow as any)?.client_id ?? null;
+  const typeUniteId = (uniteRow as any)?.type_unite_id ?? null;
+
+  if (!clientId) return 0;
+
+  if (typeUniteId) {
+    const { data: clientMoRows } = await supabase
+      .from("client_taux_main_oeuvre")
+      .select("taux_horaire,type_unite_id")
+      .eq("client_id", clientId)
+      .eq("actif", true);
+
+    const exact = (clientMoRows || []).find(
+      (row: any) => String(row.type_unite_id || "") === String(typeUniteId)
+    );
+    const generic = (clientMoRows || []).find((row: any) => !row.type_unite_id);
+    const picked = exact || generic;
+    if (picked?.taux_horaire != null && Number.isFinite(Number(picked.taux_horaire))) {
+      return Number(picked.taux_horaire);
+    }
+  }
+
+  const { data: cfg } = await supabase
+    .from("client_configuration")
+    .select("taux_horaire")
+    .eq("client_id", clientId)
+    .maybeSingle();
+
+  return cfg?.taux_horaire != null && Number.isFinite(Number(cfg.taux_horaire))
+    ? Number(cfg.taux_horaire)
+    : 0;
+}
+
+async function getOrCreatePepBt(
+  uniteId: string,
+  datePep: string,
+  km: number | null,
+  mecanoNom: string | null,
+  numMecano: string | null
+) {
+  const { data: existingBt, error: existingBtErr } = await supabase
+    .from("bons_travail")
+    .select("*")
+    .eq("unite_id", uniteId)
+    .in("statut", ["ouvert", "a_faire", "en_cours"])
+    .order("date_ouverture", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (existingBtErr) throw existingBtErr;
+
+  if (existingBt?.id) {
+    if (
+      km != null &&
+      Number.isFinite(km) &&
+      (existingBt.km == null || Number(km) > Number(existingBt.km || 0))
+    ) {
+      const { error: kmErr } = await supabase
+        .from("bons_travail")
+        .update({ km })
+        .eq("id", existingBt.id);
+      if (kmErr) throw kmErr;
+      return { bt: { ...existingBt, km }, created: false as const };
+    }
+    return { bt: existingBt, created: false as const };
+  }
+
+  const { data: createdBt, error: createBtErr } = await supabase
+    .from("bons_travail")
+    .insert({
+      unite_id: uniteId,
+      statut: "ouvert",
+      date_ouverture: dateOnlyToIsoMidday(datePep),
+      km,
+    })
+    .select("*")
+    .single();
+
+  if (createBtErr) throw createBtErr;
+
+  const tauxHoraire = await resolvePepHourlyRate(uniteId);
+  const mecanoNomFinal =
+    String(mecanoNom || "").trim() || String(numMecano || "").trim() || "PEP";
+
+  const { error: moErr } = await supabase.from("bt_main_oeuvre").insert({
+    bt_id: createdBt.id,
+    mecano_nom: mecanoNomFinal,
+    description: null,
+    heures: 1,
+    taux_horaire: tauxHoraire,
+  });
+  if (moErr) throw moErr;
+
+  return { bt: createdBt, created: true as const };
+}
+
+async function syncPepTaskAndHistorique(btRow: any, datePep: string, km: number | null) {
+  const doneDateIso = dateOnlyToIsoMidday(datePep);
+  const doneDateOnly = dateOnlyOrToday(datePep);
+
+  let openTaskQuery = supabase
+    .from("unite_notes")
+    .select("id,unite_id,titre,details,created_at,entretien_template_item_id,entretien_unite_item_id,entretien_auto")
+    .eq("unite_id", btRow.unite_id)
+    .eq("entretien_template_item_id", PEP_TEMPLATE_ID)
+    .is("entretien_unite_item_id", null)
+    .limit(1);
+
+  let { data: openTask, error: openTaskErr } = await openTaskQuery.maybeSingle();
+  if (openTaskErr) throw openTaskErr;
+
+  if (!openTask) {
+    const { data: fallbackOpenTasks, error: fallbackOpenErr } = await supabase
+      .from("unite_notes")
+      .select("id,unite_id,titre,details,created_at,entretien_template_item_id,entretien_unite_item_id,entretien_auto")
+      .eq("unite_id", btRow.unite_id)
+      .order("created_at", { ascending: false });
+
+    if (fallbackOpenErr) throw fallbackOpenErr;
+    openTask = (fallbackOpenTasks || []).find((row: any) => isPepTaskLabel(row.titre)) || null;
+  }
+
+  let doneTaskQuery = supabase
+    .from("bt_taches_effectuees")
+    .select("id,unite_note_id,titre")
+    .eq("bt_id", btRow.id)
+    .eq("entretien_template_item_id", PEP_TEMPLATE_ID)
+    .is("entretien_unite_item_id", null)
+    .limit(1);
+
+  let { data: doneTask, error: doneTaskErr } = await doneTaskQuery.maybeSingle();
+  if (doneTaskErr) throw doneTaskErr;
+
+  if (!doneTask) {
+    const { data: fallbackDoneTasks, error: fallbackDoneErr } = await supabase
+      .from("bt_taches_effectuees")
+      .select("id,unite_note_id,titre")
+      .eq("bt_id", btRow.id)
+      .order("date_effectuee", { ascending: false });
+
+    if (fallbackDoneErr) throw fallbackDoneErr;
+    doneTask = (fallbackDoneTasks || []).find((row: any) => isPepTaskLabel(row.titre)) || null;
+  }
+
+  if (!doneTask) {
+    const insertRow = openTask
+      ? {
+          bt_id: btRow.id,
+          unite_id: btRow.unite_id,
+          unite_note_id: openTask.id,
+          titre: openTask.titre,
+          details: openTask.details,
+          date_effectuee: doneDateIso,
+          entretien_template_item_id: PEP_TEMPLATE_ID,
+          entretien_unite_item_id: null,
+          entretien_auto: true,
+        }
+      : {
+          bt_id: btRow.id,
+          unite_id: btRow.unite_id,
+          unite_note_id: null,
+          titre: "Entretien périodique - PEP 90 jours",
+          details: null,
+          date_effectuee: doneDateIso,
+          entretien_template_item_id: PEP_TEMPLATE_ID,
+          entretien_unite_item_id: null,
+          entretien_auto: true,
+        };
+
+    const { error: insertDoneErr } = await supabase.from("bt_taches_effectuees").insert(insertRow);
+    if (insertDoneErr) throw insertDoneErr;
+  }
+
+  if (openTask?.id) {
+    const { error: deleteOpenTaskErr } = await supabase
+      .from("unite_notes")
+      .delete()
+      .eq("id", openTask.id);
+
+    if (deleteOpenTaskErr) throw deleteOpenTaskErr;
+  }
+
+  const { data: existingHist, error: existingHistErr } = await supabase
+    .from("unite_entretien_historique")
+    .select("id")
+    .eq("unite_id", btRow.unite_id)
+    .eq("bt_id", btRow.id)
+    .eq("template_item_id", PEP_TEMPLATE_ID)
+    .is("unite_item_id", null)
+    .limit(1)
+    .maybeSingle();
+
+  if (existingHistErr) throw existingHistErr;
+
+  const histPayload = {
+    unite_id: btRow.unite_id,
+    template_item_id: PEP_TEMPLATE_ID,
+    unite_item_id: null,
+    bt_id: btRow.id,
+    nom_snapshot: "PEP 90 jours",
+    frequence_km_snapshot: null,
+    frequence_jours_snapshot: 90,
+    date_effectuee: doneDateOnly,
+    km_effectue: km,
+    note: "PEP finalisé",
+  };
+
+  if (existingHist?.id) {
+    const { error: histUpdErr } = await supabase
+      .from("unite_entretien_historique")
+      .update(histPayload)
+      .eq("id", existingHist.id);
+
+    if (histUpdErr) throw histUpdErr;
+  } else {
+    const { error: histInsertErr } = await supabase
+      .from("unite_entretien_historique")
+      .insert(histPayload);
+
+    if (histInsertErr) throw histInsertErr;
+  }
+
+  try {
+    await supabase.rpc("sync_entretien_due_tasks", {
+      p_unite_id: btRow.unite_id,
+      p_bt_id: btRow.id,
+    });
+  } catch {
+    // non bloquant
+  }
+}
+
+async function attachPepArchiveToBt(
+  btId: string,
+  pepArchiveId: string,
+  nomFichier: string,
+  htmlLength: number
+) {
+  try {
+    const { data: existingDoc, error: existingDocErr } = await supabase
+      .from("bt_documents")
+      .select("id")
+      .eq("bt_id", btId)
+      .eq("pep_id", pepArchiveId)
+      .eq("type", "pep")
+      .maybeSingle();
+
+    if (existingDocErr) throw existingDocErr;
+
+    const row = {
+      bt_id: btId,
+      pep_id: pepArchiveId,
+      type: "pep",
+      nom_fichier: nomFichier,
+      storage_path: `pep_archive:${pepArchiveId}`,
+      mime_type: "text/html",
+      taille_bytes: htmlLength,
+      source: "auto_pep",
+    } as any;
+
+    if (existingDoc?.id) {
+      const { error: updateDocErr } = await supabase
+        .from("bt_documents")
+        .update(row)
+        .eq("id", existingDoc.id);
+      if (updateDocErr) throw updateDocErr;
+    } else {
+      const { error: insertDocErr } = await supabase.from("bt_documents").insert(row);
+      if (insertDocErr) throw insertDocErr;
+    }
+  } catch (e: any) {
+    const code = String(e?.code || "");
+    if (code === "42P01" || code === "PGRST205") {
+      console.warn("Table bt_documents absente; attachement PEP ignoré pour l'instant.");
+      return;
+    }
+    throw e;
+  }
+}
+
+async function renderPepPdfBlob(html: string, filename: string) {
+  const supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL;
+  const anonKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY;
+  const renderSecret = (import.meta as any).env?.VITE_PDF_RENDER_SECRET;
+
+  if (!supabaseUrl) throw new Error("VITE_SUPABASE_URL manquant");
+  if (!anonKey) throw new Error("VITE_SUPABASE_ANON_KEY manquant");
+  if (!renderSecret) throw new Error("VITE_PDF_RENDER_SECRET manquant");
+
+  const url = `${supabaseUrl}/functions/v1/render-pdf`;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      apikey: anonKey,
+      authorization: `Bearer ${anonKey}`,
+      "content-type": "application/json",
+      "x-render-secret": renderSecret,
+    },
+    body: JSON.stringify({
+      html,
+      filename,
+    }),
+  });
+
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(txt || "Erreur génération PDF");
+  }
+
+  return await res.blob();
+}
+
+async function attachPepPdfToBt(
+  btId: string,
+  pepArchiveId: string,
+  filename: string,
+  pdfBlob: Blob
+) {
+  const path = `bt/${btId}/pep/${pepArchiveId}.pdf`;
+
+  const { error: uploadErr } = await supabase.storage
+    .from("bt-documents")
+    .upload(path, pdfBlob, {
+      upsert: true,
+      contentType: "application/pdf",
+    });
+
+  if (uploadErr) throw uploadErr;
+
+  const { data: existingDoc, error: existingDocErr } = await supabase
+    .from("bt_documents")
+    .select("id")
+    .eq("bt_id", btId)
+    .eq("pep_id", pepArchiveId)
+    .eq("type", "pep")
+    .maybeSingle();
+
+  if (existingDocErr) throw existingDocErr;
+
+  const row = {
+    bt_id: btId,
+    pep_id: pepArchiveId,
+    type: "pep",
+    nom_fichier: filename,
+    storage_path: path,
+    mime_type: "application/pdf",
+    taille_bytes: pdfBlob.size,
+    source: "auto_pep",
+  } as any;
+
+  if (existingDoc?.id) {
+    const { error } = await supabase
+      .from("bt_documents")
+      .update(row)
+      .eq("id", existingDoc.id);
+    if (error) throw error;
+  } else {
+    const { error } = await supabase.from("bt_documents").insert(row);
+    if (error) throw error;
+  }
+}
+
 export default function PepFinal() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -560,32 +948,23 @@ export default function PepFinal() {
     let cancelled = false;
 
     async function loadPreview() {
-  try {
-    if (!payload) {
-      throw new Error("Données PEP introuvables.");
-    }
+      try {
+        const res = await fetch("/templates/Fiche.sans.footer.html", { cache: "no-store" });
+        if (!res.ok) throw new Error("Impossible de charger le template PEP.");
 
-    const res = await fetch("/templates/Fiche.sans.footer.html", { cache: "no-store" });
-    if (!res.ok) throw new Error("Impossible de charger le template PEP.");
+        const rawTemplate = await res.text();
+        const splitPages = splitTemplateIntoPages(rawTemplate, payload);
+        const fullProcessed = buildFullProcessedDocument(rawTemplate, payload);
 
-    const rawTemplate = await res.text();
-    const splitPages = splitTemplateIntoPages(rawTemplate, payload);
-    const fullProcessed = buildFullProcessedDocument(rawTemplate, payload);
-
-    if (!cancelled) {
-      setPages(splitPages);
-      setPrintHtml(fullProcessed);
-      setPageIndex((prev) => {
-        const max = Math.max(splitPages.length - 1, 0);
-        return Math.min(prev, max);
-      });
+        if (!cancelled) {
+          setPages(splitPages);
+          setPrintHtml(fullProcessed);
+          setPageIndex((prev) => Math.min(prev, Math.max(splitPages.length - 1, 0)));
+        }
+      } catch (e) {
+        if (!cancelled) console.error(e);
+      }
     }
-  } catch (e: any) {
-    if (!cancelled) {
-      console.error(e);
-    }
-  }
-}
 
     loadPreview();
 
@@ -751,52 +1130,93 @@ export default function PepFinal() {
   }
 
   async function handleArchivePep() {
-    if (!payload) return;
+  if (!payload) return;
 
-    if (!payload.unite_id) {
-      setArchiveError("unite_id manquant dans le payload envoyé depuis PepNouvelle.");
-      setArchiveDone(false);
-      return;
-    }
-
-    if (!printHtml) {
-      setArchiveError("Le HTML final n'est pas prêt.");
-      setArchiveDone(false);
-      return;
-    }
-
-    setArchiveBusy(true);
+  if (!payload.unite_id) {
+    setArchiveError("unite_id manquant dans le payload envoyé depuis PepNouvelle.");
     setArchiveDone(false);
-    setArchiveError("");
-
-    try {
-      const insertPayload: PepArchiveInsert = {
-        unite_id: payload.unite_id,
-        unite: payload.unite ?? null,
-        date_pep: payload.date_pep ?? null,
-        date_prochain: payload.date_prochain ?? null,
-        num_mecano: payload.num_mecano ?? null,
-        odometre: payload.odom ?? null,
-        payload_json: payload,
-        signature_data_url: signature || null,
-        html_complet: printHtml,
-        pages_html: pages,
-      };
-
-      const { error } = await supabase.from("pep_archives").insert(insertPayload);
-
-      if (error) throw error;
-
-      setArchiveDone(true);
-      setArchiveError("");
-    } catch (e: any) {
-      console.error(e);
-      setArchiveError(e?.message ?? "Erreur inconnue pendant l'archivage.");
-      setArchiveDone(false);
-    } finally {
-      setArchiveBusy(false);
-    }
+    return;
   }
+
+  if (!printHtml) {
+    setArchiveError("Le HTML final n'est pas prêt.");
+    setArchiveDone(false);
+    return;
+  }
+
+  setArchiveBusy(true);
+  setArchiveDone(false);
+  setArchiveError("");
+
+  try {
+    const insertPayload: PepArchiveInsert = {
+      unite_id: payload.unite_id,
+      unite: payload.unite ?? null,
+      date_pep: payload.date_pep ?? null,
+      date_prochain: payload.date_prochain ?? null,
+      num_mecano: payload.num_mecano ?? null,
+      odometre: payload.odom ?? null,
+      payload_json: payload,
+      signature_data_url: signature || null,
+      html_complet: printHtml,
+      pages_html: pages,
+    };
+
+    const { data: insertedArchive, error } = await supabase
+      .from("pep_archives")
+      .insert(insertPayload)
+      .select("id")
+      .single();
+
+    if (error) throw error;
+
+    const pepArchiveId = String((insertedArchive as any)?.id || "").trim();
+    if (!pepArchiveId) {
+      throw new Error("Impossible de récupérer l'identifiant du PEP archivé.");
+    }
+
+    const km =
+      payload.odom != null &&
+      String(payload.odom).trim() !== "" &&
+      Number.isFinite(Number(payload.odom))
+        ? Number(payload.odom)
+        : null;
+
+    const { bt } = await getOrCreatePepBt(
+      payload.unite_id,
+      payload.date_pep ?? new Date().toISOString().slice(0, 10),
+      km,
+      payload.mecano_nom ?? null,
+      payload.num_mecano ?? null
+    );
+
+    await syncPepTaskAndHistorique(
+      bt,
+      payload.date_pep ?? new Date().toISOString().slice(0, 10),
+      km
+    );
+
+    const pepPdfFilename = `PEP-${payload.unite || "unite"}-${payload.date_pep || new Date().toISOString().slice(0, 10)}.pdf`;
+
+    const pdfBlob = await renderPepPdfBlob(printHtml, pepPdfFilename);
+
+    await attachPepPdfToBt(
+      bt.id,
+      pepArchiveId,
+      pepPdfFilename,
+      pdfBlob
+    );
+
+    setArchiveDone(true);
+    setArchiveError("");
+  } catch (e: any) {
+    console.error(e);
+    setArchiveError(e?.message ?? "Erreur inconnue pendant l'archivage.");
+    setArchiveDone(false);
+  } finally {
+    setArchiveBusy(false);
+  }
+}
 
   function handleArchiveClick() {
     if (!requireSignature()) return;

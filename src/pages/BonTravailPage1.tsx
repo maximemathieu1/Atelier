@@ -277,13 +277,6 @@ export default function BonTravailPage() {
   const [confirmTerminerOpen, setConfirmTerminerOpen] = useState(false);
   const [savingTerminer, setSavingTerminer] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<"details" | "documents">("details");
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [documents, setDocuments] = useState<any[]>([]);
-  const [documentsLoading, setDocumentsLoading] = useState(false);
-  const [uploadingDocuments, setUploadingDocuments] = useState(false);
-  const [draggingDocuments, setDraggingDocuments] = useState(false);
-
   const selectedIds = useMemo(() => Object.keys(selected).filter((k) => selected[k]), [selected]);
 
   const snapshotClientNom = useMemo(() => bt?.client_nom?.trim() || client?.nom || "—", [bt, client]);
@@ -536,141 +529,6 @@ export default function BonTravailPage() {
       setPointages([]);
       setPointagesTableAvailable(false);
     }
-  }
-
-  async function loadDocuments(btId: string) {
-    setDocumentsLoading(true);
-    try {
-      const { data, error } = await supabase
-        .from("bt_documents")
-        .select("*")
-        .eq("bt_id", btId)
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-      setDocuments(data || []);
-    } catch {
-      setDocuments([]);
-    } finally {
-      setDocumentsLoading(false);
-    }
-  }
-
-  async function openDocument(doc: any) {
-    try {
-      if (doc.type === "pep" && doc.pep_id) {
-        const { data, error } = await supabase
-          .from("pep_archives")
-          .select("html_complet")
-          .eq("id", doc.pep_id)
-          .maybeSingle();
-
-        if (!error && data?.html_complet) {
-          const w = window.open("", "_blank");
-          if (!w) {
-            alert("Popup bloqué");
-            return;
-          }
-          w.document.open();
-          w.document.write(String(data.html_complet || ""));
-          w.document.close();
-          return;
-        }
-      }
-
-      const { data, error } = await supabase.storage
-        .from("bt-documents")
-        .createSignedUrl(String(doc.storage_path || ""), 60);
-
-      if (error) throw error;
-      if (data?.signedUrl) window.open(data.signedUrl, "_blank");
-    } catch (e: any) {
-      alert(e?.message || "Impossible d'ouvrir le document.");
-    }
-  }
-
-  async function handleUploadDocuments(files: FileList | File[]) {
-    if (!bt?.id) return;
-
-    const validFiles = Array.from(files || []).filter(Boolean);
-    if (!validFiles.length) return;
-
-    setUploadingDocuments(true);
-
-    try {
-      for (const file of validFiles) {
-        const cleanName = String(file.name || "document")
-          .replace(/[^a-zA-Z0-9._-]+/g, "_")
-          .replace(/_+/g, "_");
-
-        const path = `bt/${bt.id}/manual/${Date.now()}-${cleanName}`;
-
-        const { error: uploadError } = await supabase.storage
-          .from("bt-documents")
-          .upload(path, file, { upsert: false });
-
-        if (uploadError) throw uploadError;
-
-        const mimeType = (file as any).type || null;
-        const size = Number((file as any).size || 0) || null;
-
-        const { error: insertError } = await supabase.from("bt_documents").insert({
-          bt_id: bt.id,
-          type: mimeType?.startsWith("image/") ? "photo" : "autre",
-          nom_fichier: file.name,
-          storage_path: path,
-          mime_type: mimeType,
-          taille_bytes: size,
-          source: "manuel",
-        });
-
-        if (insertError) throw insertError;
-      }
-
-      await loadDocuments(bt.id);
-    } catch (e: any) {
-      alert(e?.message || "Erreur lors de l'ajout du document.");
-    } finally {
-      setUploadingDocuments(false);
-      setDraggingDocuments(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
-  }
-
-  async function deleteDocument(doc: any) {
-    if (!bt?.id) return;
-
-    if (doc.type === "pep" || doc.source === "auto_pep") {
-      alert("Le document PEP généré automatiquement ne peut pas être supprimé ici.");
-      return;
-    }
-
-    if (!confirm("Supprimer ce document ?")) return;
-
-    try {
-      if (doc.storage_path) {
-        const { error: storageError } = await supabase.storage
-          .from("bt-documents")
-          .remove([String(doc.storage_path)]);
-        if (storageError) throw storageError;
-      }
-
-      const { error } = await supabase.from("bt_documents").delete().eq("id", doc.id);
-      if (error) throw error;
-
-      await loadDocuments(bt.id);
-    } catch (e: any) {
-      alert(e?.message || "Impossible de supprimer le document.");
-    }
-  }
-
-  function onDocumentsDrop(e: React.DragEvent<HTMLDivElement>) {
-    e.preventDefault();
-    e.stopPropagation();
-    setDraggingDocuments(false);
-    if (isReadOnly) return;
-    const files = e.dataTransfer?.files;
-    if (files?.length) void handleUploadDocuments(files);
   }
 
   async function syncInventaireInstallationsForBt(btId: string) {
@@ -1105,7 +963,7 @@ export default function BonTravailPage() {
       if (eTe) throw eTe;
       setTachesEffectuees((teData || []) as TacheEffectuee[]);
 
-      await Promise.all([loadPieces(id), loadMainOeuvre(id), loadPointages(id), loadDocuments(id)]);
+      await Promise.all([loadPieces(id), loadMainOeuvre(id), loadPointages(id)]);
       await syncInventaireInstallationsForBt(btRow.id);
 
       const persistedTotals = await recalcAndPersistTotals(btRow.id);
@@ -1912,64 +1770,6 @@ export default function BonTravailPage() {
       fontWeight: 900,
       cursor: "pointer",
     },
-    tabsWrap: {
-      display: "flex",
-      gap: 8,
-      marginBottom: 12,
-    },
-    tabBtn: {
-      padding: "10px 14px",
-      borderRadius: 12,
-      border: "1px solid rgba(0,0,0,.12)",
-      background: "#fff",
-      fontWeight: 900,
-      cursor: "pointer",
-    },
-    tabBtnActive: {
-      padding: "10px 14px",
-      borderRadius: 12,
-      border: "1px solid #0f172a",
-      background: "#0f172a",
-      color: "#fff",
-      fontWeight: 900,
-      cursor: "pointer",
-    },
-    dropZone: {
-      border: "2px dashed #cfd6e4",
-      borderRadius: 14,
-      padding: 26,
-      textAlign: "center",
-      background: "#f8fafc",
-      cursor: "pointer",
-      transition: "all .15s ease",
-    },
-    dropZoneDragging: {
-      border: "2px dashed #2563eb",
-      background: "#eff6ff",
-    },
-    docRow: {
-      display: "flex",
-      justifyContent: "space-between",
-      alignItems: "center",
-      gap: 12,
-      padding: "12px 14px",
-      border: "1px solid rgba(0,0,0,.08)",
-      borderRadius: 12,
-      background: "#fff",
-      marginBottom: 8,
-    },
-    docBadge: {
-      display: "inline-flex",
-      alignItems: "center",
-      padding: "4px 8px",
-      borderRadius: 999,
-      fontSize: 12,
-      fontWeight: 800,
-      background: "#eef2ff",
-      color: "#1d4ed8",
-      border: "1px solid #c7d2fe",
-      marginTop: 4,
-    },
   };
 
   if (!id) return <div style={styles.page}>BT introuvable</div>;
@@ -2054,215 +1854,89 @@ export default function BonTravailPage() {
         <div style={styles.card}>Chargement…</div>
       ) : (
         <>
-          <div className="no-print" style={styles.tabsWrap}>
-            <button
-              type="button"
-              style={activeTab === "details" ? styles.tabBtnActive : styles.tabBtn}
-              onClick={() => setActiveTab("details")}
-            >
-              Détails
-            </button>
-            <button
-              type="button"
-              style={activeTab === "documents" ? styles.tabBtnActive : styles.tabBtn}
-              onClick={() => setActiveTab("documents")}
-            >
-              Documents ({documents.length})
-            </button>
-          </div>
+          <BonTravailHeaderCard
+            bt={bt}
+            unite={unite}
+            snapshotClientNom={snapshotClientNom}
+            dateOuvertureInput={dateOuvertureInput}
+            setDateOuvertureInput={setDateOuvertureInput}
+            dateFermetureInput={dateFermetureInput}
+            setDateFermetureInput={setDateFermetureInput}
+            kmInput={kmInput}
+            setKmInput={setKmInput}
+            poInput={poInput}
+            setPoInput={setPoInput}
+            isReadOnly={isReadOnly}
+            hasKmColumn={hasKmColumn}
+            clientNoteFacturation={clientCfg?.note_facturation}
+          />
 
-          {activeTab === "details" ? (
-            <>
-              <BonTravailHeaderCard
-                bt={bt}
-                unite={unite}
-                snapshotClientNom={snapshotClientNom}
-                dateOuvertureInput={dateOuvertureInput}
-                setDateOuvertureInput={setDateOuvertureInput}
-                dateFermetureInput={dateFermetureInput}
-                setDateFermetureInput={setDateFermetureInput}
-                kmInput={kmInput}
-                setKmInput={setKmInput}
-                poInput={poInput}
-                setPoInput={setPoInput}
-                isReadOnly={isReadOnly}
-                hasKmColumn={hasKmColumn}
-                clientNoteFacturation={clientCfg?.note_facturation}
-              />
-
-              <BonTravailOperations
-                btId={id}
-                notes={notes}
-                selected={selected}
-                setSelected={setSelected}
-                selectedIds={selectedIds}
-                tachesEffectuees={tachesEffectuees}
-                isReadOnly={isReadOnly}
-                onOpenTaskModal={() => {
-                  setTaskModalValue("");
-                  setTaskModalOpen(true);
-                }}
-                onCompleteSelectedTasks={completeSelectedTasks}
-                onDeleteSelectedTasks={deleteSelectedTasks}
-                onRemettreTacheOuverte={remettreTacheOuverte}
-                pieces={pieces}
-                setPieces={setPieces}
-                piecesTableAvailable={piecesTableAvailable}
-                isBtOpenPricing={isBtOpenPricing}
-                effectiveMargePiecesPct={effectiveMargePiecesPct}
-                onReloadPiecesAndRecalc={reloadPiecesAndRecalc}
-                pointagesTableAvailable={pointagesTableAvailable}
-                pointagesResume={pointagesResume}
-                pointages={pointages}
-                effectiveTauxHoraire={effectiveTauxHoraire}
-                pointageMenuOpenId={pointageMenuOpenId}
-                setPointageMenuOpenId={setPointageMenuOpenId}
-                editingPointageId={editingPointageId}
-                setEditingPointageId={setEditingPointageId}
-                editingPointageStart={editingPointageStart}
-                setEditingPointageStart={setEditingPointageStart}
-                editingPointageEnd={editingPointageEnd}
-                setEditingPointageEnd={setEditingPointageEnd}
-                onOpenEditPointage={openEditPointage}
-                onSavePointageRow={savePointageRow}
-                onDeletePointage={deletePointage}
-                mainOeuvreTableAvailable={mainOeuvreTableAvailable}
-                mainOeuvre={mainOeuvre}
-                mainOeuvreMenuOpenId={mainOeuvreMenuOpenId}
-                setMainOeuvreMenuOpenId={setMainOeuvreMenuOpenId}
-                editingMainOeuvreId={editingMainOeuvreId}
-                onOpenEditMainOeuvre={openEditMainOeuvre}
-                onSaveMainOeuvreRow={saveMainOeuvreRow}
-                onDeleteMainOeuvreRow={deleteMainOeuvreRow}
-                updateMainOeuvreLocal={updateMainOeuvreLocal}
-                onOpenTempsModal={() => {
-                  setNewMoMecano("");
-                  setNewMoDesc("");
-                  setNewMoHeures("");
-                  setNewMoTaux(String(effectiveTauxHoraire || 0));
-                  setTempsModalOpen(true);
-                }}
-                totalPiecesCout={totalPiecesCout}
-                totalPiecesFacture={totalPiecesFacture}
-                totalPointagesMainOeuvre={totalPointagesMainOeuvre}
-                totalMainOeuvreManuelle={totalMainOeuvreManuelle}
-                totalMainOeuvre={totalMainOeuvre}
-                totalFraisAtelier={totalFraisAtelier}
-                totalGeneral={totalGeneral}
-                totalTPS={totalTPS}
-                totalTVQ={totalTVQ}
-                totalFinal={totalFinal}
-                effectiveFraisAtelierPct={effectiveFraisAtelierPct}
-                effectiveTpsRate={effectiveTpsRate}
-                effectiveTvqRate={effectiveTvqRate}
-              />
-            </>
-          ) : (
-            <div style={styles.card}>
-              <div style={{ ...styles.row, justifyContent: "space-between", marginBottom: 12 }}>
-                <div>
-                  <div style={{ fontSize: 18, fontWeight: 900 }}>Documents</div>
-                  <div style={styles.muted}>Ajouter et consulter les documents liés à ce bon de travail.</div>
-                </div>
-              </div>
-
-              <div
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  if (!isReadOnly) setDraggingDocuments(true);
-                }}
-                onDragLeave={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setDraggingDocuments(false);
-                }}
-                onDrop={onDocumentsDrop}
-                onClick={() => {
-                  if (!isReadOnly) fileInputRef.current?.click();
-                }}
-                style={{
-                  ...styles.dropZone,
-                  ...(draggingDocuments ? styles.dropZoneDragging : {}),
-                  opacity: isReadOnly ? 0.7 : 1,
-                  cursor: isReadOnly ? "default" : "pointer",
-                }}
-              >
-                {uploadingDocuments ? (
-                  <div style={{ fontWeight: 800 }}>Upload en cours…</div>
-                ) : (
-                  <>
-                    <div style={{ fontSize: 16, fontWeight: 900 }}>
-                      Glisser-déposer des fichiers ici
-                    </div>
-                    <div style={{ ...styles.muted, marginTop: 6 }}>
-                      ou cliquer pour parcourir
-                    </div>
-                    <div style={{ ...styles.muted, marginTop: 8, fontSize: 12 }}>
-                      Formats courants acceptés : PDF, images, documents Office, etc.
-                    </div>
-                    {isReadOnly && (
-                      <div style={{ marginTop: 10, fontSize: 12, color: "#b45309", fontWeight: 800 }}>
-                        BT fermé / verrouillé : ajout désactivé.
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                style={{ display: "none" }}
-                onChange={(e) => {
-                  if (e.target.files?.length) void handleUploadDocuments(e.target.files);
-                }}
-              />
-
-              <div style={{ marginTop: 16 }}>
-                {documentsLoading ? (
-                  <div style={styles.muted}>Chargement des documents…</div>
-                ) : documents.length === 0 ? (
-                  <div style={styles.muted}>Aucun document lié à ce bon de travail.</div>
-                ) : (
-                  documents.map((doc) => {
-                    const isPepDoc = doc.type === "pep" || doc.source === "auto_pep";
-                    return (
-                      <div key={doc.id} style={styles.docRow}>
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{ fontWeight: 800, wordBreak: "break-word" }}>
-                            {String(doc.nom_fichier || "Document")}
-                          </div>
-                          <div style={styles.docBadge}>
-                            {isPepDoc ? "PEP" : doc.type === "photo" ? "Photo" : "Document"}
-                          </div>
-                          <div style={{ ...styles.muted, marginTop: 6, fontSize: 12 }}>
-                            Ajouté le {formatDateTimePrint(doc.created_at)}
-                          </div>
-                        </div>
-
-                        <div style={{ ...styles.row, justifyContent: "flex-end" }}>
-                          <button type="button" style={styles.btn} onClick={() => void openDocument(doc)}>
-                            Ouvrir
-                          </button>
-                          {!isPepDoc && !isReadOnly && (
-                            <button
-                              type="button"
-                              style={styles.btnDanger}
-                              onClick={() => void deleteDocument(doc)}
-                            >
-                              Supprimer
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-          )}
+          <BonTravailOperations
+            btId={id}
+            notes={notes}
+            selected={selected}
+            setSelected={setSelected}
+            selectedIds={selectedIds}
+            tachesEffectuees={tachesEffectuees}
+            isReadOnly={isReadOnly}
+            onOpenTaskModal={() => {
+              setTaskModalValue("");
+              setTaskModalOpen(true);
+            }}
+            onCompleteSelectedTasks={completeSelectedTasks}
+            onDeleteSelectedTasks={deleteSelectedTasks}
+            onRemettreTacheOuverte={remettreTacheOuverte}
+            pieces={pieces}
+            setPieces={setPieces}
+            piecesTableAvailable={piecesTableAvailable}
+            isBtOpenPricing={isBtOpenPricing}
+            effectiveMargePiecesPct={effectiveMargePiecesPct}
+            onReloadPiecesAndRecalc={reloadPiecesAndRecalc}
+            pointagesTableAvailable={pointagesTableAvailable}
+            pointagesResume={pointagesResume}
+            pointages={pointages}
+            effectiveTauxHoraire={effectiveTauxHoraire}
+            pointageMenuOpenId={pointageMenuOpenId}
+            setPointageMenuOpenId={setPointageMenuOpenId}
+            editingPointageId={editingPointageId}
+            setEditingPointageId={setEditingPointageId}
+            editingPointageStart={editingPointageStart}
+            setEditingPointageStart={setEditingPointageStart}
+            editingPointageEnd={editingPointageEnd}
+            setEditingPointageEnd={setEditingPointageEnd}
+            onOpenEditPointage={openEditPointage}
+            onSavePointageRow={savePointageRow}
+            onDeletePointage={deletePointage}
+            mainOeuvreTableAvailable={mainOeuvreTableAvailable}
+            mainOeuvre={mainOeuvre}
+            mainOeuvreMenuOpenId={mainOeuvreMenuOpenId}
+            setMainOeuvreMenuOpenId={setMainOeuvreMenuOpenId}
+            editingMainOeuvreId={editingMainOeuvreId}
+            onOpenEditMainOeuvre={openEditMainOeuvre}
+            onSaveMainOeuvreRow={saveMainOeuvreRow}
+            onDeleteMainOeuvreRow={deleteMainOeuvreRow}
+            updateMainOeuvreLocal={updateMainOeuvreLocal}
+            onOpenTempsModal={() => {
+              setNewMoMecano("");
+              setNewMoDesc("");
+              setNewMoHeures("");
+              setNewMoTaux(String(effectiveTauxHoraire || 0));
+              setTempsModalOpen(true);
+            }}
+            totalPiecesCout={totalPiecesCout}
+            totalPiecesFacture={totalPiecesFacture}
+            totalPointagesMainOeuvre={totalPointagesMainOeuvre}
+            totalMainOeuvreManuelle={totalMainOeuvreManuelle}
+            totalMainOeuvre={totalMainOeuvre}
+            totalFraisAtelier={totalFraisAtelier}
+            totalGeneral={totalGeneral}
+            totalTPS={totalTPS}
+            totalTVQ={totalTVQ}
+            totalFinal={totalFinal}
+            effectiveFraisAtelierPct={effectiveFraisAtelierPct}
+            effectiveTpsRate={effectiveTpsRate}
+            effectiveTvqRate={effectiveTvqRate}
+          />
         </>
       )}
 
