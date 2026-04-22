@@ -26,3 +26,9 @@ select,
 textarea {
   font: inherit;
 }
+
+@keyframes pep-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
