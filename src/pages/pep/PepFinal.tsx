@@ -811,6 +811,39 @@ async function attachPepPdfToBt(
   }
 }
 
+async function renderPepPdfBlob(html: string, filename: string) {
+  const supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL;
+  const anonKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY;
+  const renderSecret = (import.meta as any).env?.VITE_PDF_RENDER_SECRET;
+
+  if (!supabaseUrl) throw new Error("VITE_SUPABASE_URL manquant");
+  if (!anonKey) throw new Error("VITE_SUPABASE_ANON_KEY manquant");
+  if (!renderSecret) throw new Error("VITE_PDF_RENDER_SECRET manquant");
+
+  const url = `${supabaseUrl}/functions/v1/render-pdf`;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      apikey: anonKey,
+      authorization: `Bearer ${anonKey}`,
+      "content-type": "application/json",
+      "x-render-secret": renderSecret,
+    },
+    body: JSON.stringify({
+      html,
+      filename,
+    }),
+  });
+
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(txt || "Erreur génération PDF");
+  }
+
+  return await res.blob();
+}
+
 export default function PepFinal() {
   const location = useLocation();
   const navigate = useNavigate();
