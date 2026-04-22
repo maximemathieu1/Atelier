@@ -147,7 +147,7 @@ html, body {
   padding-bottom:72px !important;
 }
 
-@keyframes pep-spin {
+ {
   to { transform: rotate(360deg); }
 }
 
@@ -1252,17 +1252,48 @@ export default function PepFinal() {
         </div>
       )}
 
-      {archiveBusy && (
-        <div style={styles.loadingOverlay}>
-          <div style={styles.loadingCard}>
-            <div style={styles.spinner} />
-            <div style={styles.loadingTitle}>Traitement du PEP en cours</div>
-            <div style={styles.loadingText}>
-              Génération du PDF, archivage et liaison au bon de travail...
-            </div>
-          </div>
-        </div>
-      )}
+     {archiveBusy && (
+  <div style={styles.loadingOverlay}>
+    <div style={styles.loadingCard}>
+      <svg
+        viewBox="0 0 50 50"
+        style={styles.spinnerSvg}
+        aria-hidden="true"
+      >
+        <circle
+          cx="25"
+          cy="25"
+          r="20"
+          fill="none"
+          stroke="#dbe4f0"
+          strokeWidth="5"
+        />
+        <path
+          d="M25 5
+             a20 20 0 0 1 20 20"
+          fill="none"
+          stroke="#1d4ed8"
+          strokeWidth="5"
+          strokeLinecap="round"
+        >
+          <animateTransform
+            attributeName="transform"
+            type="rotate"
+            from="0 25 25"
+            to="360 25 25"
+            dur="1s"
+            repeatCount="indefinite"
+          />
+        </path>
+      </svg>
+
+      <div style={styles.loadingTitle}>Traitement du PEP en cours</div>
+      <div style={styles.loadingText}>
+        Génération du PDF, archivage et liaison au bon de travail...
+      </div>
+    </div>
+  </div>
+)}
 
       <div style={styles.viewerWrap}>
         <div style={styles.viewer}>
@@ -1515,13 +1546,10 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 12,
     textAlign: "center",
   },
-  spinner: {
-    width: 44,
-    height: 44,
-    border: "4px solid #dbe4f0",
-    borderTop: "4px solid #1d4ed8",
-    borderRadius: "50%",
-    animation: "pep-spin 1s linear infinite",
+  spinnerSvg: {
+  width: 52,
+  height: 52,
+  display: "block",
   },
   loadingTitle: {
     fontSize: 18,
