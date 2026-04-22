@@ -760,86 +760,6 @@ async function syncPepTaskAndHistorique(btRow: any, datePep: string, km: number 
   }
 }
 
-async function attachPepArchiveToBt(
-  btId: string,
-  pepArchiveId: string,
-  nomFichier: string,
-  htmlLength: number
-) {
-  try {
-    const { data: existingDoc, error: existingDocErr } = await supabase
-      .from("bt_documents")
-      .select("id")
-      .eq("bt_id", btId)
-      .eq("pep_id", pepArchiveId)
-      .eq("type", "pep")
-      .maybeSingle();
-
-    if (existingDocErr) throw existingDocErr;
-
-    const row = {
-      bt_id: btId,
-      pep_id: pepArchiveId,
-      type: "pep",
-      nom_fichier: nomFichier,
-      storage_path: `pep_archive:${pepArchiveId}`,
-      mime_type: "text/html",
-      taille_bytes: htmlLength,
-      source: "auto_pep",
-    } as any;
-
-    if (existingDoc?.id) {
-      const { error: updateDocErr } = await supabase
-        .from("bt_documents")
-        .update(row)
-        .eq("id", existingDoc.id);
-      if (updateDocErr) throw updateDocErr;
-    } else {
-      const { error: insertDocErr } = await supabase.from("bt_documents").insert(row);
-      if (insertDocErr) throw insertDocErr;
-    }
-  } catch (e: any) {
-    const code = String(e?.code || "");
-    if (code === "42P01" || code === "PGRST205") {
-      console.warn("Table bt_documents absente; attachement PEP ignoré pour l'instant.");
-      return;
-    }
-    throw e;
-  }
-}
-
-async function renderPepPdfBlob(html: string, filename: string) {
-  const supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL;
-  const anonKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY;
-  const renderSecret = (import.meta as any).env?.VITE_PDF_RENDER_SECRET;
-
-  if (!supabaseUrl) throw new Error("VITE_SUPABASE_URL manquant");
-  if (!anonKey) throw new Error("VITE_SUPABASE_ANON_KEY manquant");
-  if (!renderSecret) throw new Error("VITE_PDF_RENDER_SECRET manquant");
-
-  const url = `${supabaseUrl}/functions/v1/render-pdf`;
-
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      apikey: anonKey,
-      authorization: `Bearer ${anonKey}`,
-      "content-type": "application/json",
-      "x-render-secret": renderSecret,
-    },
-    body: JSON.stringify({
-      html,
-      filename,
-    }),
-  });
-
-  if (!res.ok) {
-    const txt = await res.text().catch(() => "");
-    throw new Error(txt || "Erreur génération PDF");
-  }
-
-  return await res.blob();
-}
 
 async function attachPepPdfToBt(
   btId: string,
@@ -942,36 +862,37 @@ export default function PepFinal() {
 
   const isSigned = Boolean(signature && signature.trim());
 
-  useEffect(() => {
-    if (!payload) return;
+ useEffect(() => {
+  if (!payload) return;
 
-    let cancelled = false;
+  let cancelled = false;
+  const currentPayload = payload;
 
-    async function loadPreview() {
-      try {
-        const res = await fetch("/templates/Fiche.sans.footer.html", { cache: "no-store" });
-        if (!res.ok) throw new Error("Impossible de charger le template PEP.");
+  async function loadPreview() {
+    try {
+      const res = await fetch("/templates/Fiche.sans.footer.html", { cache: "no-store" });
+      if (!res.ok) throw new Error("Impossible de charger le template PEP.");
 
-        const rawTemplate = await res.text();
-        const splitPages = splitTemplateIntoPages(rawTemplate, payload);
-        const fullProcessed = buildFullProcessedDocument(rawTemplate, payload);
+      const rawTemplate = await res.text();
+      const splitPages = splitTemplateIntoPages(rawTemplate, currentPayload);
+      const fullProcessed = buildFullProcessedDocument(rawTemplate, currentPayload);
 
-        if (!cancelled) {
-          setPages(splitPages);
-          setPrintHtml(fullProcessed);
-          setPageIndex((prev) => Math.min(prev, Math.max(splitPages.length - 1, 0)));
-        }
-      } catch (e) {
-        if (!cancelled) console.error(e);
+      if (!cancelled) {
+        setPages(splitPages);
+        setPrintHtml(fullProcessed);
+        setPageIndex((prev) => Math.min(prev, Math.max(splitPages.length - 1, 0)));
       }
+    } catch (e) {
+      if (!cancelled) console.error(e);
     }
+  }
 
-    loadPreview();
+  loadPreview();
 
-    return () => {
-      cancelled = true;
-    };
-  }, [payload]);
+  return () => {
+    cancelled = true;
+  };
+}, [payload]);
 
   useEffect(() => {
     if (!signModalOpen) return;
