@@ -147,6 +147,10 @@ html, body {
   padding-bottom:72px !important;
 }
 
+@keyframes pep-spin {
+  to { transform: rotate(360deg); }
+}
+
 @media print {
   html, body { background:#fff; }
   .page {
@@ -760,7 +764,6 @@ async function syncPepTaskAndHistorique(btRow: any, datePep: string, km: number 
   }
 }
 
-
 async function attachPepPdfToBt(
   btId: string,
   pepArchiveId: string,
@@ -895,37 +898,37 @@ export default function PepFinal() {
 
   const isSigned = Boolean(signature && signature.trim());
 
- useEffect(() => {
-  if (!payload) return;
+  useEffect(() => {
+    if (!payload) return;
 
-  let cancelled = false;
-  const currentPayload = payload;
+    let cancelled = false;
+    const currentPayload = payload;
 
-  async function loadPreview() {
-    try {
-      const res = await fetch("/templates/Fiche.sans.footer.html", { cache: "no-store" });
-      if (!res.ok) throw new Error("Impossible de charger le template PEP.");
+    async function loadPreview() {
+      try {
+        const res = await fetch("/templates/Fiche.sans.footer.html", { cache: "no-store" });
+        if (!res.ok) throw new Error("Impossible de charger le template PEP.");
 
-      const rawTemplate = await res.text();
-      const splitPages = splitTemplateIntoPages(rawTemplate, currentPayload);
-      const fullProcessed = buildFullProcessedDocument(rawTemplate, currentPayload);
+        const rawTemplate = await res.text();
+        const splitPages = splitTemplateIntoPages(rawTemplate, currentPayload);
+        const fullProcessed = buildFullProcessedDocument(rawTemplate, currentPayload);
 
-      if (!cancelled) {
-        setPages(splitPages);
-        setPrintHtml(fullProcessed);
-        setPageIndex((prev) => Math.min(prev, Math.max(splitPages.length - 1, 0)));
+        if (!cancelled) {
+          setPages(splitPages);
+          setPrintHtml(fullProcessed);
+          setPageIndex((prev) => Math.min(prev, Math.max(splitPages.length - 1, 0)));
+        }
+      } catch (e) {
+        if (!cancelled) console.error(e);
       }
-    } catch (e) {
-      if (!cancelled) console.error(e);
     }
-  }
 
-  loadPreview();
+    loadPreview();
 
-  return () => {
-    cancelled = true;
-  };
-}, [payload]);
+    return () => {
+      cancelled = true;
+    };
+  }, [payload]);
 
   useEffect(() => {
     if (!signModalOpen) return;
@@ -1084,93 +1087,93 @@ export default function PepFinal() {
   }
 
   async function handleArchivePep() {
-  if (!payload) return;
+    if (!payload) return;
 
-  if (!payload.unite_id) {
-    setArchiveError("unite_id manquant dans le payload envoyé depuis PepNouvelle.");
-    setArchiveDone(false);
-    return;
-  }
-
-  if (!printHtml) {
-    setArchiveError("Le HTML final n'est pas prêt.");
-    setArchiveDone(false);
-    return;
-  }
-
-  setArchiveBusy(true);
-  setArchiveDone(false);
-  setArchiveError("");
-
-  try {
-    const insertPayload: PepArchiveInsert = {
-      unite_id: payload.unite_id,
-      unite: payload.unite ?? null,
-      date_pep: payload.date_pep ?? null,
-      date_prochain: payload.date_prochain ?? null,
-      num_mecano: payload.num_mecano ?? null,
-      odometre: payload.odom ?? null,
-      payload_json: payload,
-      signature_data_url: signature || null,
-      html_complet: printHtml,
-      pages_html: pages,
-    };
-
-    const { data: insertedArchive, error } = await supabase
-      .from("pep_archives")
-      .insert(insertPayload)
-      .select("id")
-      .single();
-
-    if (error) throw error;
-
-    const pepArchiveId = String((insertedArchive as any)?.id || "").trim();
-    if (!pepArchiveId) {
-      throw new Error("Impossible de récupérer l'identifiant du PEP archivé.");
+    if (!payload.unite_id) {
+      setArchiveError("unite_id manquant dans le payload envoyé depuis PepNouvelle.");
+      setArchiveDone(false);
+      return;
     }
 
-    const km =
-      payload.odom != null &&
-      String(payload.odom).trim() !== "" &&
-      Number.isFinite(Number(payload.odom))
-        ? Number(payload.odom)
-        : null;
+    if (!printHtml) {
+      setArchiveError("Le HTML final n'est pas prêt.");
+      setArchiveDone(false);
+      return;
+    }
 
-    const { bt } = await getOrCreatePepBt(
-      payload.unite_id,
-      payload.date_pep ?? new Date().toISOString().slice(0, 10),
-      km,
-      payload.mecano_nom ?? null,
-      payload.num_mecano ?? null
-    );
-
-    await syncPepTaskAndHistorique(
-      bt,
-      payload.date_pep ?? new Date().toISOString().slice(0, 10),
-      km
-    );
-
-    const pepPdfFilename = `PEP-${payload.unite || "unite"}-${payload.date_pep || new Date().toISOString().slice(0, 10)}.pdf`;
-
-    const pdfBlob = await renderPepPdfBlob(printHtml, pepPdfFilename);
-
-    await attachPepPdfToBt(
-      bt.id,
-      pepArchiveId,
-      pepPdfFilename,
-      pdfBlob
-    );
-
-    setArchiveDone(true);
-    setArchiveError("");
-  } catch (e: any) {
-    console.error(e);
-    setArchiveError(e?.message ?? "Erreur inconnue pendant l'archivage.");
+    setArchiveBusy(true);
     setArchiveDone(false);
-  } finally {
-    setArchiveBusy(false);
+    setArchiveError("");
+
+    try {
+      const insertPayload: PepArchiveInsert = {
+        unite_id: payload.unite_id,
+        unite: payload.unite ?? null,
+        date_pep: payload.date_pep ?? null,
+        date_prochain: payload.date_prochain ?? null,
+        num_mecano: payload.num_mecano ?? null,
+        odometre: payload.odom ?? null,
+        payload_json: payload,
+        signature_data_url: signature || null,
+        html_complet: printHtml,
+        pages_html: pages,
+      };
+
+      const { data: insertedArchive, error } = await supabase
+        .from("pep_archives")
+        .insert(insertPayload)
+        .select("id")
+        .single();
+
+      if (error) throw error;
+
+      const pepArchiveId = String((insertedArchive as any)?.id || "").trim();
+      if (!pepArchiveId) {
+        throw new Error("Impossible de récupérer l'identifiant du PEP archivé.");
+      }
+
+      const km =
+        payload.odom != null &&
+        String(payload.odom).trim() !== "" &&
+        Number.isFinite(Number(payload.odom))
+          ? Number(payload.odom)
+          : null;
+
+      const { bt } = await getOrCreatePepBt(
+        payload.unite_id,
+        payload.date_pep ?? new Date().toISOString().slice(0, 10),
+        km,
+        payload.mecano_nom ?? null,
+        payload.num_mecano ?? null
+      );
+
+      await syncPepTaskAndHistorique(
+        bt,
+        payload.date_pep ?? new Date().toISOString().slice(0, 10),
+        km
+      );
+
+      const pepPdfFilename = `PEP-${payload.unite || "unite"}-${payload.date_pep || new Date().toISOString().slice(0, 10)}.pdf`;
+
+      const pdfBlob = await renderPepPdfBlob(printHtml, pepPdfFilename);
+
+      await attachPepPdfToBt(
+        bt.id,
+        pepArchiveId,
+        pepPdfFilename,
+        pdfBlob
+      );
+
+      setArchiveDone(true);
+      setArchiveError("");
+    } catch (e: any) {
+      console.error(e);
+      setArchiveError(e?.message ?? "Erreur inconnue pendant l'archivage.");
+      setArchiveDone(false);
+    } finally {
+      setArchiveBusy(false);
+    }
   }
-}
 
   function handleArchiveClick() {
     if (!requireSignature()) return;
@@ -1223,12 +1226,14 @@ export default function PepFinal() {
                 <button
                   type="button"
                   onClick={handleArchiveClick}
+                  disabled={!isSigned || archiveBusy}
                   style={{
                     ...styles.actionsMenuItem,
                     ...(!isSigned || archiveBusy ? styles.actionsMenuItemDisabled : {}),
+                    cursor: !isSigned || archiveBusy ? "not-allowed" : "pointer",
                   }}
                 >
-                  {archiveBusy ? "Archivage..." : "Archiver le PEP"}
+                  {archiveBusy ? "Génération du PDF..." : "Archiver le PEP"}
                 </button>
               </div>
             )}
@@ -1244,6 +1249,18 @@ export default function PepFinal() {
           }}
         >
           {archiveError || "PEP archivé avec succès."}
+        </div>
+      )}
+
+      {archiveBusy && (
+        <div style={styles.loadingOverlay}>
+          <div style={styles.loadingCard}>
+            <div style={styles.spinner} />
+            <div style={styles.loadingTitle}>Traitement du PEP en cours</div>
+            <div style={styles.loadingText}>
+              Génération du PDF, archivage et liaison au bon de travail...
+            </div>
+          </div>
         </div>
       )}
 
@@ -1475,6 +1492,47 @@ const styles: Record<string, React.CSSProperties> = {
     background: "#fef2f2",
     border: "1px solid #fecaca",
     color: "#991b1b",
+  },
+  loadingOverlay: {
+    position: "fixed",
+    inset: 0,
+    background: "rgba(15, 23, 42, 0.45)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 2500,
+    padding: 20,
+  },
+  loadingCard: {
+    width: "min(460px, 100%)",
+    background: "#ffffff",
+    borderRadius: 16,
+    border: "1px solid #d1d5db",
+    boxShadow: "0 20px 50px rgba(0,0,0,0.20)",
+    padding: "28px 24px",
+    display: "grid",
+    justifyItems: "center",
+    gap: 12,
+    textAlign: "center",
+  },
+  spinner: {
+    width: 44,
+    height: 44,
+    border: "4px solid #dbe4f0",
+    borderTop: "4px solid #1d4ed8",
+    borderRadius: "50%",
+    animation: "pep-spin 1s linear infinite",
+  },
+  loadingTitle: {
+    fontSize: 18,
+    fontWeight: 800,
+    color: "#111827",
+  },
+  loadingText: {
+    fontSize: 14,
+    fontWeight: 600,
+    color: "#4b5563",
+    lineHeight: 1.5,
   },
   modalBackdrop: {
     position: "fixed",
