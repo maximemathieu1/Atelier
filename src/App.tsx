@@ -15,6 +15,7 @@ import ClientView from "./pages/ClientView";
 import UniteView from "./pages/UniteView";
 import EmployesPage from "./pages/EmployesPage";
 
+import DashboardAtelier from "./pages/DashboardAtelier";
 import BTListe from "./pages/BTListe";
 import BonTravailPage from "./pages/BonTravailPage";
 import BonTravailMecanoPage from "./pages/BonTravailMecanoPage";
@@ -88,74 +89,83 @@ function AppShell({ onLogout }: { onLogout: () => void | Promise<void> }) {
       )}
 
       <aside
-        className={
-          "sidebar" +
-          (isMobile ? " sidebar-drawer" : "") +
-          (isMobile && drawerOpen ? " open" : "")
-        }
-      >
-        <div className="brand">
-          <img src="/logo-groupe-breton.png" className="brand-logo" />
-        </div>
+  className={
+    "sidebar" +
+    (isMobile ? " sidebar-drawer" : "") +
+    (isMobile && drawerOpen ? " open" : "")
+  }
+>
+  <div className="brand">
+    <img src="/logo-groupe-breton.png" className="brand-logo" />
+  </div>
 
-        <div className="section">
-          <div className="section-title">ADMINISTRATION</div>
+  {/* ================= ATELIER ================= */}
+  <div className="section">
+    <div className="section-title">ATELIER</div>
 
-          <NavLink to="/clients" className={linkClass} onClick={onNavClick}>
-            Clients
-          </NavLink>
+    <NavLink to="/dashboard-atelier" className={linkClass} onClick={onNavClick}>
+      Tableau de bord
+    </NavLink>
 
-          <NavLink to="/unites" className={linkClass} onClick={onNavClick}>
-            Unités
-          </NavLink>
+    <NavLink to="/bt" className={linkClass} onClick={onNavClick}>
+      Bon Travail
+    </NavLink>
 
-          <NavLink to="/employes" className={linkClass} onClick={onNavClick}>
-            Employés
-          </NavLink>
-        </div>
+    <NavLink to="/operation-temps-reel" className={linkClass} onClick={onNavClick}>
+      Opération Temps réel
+    </NavLink>
 
-        <div className="section">
-          <div className="section-title">ATELIER</div>
+    <NavLink to="/pep" className={linkClass} onClick={onNavClick}>
+      PEP
+    </NavLink>
 
-          <NavLink to="/bt" className={linkClass} onClick={onNavClick}>
-            Bons de travail
-          </NavLink>
+    <NavLink to="/inventaire" className={linkClass} onClick={onNavClick}>
+      Inventaire
+    </NavLink>
+  </div>
 
-          <NavLink to="/inventaire" className={linkClass} onClick={onNavClick}>
-            Inventaire
-          </NavLink>
+  {/* ================= ADMINISTRATION ================= */}
+  <div className="section">
+    <div className="section-title">ADMINISTRATION</div>
 
-          <NavLink to="/operation-temps-reel" className={linkClass} onClick={onNavClick}>
-            Opération temps réel
-          </NavLink>
+    <NavLink to="/clients" className={linkClass} onClick={onNavClick}>
+      Clients
+    </NavLink>
 
-          <NavLink to="/pep" className={linkClass} onClick={onNavClick}>
-            PEP
-          </NavLink>
-        </div>
+    <NavLink to="/unites" className={linkClass} onClick={onNavClick}>
+      Unités
+    </NavLink>
 
-        <div className="section">
-          <div className="section-title">COMPTABILITÉ</div>
+    <NavLink to="/employes" className={linkClass} onClick={onNavClick}>
+      Employés
+    </NavLink>
+  </div>
 
-          <NavLink to="/facturation" className={linkClass} onClick={onNavClick}>
-            Facturation
-          </NavLink>
-        </div>
+  {/* ================= COMPTABILITÉ ================= */}
+  <div className="section">
+    <div className="section-title">COMPTABILITÉ</div>
 
-        <div className="section">
-          <div className="section-title">SYSTÈME</div>
+    <NavLink to="/facturation" className={linkClass} onClick={onNavClick}>
+      Comptabilité
+    </NavLink>
+  </div>
 
-          <NavLink to="/parametres-systeme" className={linkClass} onClick={onNavClick}>
-            Paramètres système
-          </NavLink>
-        </div>
+  {/* ================= SYSTÈME ================= */}
+  <div className="section">
+    <div className="section-title">SYSTÈME</div>
 
-        <div className="section">
-          <button className="logout-btn" onClick={onLogout} type="button">
-            Se déconnecter
-          </button>
-        </div>
-      </aside>
+    <NavLink to="/parametres-systeme" className={linkClass} onClick={onNavClick}>
+      Système
+    </NavLink>
+  </div>
+
+  {/* ================= LOGOUT ================= */}
+  <div className="section">
+    <button className="logout-btn" onClick={onLogout} type="button">
+      Se déconnecter
+    </button>
+  </div>
+</aside>
 
       <main className="content">
         {isMobile && (
@@ -174,7 +184,7 @@ function AppShell({ onLogout }: { onLogout: () => void | Promise<void> }) {
         )}
 
         <Routes>
-          <Route path="/" element={<Navigate to="/clients" replace />} />
+          <Route path="/" element={<Navigate to="/dashboard-atelier" replace />} />
 
           <Route path="/clients" element={<ClientsListe />} />
           <Route path="/clients/:id" element={<ClientView />} />
@@ -183,6 +193,8 @@ function AppShell({ onLogout }: { onLogout: () => void | Promise<void> }) {
           <Route path="/unites/:id" element={<UniteView />} />
 
           <Route path="/employes" element={<EmployesPage />} />
+
+          <Route path="/dashboard-atelier" element={<DashboardAtelier />} />
 
           <Route path="/bt" element={<BTListe />} />
           <Route path="/bt/:id" element={<BonTravailPage />} />
@@ -222,7 +234,7 @@ function AppShell({ onLogout }: { onLogout: () => void | Promise<void> }) {
             element={<ParametresDicteeVocalePage />}
           />
 
-          <Route path="*" element={<Navigate to="/clients" replace />} />
+          <Route path="*" element={<Navigate to="/dashboard-atelier" replace />} />
         </Routes>
       </main>
     </div>
@@ -260,8 +272,13 @@ export default function App() {
       setIsAuthed(authed);
       setLoading(false);
 
-      if (authed && pathRef.current === "/login") nav("/", { replace: true });
-      if (!authed && pathRef.current !== "/login") nav("/login", { replace: true });
+      if (authed && pathRef.current === "/login") {
+        nav("/dashboard-atelier", { replace: true });
+      }
+
+      if (!authed && pathRef.current !== "/login") {
+        nav("/login", { replace: true });
+      }
     }
 
     init();
@@ -271,7 +288,7 @@ export default function App() {
       setIsAuthed(authed);
 
       if (!authed) nav("/login", { replace: true });
-      else if (pathRef.current === "/login") nav("/", { replace: true });
+      else if (pathRef.current === "/login") nav("/dashboard-atelier", { replace: true });
     });
 
     return () => {
@@ -292,7 +309,7 @@ export default function App() {
       <Routes>
         <Route
           path="/login"
-          element={<Login onLoggedIn={() => nav("/", { replace: true })} />}
+          element={<Login onLoggedIn={() => nav("/dashboard-atelier", { replace: true })} />}
         />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
