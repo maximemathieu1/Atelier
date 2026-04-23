@@ -130,6 +130,12 @@ type EntretienFilterKey =
   | "en_retard"
   | "a_prevoir";
 
+type DashboardTab =
+  | "vue_generale"
+  | "entretiens"
+  | "taches_ouvertes"
+  | "stock_bas";
+
 type EntretienDashboardRow = {
   id: string;
   sourceType: "template" | "unite";
@@ -153,6 +159,31 @@ type EntretienDashboardRow = {
   prochainDuText: string;
 };
 
+type UniteNoteRow = {
+  id: string;
+  unite_id: string;
+  titre: string;
+  details?: string | null;
+  created_at?: string | null;
+  entretien_auto?: boolean | null;
+  unites?: {
+    id?: string;
+    no_unite?: string | null;
+    marque?: string | null;
+    modele?: string | null;
+  } | null;
+};
+
+type TacheOuverteParUnite = {
+  unite_id: string;
+  unite_no: string;
+  unite_label: string;
+  taches: UniteNoteRow[];
+  total: number;
+  entretienAutoCount: number;
+  oldestCreatedAt: string | null;
+};
+
 type DashboardData = {
   btOuverts: BtRow[];
   btAFacturer: BtRow[];
@@ -171,6 +202,7 @@ export default function DashboardAtelier() {
   const [errorMsg, setErrorMsg] = useState("");
   const [entretienFilter, setEntretienFilter] =
     useState<EntretienFilterKey>("jamais_fait");
+  const [activeTab, setActiveTab] = useState<DashboardTab>("vue_generale");
 
   const [data, setData] = useState<DashboardData>({
     btOuverts: [],
@@ -183,6 +215,8 @@ export default function DashboardAtelier() {
     unitItems: [],
     historique: [],
   });
+
+  const [openTasks, setOpenTasks] = useState<UniteNoteRow[]>([]);
 
   async function loadDashboard(isRefresh = false) {
     try {
@@ -199,6 +233,7 @@ export default function DashboardAtelier() {
         templateItemsRes,
         unitItemsRes,
         historiqueRes,
+        openTasksRes,
       ] = await Promise.all([
         supabase
           .from("bons_travail")
@@ -261,21 +296,21 @@ export default function DashboardAtelier() {
           .limit(50),
 
         supabase
-  .from("unite_entretien_templates")
-  .select(`
-    id,
-    unite_id,
-    template_id,
-    actif,
-    unites:unite_id (
-      id,
-      no_unite,
-      marque,
-      modele,
-      km_actuel
-    )
-  `)
-  .eq("actif", true),
+          .from("unite_entretien_templates")
+          .select(`
+            id,
+            unite_id,
+            template_id,
+            actif,
+            unites:unite_id (
+              id,
+              no_unite,
+              marque,
+              modele,
+              km_actuel
+            )
+          `)
+          .eq("actif", true),
 
         supabase
           .from("entretien_templates")
@@ -331,6 +366,24 @@ export default function DashboardAtelier() {
           `)
           .order("date_effectuee", { ascending: false })
           .order("created_at", { ascending: false }),
+
+        supabase
+          .from("unite_notes")
+          .select(`
+            id,
+            unite_id,
+            titre,
+            details,
+            created_at,
+            entretien_auto,
+            unites:unite_id (
+              id,
+              no_unite,
+              marque,
+              modele
+            )
+          `)
+          .order("created_at", { ascending: true }),
       ]);
 
       if (btRes.error) console.error("Dashboard bons_travail error:", btRes.error);
@@ -341,6 +394,7 @@ export default function DashboardAtelier() {
       if (templateItemsRes.error) console.error("Dashboard entretien_template_items error:", templateItemsRes.error);
       if (unitItemsRes.error) console.error("Dashboard unite_entretien_items error:", unitItemsRes.error);
       if (historiqueRes.error) console.error("Dashboard unite_entretien_historique error:", historiqueRes.error);
+      if (openTasksRes.error) console.error("Dashboard unite_notes error:", openTasksRes.error);
 
       const btRows = (btRes.data ?? []) as BtRow[];
       const stockRows = (stockRes.data ?? []) as StockRow[];
@@ -350,6 +404,7 @@ export default function DashboardAtelier() {
       const templateItems = (templateItemsRes.data ?? []) as EntretienTemplateItem[];
       const unitItems = (unitItemsRes.data ?? []) as UniteEntretienItem[];
       const historique = (historiqueRes.data ?? []) as EntretienHistorique[];
+      const openTasksRows = (openTasksRes.data ?? []) as UniteNoteRow[];
 
       const normalize = (value: string | null | undefined) =>
         (value ?? "")
@@ -432,6 +487,8 @@ export default function DashboardAtelier() {
         historique,
       });
 
+      setOpenTasks(openTasksRows);
+
       if (
         btRes.error ||
         stockRes.error ||
@@ -440,7 +497,8 @@ export default function DashboardAtelier() {
         templatesRes.error ||
         templateItemsRes.error ||
         unitItemsRes.error ||
-        historiqueRes.error
+        historiqueRes.error ||
+        openTasksRes.error
       ) {
         setErrorMsg(
           "Certaines données n'ont pas pu être chargées. Vérifie la console pour le détail."
@@ -481,28 +539,28 @@ export default function DashboardAtelier() {
     const assignedSet = new Set(data.assignedTemplates.map((x) => x.template_id));
     const templateMap = new Map(data.templates.map((t) => [t.id, t]));
 
-  const uniteMap = new Map<
-  string,
-  {
-    id?: string;
-    no_unite?: string | null;
-    marque?: string | null;
-    modele?: string | null;
-    km_actuel?: number | null;
-  } | null
->();
+    const uniteMap = new Map<
+      string,
+      {
+        id?: string;
+        no_unite?: string | null;
+        marque?: string | null;
+        modele?: string | null;
+        km_actuel?: number | null;
+      } | null
+    >();
 
-for (const assigned of data.assignedTemplates) {
-  if (assigned.unites) {
-    uniteMap.set(assigned.unite_id, assigned.unites);
-  }
-}
+    for (const assigned of data.assignedTemplates) {
+      if (assigned.unites) {
+        uniteMap.set(assigned.unite_id, assigned.unites);
+      }
+    }
 
-for (const unitItem of data.unitItems) {
-  if (unitItem.unites) {
-    uniteMap.set(unitItem.unite_id, unitItem.unites);
-  }
-}
+    for (const unitItem of data.unitItems) {
+      if (unitItem.unites) {
+        uniteMap.set(unitItem.unite_id, unitItem.unites);
+      }
+    }
 
     const hByTemplateItemAndUnit = new Map<string, EntretienHistorique>();
     const hByUnitItem = new Map<string, EntretienHistorique>();
@@ -531,9 +589,10 @@ for (const unitItem of data.unitItems) {
 
         return unitLinks.map((unitLink) => {
           const unite =
-  uniteMap.get(unitLink.unite_id) ??
-  unitLink.unites ??
-  null;
+            uniteMap.get(unitLink.unite_id) ??
+            unitLink.unites ??
+            null;
+
           const histKey = `${it.id}::${unitLink.unite_id}`;
           const lastDone = hByTemplateItemAndUnit.get(histKey) ?? null;
 
@@ -769,6 +828,52 @@ for (const unitItem of data.unitItems) {
     return visibles.filter((item) => item.statusKey === entretienFilter);
   }, [entretiensComputed, entretienFilter]);
 
+  const tasksByUnit = useMemo<TacheOuverteParUnite[]>(() => {
+    const map = new Map<string, TacheOuverteParUnite>();
+
+    for (const task of openTasks) {
+      const uniteId = task.unite_id;
+      const uniteNo = task.unites?.no_unite ?? "—";
+      const uniteLabel =
+        [task.unites?.marque, task.unites?.modele].filter(Boolean).join(" ") || "—";
+
+      if (!map.has(uniteId)) {
+        map.set(uniteId, {
+          unite_id: uniteId,
+          unite_no: uniteNo,
+          unite_label: uniteLabel,
+          taches: [],
+          total: 0,
+          entretienAutoCount: 0,
+          oldestCreatedAt: task.created_at ?? null,
+        });
+      }
+
+      const group = map.get(uniteId)!;
+      group.taches.push(task);
+      group.total += 1;
+
+      if (task.entretien_auto) {
+        group.entretienAutoCount += 1;
+      }
+
+      if (
+        task.created_at &&
+        (!group.oldestCreatedAt || task.created_at < group.oldestCreatedAt)
+      ) {
+        group.oldestCreatedAt = task.created_at;
+      }
+    }
+
+    return Array.from(map.values()).sort((a, b) => {
+      if (b.total !== a.total) return b.total - a.total;
+      if (b.entretienAutoCount !== a.entretienAutoCount) {
+        return b.entretienAutoCount - a.entretienAutoCount;
+      }
+      return (a.oldestCreatedAt || "").localeCompare(b.oldestCreatedAt || "");
+    });
+  }, [openTasks]);
+
   const stats = useMemo(
     () => ({
       btOuverts: data.btOuverts.length,
@@ -880,109 +985,335 @@ for (const unitItem of data.unitItems) {
         </div>
       </div>
 
+      <div style={styles.tabsBar}>
+        <button
+          type="button"
+          style={{
+            ...styles.tabBtn,
+            ...(activeTab === "vue_generale" ? styles.tabBtnActive : {}),
+          }}
+          onClick={() => setActiveTab("vue_generale")}
+        >
+          Vue générale
+        </button>
+
+        <button
+          type="button"
+          style={{
+            ...styles.tabBtn,
+            ...(activeTab === "entretiens" ? styles.tabBtnActive : {}),
+          }}
+          onClick={() => setActiveTab("entretiens")}
+        >
+          Entretien à venir
+        </button>
+
+        <button
+          type="button"
+          style={{
+            ...styles.tabBtn,
+            ...(activeTab === "taches_ouvertes" ? styles.tabBtnActive : {}),
+          }}
+          onClick={() => setActiveTab("taches_ouvertes")}
+        >
+          Tâches ouvertes
+        </button>
+
+        <button
+          type="button"
+          style={{
+            ...styles.tabBtn,
+            ...(activeTab === "stock_bas" ? styles.tabBtnActive : {}),
+          }}
+          onClick={() => setActiveTab("stock_bas")}
+        >
+          Stock bas
+        </button>
+      </div>
+
       {errorMsg ? <div style={styles.errorBox}>{errorMsg}</div> : null}
 
-      <div style={styles.statsGrid}>
-        <StatCard
-          label="BT ouverts"
-          value={stats.btOuverts}
-          tone="blue"
-          onClick={() => goTo("/bt")}
-        />
-        <StatCard
-          label="BT à facturer"
-          value={stats.btAFacturer}
-          tone="green"
-          onClick={() => goTo("/facturation")}
-        />
-        <StatCard
-          label="Entretiens à venir"
-          value={stats.entretiensAVenir}
-          tone="orange"
-        />
-        <StatCard
-          label="Mécanos actifs"
-          value={stats.mecanosActifs}
-          tone="purple"
-          onClick={() => goTo("/operation-temps-reel")}
-        />
-      </div>
+      {activeTab === "vue_generale" && (
+        <>
+          <div style={styles.statsGrid}>
+            <StatCard
+              label="BT ouverts"
+              value={stats.btOuverts}
+              tone="blue"
+              onClick={() => goTo("/bt")}
+            />
+            <StatCard
+              label="BT à facturer"
+              value={stats.btAFacturer}
+              tone="green"
+              onClick={() => goTo("/facturation")}
+            />
+            <StatCard
+              label="Entretiens à venir"
+              value={stats.entretiensAVenir}
+              tone="orange"
+            />
+            <StatCard
+              label="Mécanos actifs"
+              value={stats.mecanosActifs}
+              tone="purple"
+              onClick={() => goTo("/operation-temps-reel")}
+            />
+          </div>
 
-      <div style={styles.gridTwo}>
-        <SectionCard
-          title="BT à facturer"
-          subtitle="BT fermés non encore exportés"
-          actionLabel="Voir tout"
-          onAction={() => goTo("/facturation")}
-          scrollable
-        >
-          {data.btAFacturer.length === 0 ? (
-            <EmptyState text="Aucun BT à facturer pour le moment." />
-          ) : (
-            <div style={styles.tableWrap}>
-              <table style={styles.table}>
-                <thead>
-                  <tr>
-                    <th style={styles.th}>BT</th>
-                    <th style={styles.th}>Unité</th>
-                    <th style={styles.th}>Client</th>
-                    <th style={styles.th}>Fermé le</th>
-                    <th style={styles.thRight}>Montant</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.btAFacturer.map((bt) => (
-                    <tr key={bt.id}>
-                      <td style={styles.tdStrong}>{bt.numero ?? "—"}</td>
-                      <td style={styles.td}>{bt.unites?.no_unite ?? "—"}</td>
-                      <td style={styles.td}>{bt.client_nom ?? "—"}</td>
-                      <td style={styles.td}>
-                        {formatDate(bt.date_fermeture ?? bt.updated_at)}
-                      </td>
-                      <td style={styles.tdRight}>{formatMoney(bt.total_final)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </SectionCard>
-
-        <SectionCard
-          title="Mécanos actifs"
-          subtitle="Vue opérationnelle en temps réel"
-          actionLabel="Temps réel"
-          onAction={() => goTo("/operation-temps-reel")}
-          scrollable
-        >
-          {data.mecanosActifs.length === 0 ? (
-            <EmptyState text="Aucun mécano actif détecté." />
-          ) : (
-            <div style={styles.listStack}>
-              {data.mecanosActifs.map((m) => (
-                <div key={m.id} style={styles.listRow}>
-                  <div>
-                    <div style={styles.rowTitle}>{m.nom}</div>
-                    <div style={styles.rowSub}>
-                      {m.unite ? `Unité ${m.unite}` : "Aucune unité"}
-                      {m.btNumero ? ` • BT ${m.btNumero}` : ""}
-                    </div>
-                  </div>
-                  <span style={{ ...styles.badge, ...styles.badgeSuccess }}>
-                    Actif
-                  </span>
+          <div style={styles.gridTwo}>
+            <SectionCard
+              title="BT à facturer"
+              subtitle="BT fermés non encore exportés"
+              actionLabel="Voir tout"
+              onAction={() => goTo("/facturation")}
+              scrollable
+            >
+              {data.btAFacturer.length === 0 ? (
+                <EmptyState text="Aucun BT à facturer pour le moment." />
+              ) : (
+                <div style={styles.tableWrap}>
+                  <table style={styles.table}>
+                    <thead>
+                      <tr>
+                        <th style={styles.th}>BT</th>
+                        <th style={styles.th}>Unité</th>
+                        <th style={styles.th}>Client</th>
+                        <th style={styles.th}>Fermé le</th>
+                        <th style={styles.thRight}>Montant</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.btAFacturer.map((bt) => (
+                        <tr key={bt.id}>
+                          <td style={styles.tdStrong}>{bt.numero ?? "—"}</td>
+                          <td style={styles.td}>{bt.unites?.no_unite ?? "—"}</td>
+                          <td style={styles.td}>{bt.client_nom ?? "—"}</td>
+                          <td style={styles.td}>
+                            {formatDate(bt.date_fermeture ?? bt.updated_at)}
+                          </td>
+                          <td style={styles.tdRight}>{formatMoney(bt.totalFinal ?? bt.total_final)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-              ))}
-            </div>
-          )}
-        </SectionCard>
-      </div>
+              )}
+            </SectionCard>
 
-      <div style={styles.gridTwo}>
+            <SectionCard
+              title="Mécanos actifs"
+              subtitle="Vue opérationnelle en temps réel"
+              actionLabel="Temps réel"
+              onAction={() => goTo("/operation-temps-reel")}
+              scrollable
+            >
+              {data.mecanosActifs.length === 0 ? (
+                <EmptyState text="Aucun mécano actif détecté." />
+              ) : (
+                <div style={styles.listStack}>
+                  {data.mecanosActifs.map((m) => (
+                    <div key={m.id} style={styles.listRow}>
+                      <div>
+                        <div style={styles.rowTitle}>{m.nom}</div>
+                        <div style={styles.rowSub}>
+                          {m.unite ? `Unité ${m.unite}` : "Aucune unité"}
+                          {m.btNumero ? ` • BT ${m.btNumero}` : ""}
+                        </div>
+                      </div>
+                      <span style={{ ...styles.badge, ...styles.badgeSuccess }}>
+                        Actif
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </SectionCard>
+          </div>
+
+          <div style={styles.gridTwo}>
+            <SectionCard
+              title="Entretiens à venir"
+              subtitle="Filtrer rapidement les entretiens critiques, à prévoir ou jamais faits"
+              actionLabel="Voir tout"
+              onAction={() => setActiveTab("entretiens")}
+              scrollable
+            >
+              <div style={styles.filterBar}>
+                <FilterChip
+                  label={`Tous (${entretiensComputed.filter((x) => x.statusKey !== "ok").length})`}
+                  active={entretienFilter === "tous"}
+                  onClick={() => setEntretienFilter("tous")}
+                />
+                <FilterChip
+                  label={`Jamais fait (${entretiensComputed.filter((x) => x.statusKey === "jamais_fait").length})`}
+                  active={entretienFilter === "jamais_fait"}
+                  onClick={() => setEntretienFilter("jamais_fait")}
+                />
+                <FilterChip
+                  label={`En retard (${entretiensComputed.filter((x) => x.statusKey === "en_retard").length})`}
+                  active={entretienFilter === "en_retard"}
+                  onClick={() => setEntretienFilter("en_retard")}
+                />
+                <FilterChip
+                  label={`À prévoir (${entretiensComputed.filter((x) => x.statusKey === "a_prevoir").length})`}
+                  active={entretienFilter === "a_prevoir"}
+                  onClick={() => setEntretienFilter("a_prevoir")}
+                />
+              </div>
+
+              {entretiensFiltered.length === 0 ? (
+                <EmptyState text="Aucun entretien pour ce filtre." />
+              ) : (
+                <div style={styles.listStack}>
+                  {entretiensFiltered.map((item) => {
+                    const badge = getEntretienBadge(item.statusKey);
+
+                    return (
+                      <div key={item.id} style={styles.listRow}>
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div style={styles.rowTitle}>
+                            {item.unite?.no_unite ?? "—"} — {item.nom}
+                          </div>
+
+                          <div style={styles.rowSub}>
+                            {item.unite?.marque ?? ""} {item.unite?.modele ?? ""}
+                          </div>
+
+                          <div style={styles.rowMeta}>
+                            <span>
+                              Fréquence : <strong>{getFrequenceText(item)}</strong>
+                            </span>
+                            <span style={styles.metaDivider}>•</span>
+                            <span>
+                              Dernier fait :{" "}
+                              <strong>
+                                {item.lastDone?.date_effectuee
+                                  ? formatDate(item.lastDone.date_effectuee)
+                                  : "—"}
+                              </strong>
+                            </span>
+                            {item.lastDone?.km_effectue != null ? (
+                              <>
+                                <span style={styles.metaDivider}>•</span>
+                                <span>
+                                  Dernier km :{" "}
+                                  <strong>{formatNumber(item.lastDone.km_effectue)} km</strong>
+                                </span>
+                              </>
+                            ) : null}
+                          </div>
+
+                          <div style={styles.rowMeta}>
+                            <span>
+                              Prochain dû : <strong>{item.prochainDuText}</strong>
+                            </span>
+                            {item.templateNom ? (
+                              <>
+                                <span style={styles.metaDivider}>•</span>
+                                <span>
+                                  Source : <strong>{item.templateNom}</strong>
+                                </span>
+                              </>
+                            ) : null}
+                          </div>
+                        </div>
+
+                        <span style={{ ...styles.badge, ...badge.style }}>
+                          {badge.label}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </SectionCard>
+
+            <SectionCard
+              title="BT ouverts"
+              subtitle="Travaux actuellement en cours"
+              actionLabel="Voir tout"
+              onAction={() => goTo("/bt")}
+              scrollable
+            >
+              {data.btOuverts.length === 0 ? (
+                <EmptyState text="Aucun BT ouvert actuellement." />
+              ) : (
+                <div style={styles.listStack}>
+                  {data.btOuverts.map((bt) => (
+                    <div key={bt.id} style={styles.listRow}>
+                      <div>
+                        <div style={styles.rowTitle}>
+                          {bt.numero ?? "BT"} — Unité {bt.unites?.no_unite ?? "—"}
+                        </div>
+                        <div style={styles.rowSub}>
+                          {bt.client_nom ? bt.client_nom : "Sans client"}
+                        </div>
+                        <div style={styles.rowMeta}>
+                          Dernière activité : {formatDate(bt.updated_at)}
+                        </div>
+                      </div>
+
+                      <span style={{ ...styles.badge, ...styles.badgeInfo }}>
+                        {bt.statut ?? "Ouvert"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </SectionCard>
+          </div>
+
+          <div style={styles.gridOne}>
+            <SectionCard
+              title="Stock bas"
+              subtitle="Pièces sous le seuil d’alerte"
+              actionLabel="Voir tout"
+              onAction={() => setActiveTab("stock_bas")}
+              scrollable
+            >
+              {data.stockBas.length === 0 ? (
+                <EmptyState text="Aucune pièce sous le seuil d’alerte." />
+              ) : (
+                <div style={styles.tableWrap}>
+                  <table style={styles.table}>
+                    <thead>
+                      <tr>
+                        <th style={styles.th}>Pièce</th>
+                        <th style={styles.th}>SKU</th>
+                        <th style={styles.thRight}>Qté</th>
+                        <th style={styles.thRight}>Seuil</th>
+                        <th style={styles.th}>Emplacement</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.stockBas.map((item) => (
+                        <tr key={item.id}>
+                          <td style={styles.tdStrong}>{item.nom ?? "—"}</td>
+                          <td style={styles.td}>{item.sku ?? "—"}</td>
+                          <td style={styles.tdRight}>
+                            {formatNumber(item.quantite)} {item.unite ?? ""}
+                          </td>
+                          <td style={styles.tdRight}>
+                            {formatNumber(item.seuil_alerte)}
+                          </td>
+                          <td style={styles.td}>{item.emplacement ?? "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </SectionCard>
+          </div>
+        </>
+      )}
+
+      {activeTab === "entretiens" && (
         <SectionCard
-          title="Entretiens à venir"
-          subtitle="Filtrer rapidement les entretiens critiques, à prévoir ou jamais faits"
-          actionLabel="Voir tout"
+          title="Entretien à venir"
+          subtitle="Vue complète des entretiens à traiter"
+          actionLabel="Voir unités"
           onAction={() => goTo("/unites")}
           scrollable
         >
@@ -1075,46 +1406,63 @@ for (const unitItem of data.unitItems) {
             </div>
           )}
         </SectionCard>
+      )}
 
+      {activeTab === "taches_ouvertes" && (
         <SectionCard
-          title="BT ouverts"
-          subtitle="Travaux actuellement en cours"
-          actionLabel="Voir tout"
+          title="Tâches ouvertes"
+          subtitle="Toutes les tâches ouvertes classées par unité"
+          actionLabel="Voir BT"
           onAction={() => goTo("/bt")}
           scrollable
         >
-          {data.btOuverts.length === 0 ? (
-            <EmptyState text="Aucun BT ouvert actuellement." />
+          {tasksByUnit.length === 0 ? (
+            <EmptyState text="Aucune tâche ouverte." />
           ) : (
             <div style={styles.listStack}>
-              {data.btOuverts.map((bt) => (
-                <div key={bt.id} style={styles.listRow}>
-                  <div>
+              {tasksByUnit.map((group) => (
+                <div key={group.unite_id} style={styles.listRow}>
+                  <div style={{ minWidth: 0, flex: 1 }}>
                     <div style={styles.rowTitle}>
-                      {bt.numero ?? "BT"} — Unité {bt.unites?.no_unite ?? "—"}
+                      {group.unite_no} — {group.unite_label}
                     </div>
+
                     <div style={styles.rowSub}>
-                      {bt.client_nom ? bt.client_nom : "Sans client"}
+                      {group.total} tâche{group.total > 1 ? "s" : ""}
+                      {group.entretienAutoCount > 0
+                        ? ` • ${group.entretienAutoCount} entretien auto`
+                        : ""}
                     </div>
-                    <div style={styles.rowMeta}>
-                      Dernière activité : {formatDate(bt.updated_at)}
+
+                    <div style={{ marginTop: 8 }}>
+                      {group.taches.map((task) => (
+                        <div key={task.id} style={{ ...styles.rowMeta, marginTop: 4 }}>
+                          <span>• {task.titre}</span>
+                          {task.created_at ? (
+                            <>
+                              <span style={styles.metaDivider}>•</span>
+                              <span>{formatDate(task.created_at)}</span>
+                            </>
+                          ) : null}
+                        </div>
+                      ))}
                     </div>
                   </div>
 
                   <span style={{ ...styles.badge, ...styles.badgeInfo }}>
-                    {bt.statut ?? "Ouvert"}
+                    {group.total}
                   </span>
                 </div>
               ))}
             </div>
           )}
         </SectionCard>
-      </div>
+      )}
 
-      <div style={styles.gridOne}>
+      {activeTab === "stock_bas" && (
         <SectionCard
           title="Stock bas"
-          subtitle="Pièces sous le seuil d’alerte"
+          subtitle="Vue complète des pièces sous le seuil d’alerte"
           actionLabel="Inventaire"
           onAction={() => goTo("/inventaire")}
           scrollable
@@ -1152,7 +1500,7 @@ for (const unitItem of data.unitItems) {
             </div>
           )}
         </SectionCard>
-      </div>
+      )}
     </div>
   );
 }
@@ -1280,6 +1628,28 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     gap: 10,
     flexWrap: "wrap",
+  },
+
+  tabsBar: {
+    display: "flex",
+    gap: 10,
+    flexWrap: "wrap",
+    marginBottom: 18,
+  },
+  tabBtn: {
+    height: 38,
+    borderRadius: 999,
+    border: "1px solid #d5dce8",
+    background: "#fff",
+    color: "#1b2840",
+    padding: "0 14px",
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+  tabBtnActive: {
+    border: "1px solid #2f6fed",
+    background: "#eef4ff",
+    color: "#2159d6",
   },
 
   statsGrid: {
