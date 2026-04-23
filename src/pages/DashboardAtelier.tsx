@@ -1092,7 +1092,7 @@ export default function DashboardAtelier() {
                           <td style={styles.td}>
                             {formatDate(bt.date_fermeture ?? bt.updated_at)}
                           </td>
-                          <td style={styles.tdRight}>{formatMoney(bt.totalFinal ?? bt.total_final)}</td>
+                          <td style={styles.tdRight}>{formatMoney(bt.total_final)}</td>
                         </tr>
                       ))}
                     </tbody>
