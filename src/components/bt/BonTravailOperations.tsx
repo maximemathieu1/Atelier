@@ -1,5 +1,8 @@
 import { useState, type CSSProperties } from "react";
 import BtPiecesCard, { type Piece } from "./BtPiecesCard";
+import BtTachePhotos from "./BtTachePhotos";
+import BtAutorisationClient from "./BtAutorisationClient";
+
 
 type NoteMeca = {
   id: string;
@@ -214,6 +217,20 @@ export default function BonTravailOperations(props: Props) {
       borderTop: "1px solid rgba(0,0,0,.08)",
       verticalAlign: "top",
     },
+    photoTh: {
+      textAlign: "center",
+      fontSize: 12,
+      color: "rgba(0,0,0,.55)",
+      padding: "8px 6px",
+      width: 80,
+    },
+    photoTd: {
+      padding: "10px 6px",
+      borderTop: "1px solid rgba(0,0,0,.08)",
+      verticalAlign: "middle",
+      textAlign: "center",
+      width: 80,
+    },
     tableWrap: {
       width: "100%",
       overflowX: "auto",
@@ -271,7 +288,6 @@ export default function BonTravailOperations(props: Props) {
       marginBottom: 6,
       marginTop: 14,
     },
-
     totalCard: {
       border: "1px solid rgba(0,0,0,.06)",
       borderRadius: 12,
@@ -396,23 +412,31 @@ export default function BonTravailOperations(props: Props) {
     <>
       <div style={styles.card}>
         <div style={{ ...styles.row, justifyContent: "space-between" }}>
-          <div style={{ fontSize: 16, fontWeight: 950 }}>Tâches à compléter </div>
+          <div style={{ fontSize: 16, fontWeight: 950 }}>Tâches à compléter</div>
 
           <div style={styles.row}>
             <button
-              style={styles.btn}
-              onClick={onCompleteSelectedTasks}
-              disabled={!selectedIds.length || isReadOnly}
-            >
-              Effectuer
-            </button>
-            <button
-              style={styles.btn}
-              onClick={onDeleteSelectedTasks}
-              disabled={!selectedIds.length || isReadOnly}
-            >
-              Supprimer
-            </button>
+  style={styles.btn}
+  onClick={onCompleteSelectedTasks}
+  disabled={!selectedIds.length || isReadOnly}
+>
+  Effectuer
+</button>
+
+<button
+  style={styles.btn}
+  onClick={onDeleteSelectedTasks}
+  disabled={!selectedIds.length || isReadOnly}
+>
+  Supprimer
+</button>
+
+{/* 🔥 NOUVEAU */}
+<BtAutorisationClient
+  btId={btId}
+  notes={notes}
+  isReadOnly={isReadOnly}
+/>
           </div>
         </div>
 
@@ -441,12 +465,14 @@ export default function BonTravailOperations(props: Props) {
                 </th>
                 <th style={styles.th}>Titre</th>
                 <th style={{ ...styles.th, width: 180 }}>Créé</th>
+                <th style={styles.photoTh}>Photos</th>
               </tr>
             </thead>
+
             <tbody>
               {notes.length === 0 ? (
                 <tr>
-                  <td style={styles.td} colSpan={3}>
+                  <td style={styles.td} colSpan={4}>
                     <span style={styles.muted}>Aucune tâche ouverte.</span>
                   </td>
                 </tr>
@@ -461,12 +487,23 @@ export default function BonTravailOperations(props: Props) {
                         disabled={isReadOnly}
                       />
                     </td>
+
                     <td style={styles.td}>
                       <div style={{ fontWeight: 500, textTransform: "uppercase" }}>
                         {String(t.titre || "")}
                       </div>
                     </td>
+
                     <td style={styles.td}>{fmtDateTimeNoSeconds(t.created_at)}</td>
+
+                    <td style={styles.photoTd}>
+                      <BtTachePhotos
+                        btId={btId}
+                        uniteId={t.unite_id}
+                        uniteNoteId={t.id}
+                        isReadOnly={isReadOnly}
+                      />
+                    </td>
                   </tr>
                 ))
               )}
@@ -482,15 +519,17 @@ export default function BonTravailOperations(props: Props) {
           <thead>
             <tr>
               <th style={styles.th}>Titre</th>
-              <th style={{ ...styles.th, width: 180 }}>Date effectuée</th>
+              <th style={{ ...styles.th, width: 180 }}>Date</th>
+              <th style={styles.photoTh}>Photos</th>
               <th style={{ ...styles.th, width: 140 }}>Action</th>
             </tr>
           </thead>
+
           <tbody>
             {tachesEffectuees.length === 0 ? (
               <tr>
-                <td style={styles.td} colSpan={3}>
-                  <span style={styles.muted}>Aucune tâche effectuée dans ce BT.</span>
+                <td style={styles.td} colSpan={4}>
+                  <span style={styles.muted}>Aucune tâche effectuée.</span>
                 </td>
               </tr>
             ) : (
@@ -501,7 +540,18 @@ export default function BonTravailOperations(props: Props) {
                       {String(t.titre || "")}
                     </div>
                   </td>
+
                   <td style={styles.td}>{fmtDateTimeNoSeconds(t.date_effectuee)}</td>
+
+                  <td style={styles.photoTd}>
+                    <BtTachePhotos
+                      btId={btId}
+                      uniteId={t.unite_id}
+                      tacheEffectueeId={t.id}
+                      isReadOnly={isReadOnly}
+                    />
+                  </td>
+
                   <td style={styles.td}>
                     <button
                       style={styles.btn}
@@ -561,6 +611,7 @@ export default function BonTravailOperations(props: Props) {
                     <th style={{ ...styles.th, width: 140 }}>Total</th>
                   </tr>
                 </thead>
+
                 <tbody>
                   {pointagesResume.length === 0 ? (
                     <tr>
@@ -612,6 +663,7 @@ export default function BonTravailOperations(props: Props) {
                               <th style={{ ...styles.th, width: 90 }}>Action</th>
                             </tr>
                           </thead>
+
                           <tbody>
                             {pointages.map((p) => (
                               <tr key={p.id}>
@@ -746,6 +798,7 @@ export default function BonTravailOperations(props: Props) {
                                 <th style={{ ...styles.th, width: 90 }}>Action</th>
                               </tr>
                             </thead>
+
                             <tbody>
                               {mainOeuvre.map((row) => {
                                 const total =

@@ -6,7 +6,6 @@ import BonTravailHeaderCard from "../components/bt/BonTravailHeaderCard";
 import BonTravailOperations from "../components/bt/BonTravailOperations";
 import btPrintTemplate from "../templates/btPrintTemplate";
 
-
 type Unite = {
   id: string;
   no_unite: string;
@@ -639,70 +638,31 @@ export default function BonTravailPage() {
   }
 
   async function deleteDocument(doc: any) {
-  if (!bt?.id) return;
+    if (!bt?.id) return;
 
-  const isPep = doc.type === "pep";
-
-  const ok = window.confirm(
-    isPep
-      ? "Supprimer complètement ce PEP ? Le PDF, l’archive, la tâche effectuée et l’historique d’entretien seront supprimés."
-      : "Supprimer ce document ?"
-  );
-
-  if (!ok) return;
-
-  const storagePath = String(doc.storage_path || "");
-  const pepId = String(doc.pep_id || "");
-
-  try {
-    // 1. Supprimer fichier storage si vrai fichier
-    if (storagePath && !storagePath.startsWith("pep_archive:")) {
-      await supabase.storage.from("bt-documents").remove([storagePath]);
+    if (doc.type === "pep" || doc.source === "auto_pep") {
+      alert("Le document PEP généré automatiquement ne peut pas être supprimé ici.");
+      return;
     }
 
-    // 2. Si PEP, supprimer historique + tâche effectuée + archive
-    if (isPep) {
-      await supabase
-        .from("bt_taches_effectuees")
-        .delete()
-        .eq("bt_id", bt.id)
-        .eq("entretien_template_item_id", "d71006cc-cfd7-4e49-83dd-918ee4201b89");
+    if (!confirm("Supprimer ce document ?")) return;
 
-      await supabase
-        .from("unite_entretien_historique")
-        .delete()
-        .eq("bt_id", bt.id)
-        .eq("template_item_id", "d71006cc-cfd7-4e49-83dd-918ee4201b89");
-
-      if (pepId) {
-        await supabase
-          .from("pep_archives")
-          .delete()
-          .eq("id", pepId);
+    try {
+      if (doc.storage_path) {
+        const { error: storageError } = await supabase.storage
+          .from("bt-documents")
+          .remove([String(doc.storage_path)]);
+        if (storageError) throw storageError;
       }
+
+      const { error } = await supabase.from("bt_documents").delete().eq("id", doc.id);
+      if (error) throw error;
+
+      await loadDocuments(bt.id);
+    } catch (e: any) {
+      alert(e?.message || "Impossible de supprimer le document.");
     }
-
-    // 3. Supprimer lien document BT
-    const { error: docErr } = await supabase
-      .from("bt_documents")
-      .delete()
-      .eq("id", doc.id);
-
-    if (docErr) throw docErr;
-
-    // 4. Recalculer les entretiens à venir
-    if (isPep) {
-      await supabase.rpc("sync_entretien_due_tasks", {
-        p_unite_id: bt.unite_id,
-        p_bt_id: bt.id,
-      });
-    }
-
-    await loadDocuments(bt.id);
-  } catch (e: any) {
-    alert(e?.message || "Erreur pendant la suppression du document.");
   }
-}
 
   function onDocumentsDrop(e: React.DragEvent<HTMLDivElement>) {
     e.preventDefault();
@@ -2286,15 +2246,15 @@ export default function BonTravailPage() {
                           <button type="button" style={styles.btn} onClick={() => void openDocument(doc)}>
                             Ouvrir
                           </button>
-                          {!isReadOnly && (
-  <button
-    type="button"
-    style={styles.btnDanger}
-    onClick={() => void deleteDocument(doc)}
-  >
-    Supprimer
-  </button>
-)}
+                          {!isPepDoc && !isReadOnly && (
+                            <button
+                              type="button"
+                              style={styles.btnDanger}
+                              onClick={() => void deleteDocument(doc)}
+                            >
+                              Supprimer
+                            </button>
+                          )}
                         </div>
                       </div>
                     );

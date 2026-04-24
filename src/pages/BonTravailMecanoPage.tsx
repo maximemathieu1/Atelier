@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import BtPiecesCard, { type Piece as PieceFull } from "../components/bt/BtPiecesCard";
+import BtTachePhotos from "../components/bt/BtTachePhotos";
 
 type BonTravail = {
   id: string;
@@ -1091,22 +1092,35 @@ export default function BonTravailMecanoPage() {
       }
     }
 
-    const { error: insertErr } = await supabase.from("bt_taches_effectuees").insert({
-      bt_id: bt.id,
-      unite_id: bt.unite_id,
-      unite_note_id: t.id,
-      titre: t.titre,
-      details: t.details,
-      date_effectuee: new Date().toISOString(),
-      entretien_template_item_id: t.entretien_template_item_id ?? null,
-      entretien_unite_item_id: t.entretien_unite_item_id ?? null,
-      entretien_auto: Boolean(t.entretien_auto),
-    });
+    const { data: insertedDoneTask, error: insertErr } = await supabase
+  .from("bt_taches_effectuees")
+  .insert({
+    bt_id: bt.id,
+    unite_id: bt.unite_id,
+    unite_note_id: t.id,
+    titre: t.titre,
+    details: t.details,
+    date_effectuee: new Date().toISOString(),
+    entretien_template_item_id: t.entretien_template_item_id ?? null,
+    entretien_unite_item_id: t.entretien_unite_item_id ?? null,
+    entretien_auto: Boolean(t.entretien_auto),
+  })
+  .select("id")
+  .single();
 
-    if (insertErr) {
-      alert(insertErr.message);
-      return;
-    }
+if (insertErr) {
+  alert(insertErr.message);
+  return;
+}
+
+await supabase
+  .from("bt_tache_photos")
+  .update({
+    unite_note_id: null,
+    tache_effectuee_id: insertedDoneTask.id,
+  })
+  .eq("bt_id", bt.id)
+  .eq("unite_note_id", t.id);
 
     const { error: deleteErr } = await supabase.from("unite_notes").delete().eq("id", t.id);
 
@@ -1696,62 +1710,86 @@ export default function BonTravailMecanoPage() {
 
             <table style={{ ...styles.table, marginTop: 10 }}>
               <thead>
-                <tr>
-                  <th style={{ ...styles.th, width: 40 }}>
-                    <input
-                      type="checkbox"
-                      checked={notes.length > 0 && notes.every((t) => selected[t.id])}
-                      onChange={(e) => {
-                        const on = e.target.checked;
-                        const next: Record<string, boolean> = {};
-                        notes.forEach((t) => {
-                          next[t.id] = on;
-                        });
-                        setSelected(next);
+  <tr>
+    <th style={{ ...styles.th, width: 40 }}>
+      <input
+        type="checkbox"
+        checked={notes.length > 0 && notes.every((t) => selected[t.id])}
+        onChange={(e) => {
+          const on = e.target.checked;
+          const next: Record<string, boolean> = {};
+          notes.forEach((t) => {
+            next[t.id] = on;
+          });
+          setSelected(next);
 
-                        if (on) {
-                          notes.forEach((t) => {
-                            completeTask(t, true);
-                          });
-                        }
-                      }}
-                      disabled={isReadOnly && notes.length > 0}
-                    />
-                  </th>
-                  <th style={styles.th}>Titre</th>
-                  <th style={{ ...styles.th, width: 180 }}>Créé</th>
-                </tr>
-              </thead>
+          if (on) {
+            notes.forEach((t) => {
+              completeTask(t, true);
+            });
+          }
+        }}
+        disabled={isReadOnly && notes.length > 0}
+      />
+    </th>
+
+    <th style={styles.th}>Titre</th>
+
+    <th style={{ ...styles.th, width: 180 }}>Créé</th>
+
+    {/* 🔥 NOUVELLE COLONNE */}
+    <th style={{ ...styles.th, width: 90, textAlign: "center" }}>Photos</th>
+  </tr>
+</thead>
               <tbody>
                 {notes.length === 0 ? (
                   <tr>
-                    <td style={styles.td} colSpan={3}>
+                    <td style={styles.td} colSpan={4}>
                       <span style={styles.muted}>Aucune tâche ouverte.</span>
                     </td>
                   </tr>
                 ) : (
                   notes.map((t) => (
                     <tr key={t.id}>
-                      <td style={styles.td}>
-                        <input
-                          type="checkbox"
-                          checked={Boolean(selected[t.id])}
-                          onChange={async (e) => {
-                            const checked = e.target.checked;
-                            setSelected((s) => ({ ...s, [t.id]: checked }));
-                            await completeTask(t, checked);
-                          }}
-                          disabled={isReadOnly}
-                        />
-                      </td>
-                      <td style={styles.td}>
-                        <div style={{ fontWeight: 900 }}>{t.titre}</div>
-                        {t.entretien_auto ? (
-                          <div style={{ ...styles.muted, fontSize: 12 }}>Entretien périodique</div>
-                        ) : null}
-                      </td>
-                      <td style={styles.td}>{fmtDateTime(t.created_at)}</td>
-                    </tr>
+  <td style={styles.td}>
+    <input
+      type="checkbox"
+      checked={Boolean(selected[t.id])}
+      onChange={async (e) => {
+        const checked = e.target.checked;
+        setSelected((s) => ({ ...s, [t.id]: checked }));
+        await completeTask(t, checked);
+      }}
+      disabled={isReadOnly}
+    />
+  </td>
+
+  {/* Titre */}
+  <td style={styles.td}>
+    <div style={{ fontWeight: 900 }}>{t.titre}</div>
+
+    {t.entretien_auto ? (
+      <div style={{ ...styles.muted, fontSize: 12 }}>
+        Entretien périodique
+      </div>
+    ) : null}
+  </td>
+
+  {/* Date */}
+  <td style={styles.td}>
+    {fmtDateTime(t.created_at)}
+  </td>
+
+  {/* 🔥 NOUVELLE COLONNE PHOTOS */}
+<td style={{ ...styles.td, textAlign: "center", verticalAlign: "middle" }}>
+    <BtTachePhotos
+      btId={bt.id}
+      uniteId={bt.unite_id}
+      uniteNoteId={t.id}
+      isReadOnly={isReadOnly}
+    />
+  </td>
+</tr>
                   ))
                 )}
               </tbody>
@@ -1797,13 +1835,17 @@ export default function BonTravailMecanoPage() {
                     </th>
                     <th style={styles.th}>Titre</th>
                     <th style={{ ...styles.th, width: 190 }}>Date</th>
-                    <th style={{ ...styles.th, width: 140 }}>Action</th>
+
+{/* 🔥 NOUVELLE COLONNE */}
+<th style={{ ...styles.th, width: 90, textAlign: "center" }}>Photos</th>
+
+<th style={{ ...styles.th, width: 140 }}>Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {tachesEffectuees.length === 0 ? (
                     <tr>
-                      <td style={styles.td} colSpan={4}>
+                      <td style={styles.td} colSpan={5}>
                         <span style={styles.muted}>Aucune tâche effectuée.</span>
                       </td>
                     </tr>
@@ -1822,10 +1864,22 @@ export default function BonTravailMecanoPage() {
                             disabled={isReadOnly}
                           />
                         </td>
-                        <td style={styles.td}>
-                          <div style={{ fontWeight: 900 }}>{t.titre}</div>
-                        </td>
-                        <td style={styles.td}>{fmtDateTime(t.date_effectuee)}</td>
+                      <td style={styles.td}>
+  <div style={{ fontWeight: 900 }}>{t.titre}</div>
+</td>
+
+<td style={styles.td}>
+  {fmtDateTime(t.date_effectuee)}
+</td>
+
+<td style={{ ...styles.td, textAlign: "center", verticalAlign: "middle" }}>
+  <BtTachePhotos
+    btId={bt.id}
+    uniteId={t.unite_id}
+    tacheEffectueeId={t.id}
+    isReadOnly={isReadOnly}
+  />
+</td>
                         <td style={styles.td}>
                           <button
                             style={styles.btn}

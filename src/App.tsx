@@ -23,6 +23,7 @@ import BtPrintPage from "./pages/BtPrintPage";
 import OperationTempsReelPage from "./pages/OperationTempsReelPage";
 import Inventaire from "./pages/Inventaire";
 import FacturationBT from "./pages/FacturationBT";
+import AutorisationBtClientPage from "./pages/AutorisationBtClientPage";
 
 import ParametresSysteme from "./pages/systeme/ParametresSysteme";
 import ParametresConfiguration from "./pages/systeme/ParametresConfiguration";
@@ -89,83 +90,78 @@ function AppShell({ onLogout }: { onLogout: () => void | Promise<void> }) {
       )}
 
       <aside
-  className={
-    "sidebar" +
-    (isMobile ? " sidebar-drawer" : "") +
-    (isMobile && drawerOpen ? " open" : "")
-  }
->
-  <div className="brand">
-    <img src="/logo-groupe-breton.png" className="brand-logo" />
-  </div>
+        className={
+          "sidebar" +
+          (isMobile ? " sidebar-drawer" : "") +
+          (isMobile && drawerOpen ? " open" : "")
+        }
+      >
+        <div className="brand">
+          <img src="/logo-groupe-breton.png" className="brand-logo" />
+        </div>
 
-  {/* ================= ATELIER ================= */}
-  <div className="section">
-    <div className="section-title">ATELIER</div>
+        <div className="section">
+          <div className="section-title">ATELIER</div>
 
-    <NavLink to="/dashboard-atelier" className={linkClass} onClick={onNavClick}>
-      Tableau de bord
-    </NavLink>
+          <NavLink to="/dashboard-atelier" className={linkClass} onClick={onNavClick}>
+            Tableau de bord
+          </NavLink>
 
-    <NavLink to="/bt" className={linkClass} onClick={onNavClick}>
-      Bon Travail
-    </NavLink>
+          <NavLink to="/bt" className={linkClass} onClick={onNavClick}>
+            Bon Travail
+          </NavLink>
 
-    <NavLink to="/operation-temps-reel" className={linkClass} onClick={onNavClick}>
-      Opération Temps réel
-    </NavLink>
+          <NavLink to="/operation-temps-reel" className={linkClass} onClick={onNavClick}>
+            Opération Temps réel
+          </NavLink>
 
-    <NavLink to="/pep" className={linkClass} onClick={onNavClick}>
-      PEP
-    </NavLink>
+          <NavLink to="/pep" className={linkClass} onClick={onNavClick}>
+            PEP
+          </NavLink>
 
-    <NavLink to="/inventaire" className={linkClass} onClick={onNavClick}>
-      Inventaire
-    </NavLink>
-  </div>
+          <NavLink to="/inventaire" className={linkClass} onClick={onNavClick}>
+            Inventaire
+          </NavLink>
+        </div>
 
-  {/* ================= ADMINISTRATION ================= */}
-  <div className="section">
-    <div className="section-title">ADMINISTRATION</div>
+        <div className="section">
+          <div className="section-title">ADMINISTRATION</div>
 
-    <NavLink to="/clients" className={linkClass} onClick={onNavClick}>
-      Clients
-    </NavLink>
+          <NavLink to="/clients" className={linkClass} onClick={onNavClick}>
+            Clients
+          </NavLink>
 
-    <NavLink to="/unites" className={linkClass} onClick={onNavClick}>
-      Unités
-    </NavLink>
+          <NavLink to="/unites" className={linkClass} onClick={onNavClick}>
+            Unités
+          </NavLink>
 
-    <NavLink to="/employes" className={linkClass} onClick={onNavClick}>
-      Employés
-    </NavLink>
-  </div>
+          <NavLink to="/employes" className={linkClass} onClick={onNavClick}>
+            Employés
+          </NavLink>
+        </div>
 
-  {/* ================= COMPTABILITÉ ================= */}
-  <div className="section">
-    <div className="section-title">COMPTABILITÉ</div>
+        <div className="section">
+          <div className="section-title">COMPTABILITÉ</div>
 
-    <NavLink to="/facturation" className={linkClass} onClick={onNavClick}>
-      Comptabilité
-    </NavLink>
-  </div>
+          <NavLink to="/facturation" className={linkClass} onClick={onNavClick}>
+            Comptabilité
+          </NavLink>
+        </div>
 
-  {/* ================= SYSTÈME ================= */}
-  <div className="section">
-    <div className="section-title">SYSTÈME</div>
+        <div className="section">
+          <div className="section-title">SYSTÈME</div>
 
-    <NavLink to="/parametres-systeme" className={linkClass} onClick={onNavClick}>
-      Système
-    </NavLink>
-  </div>
+          <NavLink to="/parametres-systeme" className={linkClass} onClick={onNavClick}>
+            Système
+          </NavLink>
+        </div>
 
-  {/* ================= LOGOUT ================= */}
-  <div className="section">
-    <button className="logout-btn" onClick={onLogout} type="button">
-      Se déconnecter
-    </button>
-  </div>
-</aside>
+        <div className="section">
+          <button className="logout-btn" onClick={onLogout} type="button">
+            Se déconnecter
+          </button>
+        </div>
+      </aside>
 
       <main className="content">
         {isMobile && (
@@ -249,6 +245,7 @@ export default function App() {
   const [isAuthed, setIsAuthed] = useState(false);
 
   const pathRef = useRef(loc.pathname);
+  const isPublicAutorisationRoute = loc.pathname.startsWith("/autorisation-bt/");
 
   useEffect(() => {
     pathRef.current = loc.pathname;
@@ -272,6 +269,10 @@ export default function App() {
       setIsAuthed(authed);
       setLoading(false);
 
+      if (pathRef.current.startsWith("/autorisation-bt/")) {
+        return;
+      }
+
       if (authed && pathRef.current === "/login") {
         nav("/dashboard-atelier", { replace: true });
       }
@@ -287,6 +288,10 @@ export default function App() {
       const authed = Boolean(session);
       setIsAuthed(authed);
 
+      if (pathRef.current.startsWith("/autorisation-bt/")) {
+        return;
+      }
+
       if (!authed) nav("/login", { replace: true });
       else if (pathRef.current === "/login") nav("/dashboard-atelier", { replace: true });
     });
@@ -300,6 +305,15 @@ export default function App() {
   async function logout() {
     await supabase.auth.signOut();
     nav("/login", { replace: true });
+  }
+
+  if (isPublicAutorisationRoute) {
+    return (
+      <Routes>
+        <Route path="/autorisation-bt/:token" element={<AutorisationBtClientPage />} />
+        <Route path="*" element={<Navigate to="/autorisation-bt" replace />} />
+      </Routes>
+    );
   }
 
   if (loading) return <div style={{ padding: 16 }}>Chargement…</div>;
