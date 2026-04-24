@@ -158,48 +158,73 @@ export default function AutorisationBtClientPage() {
   }
 
   async function submit() {
-    if (!autorisation) return;
+  if (!autorisation) return;
 
-    if (!allAnswered) {
-      alert("Veuillez autoriser ou refuser chaque tâche avant de confirmer.");
-      return;
-    }
-
-    setSaving(true);
-
-    try {
-      for (const t of taches) {
-        const { error } = await supabase
-          .from("bt_autorisation_taches")
-          .update({
-            decision: t.decision,
-            note_client: t.note_client?.trim() || null,
-          })
-          .eq("id", t.id);
-
-        if (error) throw error;
-      }
-
-      const hasRefus = taches.some((t) => t.decision === "refuse");
-
-      const { error: authErr } = await supabase
-        .from("bt_autorisations")
-        .update({
-          statut: hasRefus ? "reponse_partielle" : "autorisee",
-          submitted_at: new Date().toISOString(),
-        })
-        .eq("id", autorisation.id);
-
-      if (authErr) throw authErr;
-
-      await loadData();
-      alert("Votre réponse a bien été transmise. Merci.");
-    } catch (e: any) {
-      alert(e?.message || "Erreur lors de l’envoi de la réponse.");
-    } finally {
-      setSaving(false);
-    }
+  if (!allAnswered) {
+    alert("Veuillez autoriser ou refuser chaque tâche avant de confirmer.");
+    return;
   }
+
+  setSaving(true);
+
+  try {
+    // 1. Sauvegarde des décisions
+    for (const t of taches) {
+      const { error } = await supabase
+        .from("bt_autorisation_taches")
+        .update({
+          decision: t.decision,
+          note_client: t.note_client?.trim() || null,
+        })
+        .eq("id", t.id);
+
+      if (error) throw error;
+    }
+
+    // 2. Mise à jour statut autorisation
+    const hasRefus = taches.some((t) => t.decision === "refuse");
+
+    const { error: authErr } = await supabase
+      .from("bt_autorisations")
+      .update({
+        statut: hasRefus ? "reponse_partielle" : "autorisee",
+        submitted_at: new Date().toISOString(),
+      })
+      .eq("id", autorisation.id);
+
+    if (authErr) throw authErr;
+
+    // 3. Envoi email confirmation (🔥 corrigé)
+    const lienAutorisation = `${window.location.origin}/autorisation-bt/${autorisation.token}`;
+
+    const { error: emailErr } = await supabase.functions.invoke(
+      "bt-autorisation-email",
+      {
+        body: {
+          type: "send_confirmation", // 🔥 IMPORTANT
+          bt_id: autorisation.bt_id,
+          autorisation_id: autorisation.id,
+          client_email: autorisation.client_email,
+          client_nom: autorisation.client_nom,
+          lien_autorisation: lienAutorisation,
+        },
+      }
+    );
+
+    if (emailErr) {
+      console.error("Erreur email confirmation:", emailErr);
+      // On bloque pas l'utilisateur pour ça
+    }
+
+    // 4. Reload + message
+    await loadData();
+    alert("Votre réponse a bien été transmise. Merci.");
+  } catch (e: any) {
+    alert(e?.message || "Erreur lors de l’envoi de la réponse.");
+  } finally {
+    setSaving(false);
+  }
+}
 
   const styles: Record<string, CSSProperties> = {
     page: {
