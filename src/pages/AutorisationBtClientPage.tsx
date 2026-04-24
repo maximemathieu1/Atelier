@@ -50,7 +50,9 @@ export default function AutorisationBtClientPage() {
   const [error, setError] = useState<string | null>(null);
 
   const allAnswered = useMemo(
-    () => taches.length > 0 && taches.every((t) => t.decision === "autorise" || t.decision === "refuse"),
+    () =>
+      taches.length > 0 &&
+      taches.every((t) => t.decision === "autorise" || t.decision === "refuse"),
     [taches]
   );
 
@@ -104,10 +106,7 @@ export default function AutorisationBtClientPage() {
               .from(BUCKET)
               .createSignedUrl(p.storage_path, 60 * 60);
 
-            return {
-              ...p,
-              url: signed?.signedUrl || "",
-            };
+            return { ...p, url: signed?.signedUrl || "" };
           })
         );
 
@@ -119,6 +118,8 @@ export default function AutorisationBtClientPage() {
         }
 
         setPhotosByTask(map);
+      } else {
+        setPhotosByTask({});
       }
     } catch (e: any) {
       setError(e?.message || "Erreur lors du chargement.");
@@ -129,116 +130,91 @@ export default function AutorisationBtClientPage() {
 
   useEffect(() => {
     loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   function setDecision(tacheId: string, decision: "autorise" | "refuse") {
     setTaches((rows) =>
-      rows.map((t) =>
-        t.id === tacheId
-          ? {
-              ...t,
-              decision,
-            }
-          : t
-      )
+      rows.map((t) => (t.id === tacheId ? { ...t, decision } : t))
     );
   }
 
   function setNote(tacheId: string, note: string) {
     setTaches((rows) =>
-      rows.map((t) =>
-        t.id === tacheId
-          ? {
-              ...t,
-              note_client: note,
-            }
-          : t
-      )
+      rows.map((t) => (t.id === tacheId ? { ...t, note_client: note } : t))
     );
   }
 
   async function submit() {
-  if (!autorisation) return;
+    if (!autorisation) return;
 
-  if (!allAnswered) {
-    alert("Veuillez autoriser ou refuser chaque tâche avant de confirmer.");
-    return;
-  }
-
-  setSaving(true);
-
-  try {
-    // 1. Sauvegarde des décisions
-    for (const t of taches) {
-      const { error } = await supabase
-        .from("bt_autorisation_taches")
-        .update({
-          decision: t.decision,
-          note_client: t.note_client?.trim() || null,
-        })
-        .eq("id", t.id);
-
-      if (error) throw error;
+    if (!allAnswered) {
+      alert("Veuillez autoriser ou refuser chaque tâche avant de confirmer.");
+      return;
     }
 
-    // 2. Mise à jour statut autorisation
-    const hasRefus = taches.some((t) => t.decision === "refuse");
+    setSaving(true);
 
-    const { error: authErr } = await supabase
-      .from("bt_autorisations")
-      .update({
-        statut: hasRefus ? "reponse_partielle" : "autorisee",
-        submitted_at: new Date().toISOString(),
-      })
-      .eq("id", autorisation.id);
+    try {
+      for (const t of taches) {
+        const { error } = await supabase
+          .from("bt_autorisation_taches")
+          .update({
+            decision: t.decision,
+            note_client: t.note_client?.trim() || null,
+          })
+          .eq("id", t.id);
 
-    if (authErr) throw authErr;
+        if (error) throw error;
+      }
 
-    // 3. Envoi email confirmation (🔥 corrigé)
-    const lienAutorisation = `${window.location.origin}/autorisation-bt/${autorisation.token}`;
+      const hasRefus = taches.some((t) => t.decision === "refuse");
 
-    const { error: emailErr } = await supabase.functions.invoke(
-      "bt-autorisation-email",
-      {
+      const { error: authErr } = await supabase
+        .from("bt_autorisations")
+        .update({
+          statut: hasRefus ? "reponse_partielle" : "autorisee",
+          submitted_at: new Date().toISOString(),
+        })
+        .eq("id", autorisation.id);
+
+      if (authErr) throw authErr;
+
+      const lienAutorisation = `${window.location.origin}/autorisation-bt/${autorisation.token}`;
+
+      const { error: emailErr } = await supabase.functions.invoke("bt-autorisation-email", {
         body: {
-          type: "send_confirmation", // 🔥 IMPORTANT
+          type: "send_confirmation",
           bt_id: autorisation.bt_id,
           autorisation_id: autorisation.id,
           client_email: autorisation.client_email,
           client_nom: autorisation.client_nom,
           lien_autorisation: lienAutorisation,
         },
+      });
+
+      if (emailErr) {
+        console.error("Erreur email confirmation:", emailErr);
       }
-    );
 
-    if (emailErr) {
-      console.error("Erreur email confirmation:", emailErr);
-      // On bloque pas l'utilisateur pour ça
+      await loadData();
+      alert("Votre réponse a bien été transmise. Merci.");
+    } catch (e: any) {
+      alert(e?.message || "Erreur lors de l’envoi de la réponse.");
+    } finally {
+      setSaving(false);
     }
-
-    // 4. Reload + message
-    await loadData();
-    alert("Votre réponse a bien été transmise. Merci.");
-  } catch (e: any) {
-    alert(e?.message || "Erreur lors de l’envoi de la réponse.");
-  } finally {
-    setSaving(false);
   }
-}
 
   const styles: Record<string, CSSProperties> = {
     page: {
       minHeight: "100vh",
       background: "#f3f4f6",
       padding: 16,
-      fontFamily:
-        '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif',
       color: "#0f172a",
     },
-    shell: {
-      maxWidth: 860,
-      margin: "0 auto",
-    },
+    shell: { maxWidth: 860, margin: "0 auto" },
     card: {
       background: "#fff",
       borderRadius: 18,
@@ -246,23 +222,10 @@ export default function AutorisationBtClientPage() {
       boxShadow: "0 18px 60px rgba(15,23,42,.10)",
       overflow: "hidden",
     },
-    header: {
-      padding: 20,
-      borderBottom: "1px solid rgba(0,0,0,.08)",
-    },
-    title: {
-      margin: 0,
-      fontSize: 24,
-      fontWeight: 950,
-    },
-    subtitle: {
-      marginTop: 6,
-      color: "rgba(15,23,42,.65)",
-      fontWeight: 700,
-    },
-    body: {
-      padding: 18,
-    },
+    header: { padding: 20, borderBottom: "1px solid rgba(0,0,0,.08)" },
+    title: { margin: 0, fontSize: 24, fontWeight: 950 },
+    subtitle: { marginTop: 6, color: "rgba(15,23,42,.65)", fontWeight: 700 },
+    body: { padding: 18 },
     alertDone: {
       padding: 14,
       borderRadius: 14,
@@ -353,6 +316,34 @@ export default function AutorisationBtClientPage() {
       fontWeight: 950,
       cursor: "pointer",
     },
+    decisionBoxAutorise: {
+      marginTop: 10,
+      padding: "10px 12px",
+      borderRadius: 12,
+      fontWeight: 950,
+      background: "#dcfce7",
+      color: "#166534",
+      border: "1px solid #86efac",
+    },
+    decisionBoxRefuse: {
+      marginTop: 10,
+      padding: "10px 12px",
+      borderRadius: 12,
+      fontWeight: 950,
+      background: "#fee2e2",
+      color: "#991b1b",
+      border: "1px solid #fecaca",
+    },
+    noteBox: {
+      marginTop: 10,
+      padding: 10,
+      borderRadius: 12,
+      background: "#f8fafc",
+      border: "1px solid rgba(0,0,0,.08)",
+      color: "#334155",
+      fontWeight: 700,
+      whiteSpace: "pre-wrap",
+    },
     textarea: {
       width: "100%",
       minHeight: 70,
@@ -425,9 +416,7 @@ export default function AutorisationBtClientPage() {
     },
   };
 
-  if (loading) {
-    return <div style={styles.page}>Chargement...</div>;
-  }
+  if (loading) return <div style={styles.page}>Chargement...</div>;
 
   if (error || !autorisation) {
     return (
@@ -450,25 +439,27 @@ export default function AutorisationBtClientPage() {
       <div style={styles.shell}>
         <div style={styles.card}>
           <div style={styles.header}>
-            <h1 style={styles.title}>Autorisation de travaux</h1>
+            <h1 style={styles.title}>
+              {submitted ? "Confirmation de réponse" : "Autorisation de travaux"}
+            </h1>
+
             <div style={styles.subtitle}>
-              Veuillez autoriser ou refuser les tâches proposées.
+              {submitted
+                ? "Voici le détail des réponses transmises."
+                : "Veuillez autoriser ou refuser les tâches proposées."}
             </div>
           </div>
 
           <div style={styles.body}>
             {submitted && (
-              <div style={styles.alertDone}>
-                Réponse déjà transmise. Merci.
-              </div>
+              <div style={styles.alertDone}>Réponse déjà transmise. Merci.</div>
             )}
 
-            {autorisation.message && (
-              <div style={styles.message}>{autorisation.message}</div>
-            )}
+            {autorisation.message && <div style={styles.message}>{autorisation.message}</div>}
 
             {taches.map((t) => {
               const photos = photosByTask[t.unite_note_id] || [];
+              const isAutorise = t.decision === "autorise";
 
               return (
                 <div key={t.id} style={styles.task}>
@@ -494,33 +485,40 @@ export default function AutorisationBtClientPage() {
                     </div>
                   )}
 
-                  <div style={styles.actions}>
-                    <button
-                      type="button"
-                      disabled={submitted}
-                      style={t.decision === "autorise" ? styles.yesActive : styles.yes}
-                      onClick={() => setDecision(t.id, "autorise")}
-                    >
-                      Autoriser
-                    </button>
+                  {submitted ? (
+                    <div style={isAutorise ? styles.decisionBoxAutorise : styles.decisionBoxRefuse}>
+                      {isAutorise ? "Travail autorisé" : "Travail refusé"}
+                    </div>
+                  ) : (
+                    <div style={styles.actions}>
+                      <button
+                        type="button"
+                        style={t.decision === "autorise" ? styles.yesActive : styles.yes}
+                        onClick={() => setDecision(t.id, "autorise")}
+                      >
+                        Autoriser
+                      </button>
 
-                    <button
-                      type="button"
-                      disabled={submitted}
-                      style={t.decision === "refuse" ? styles.noActive : styles.no}
-                      onClick={() => setDecision(t.id, "refuse")}
-                    >
-                      Refuser
-                    </button>
-                  </div>
+                      <button
+                        type="button"
+                        style={t.decision === "refuse" ? styles.noActive : styles.no}
+                        onClick={() => setDecision(t.id, "refuse")}
+                      >
+                        Refuser
+                      </button>
+                    </div>
+                  )}
 
-                  <textarea
-                    style={styles.textarea}
-                    disabled={submitted}
-                    placeholder="Note optionnelle"
-                    value={t.note_client || ""}
-                    onChange={(e) => setNote(t.id, e.target.value)}
-                  />
+                  {submitted ? (
+                    t.note_client ? <div style={styles.noteBox}>{t.note_client}</div> : null
+                  ) : (
+                    <textarea
+                      style={styles.textarea}
+                      placeholder="Note optionnelle"
+                      value={t.note_client || ""}
+                      onChange={(e) => setNote(t.id, e.target.value)}
+                    />
+                  )}
                 </div>
               );
             })}
