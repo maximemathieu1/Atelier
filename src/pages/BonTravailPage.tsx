@@ -100,6 +100,14 @@ type TacheEffectuee = {
   entretien_auto?: boolean | null;
 };
 
+type AutorisationDecision = "autorise" | "refuse" | "attente" | "a_discuter";
+
+type AutorisationInfo = {
+  decision: AutorisationDecision;
+  note_client: string | null;
+  autorisation_tache_id: string;
+};
+
 type MainOeuvreRow = {
   id: string;
   bt_id: string;
@@ -237,6 +245,7 @@ export default function BonTravailPage() {
   const [paramEntreprise, setParamEntreprise] = useState<ParametresEntreprise | null>(null);
 
   const [notes, setNotes] = useState<NoteMeca[]>([]);
+  const [autorisationMap, setAutorisationMap] = useState<Record<string, AutorisationInfo>>({});
   const [tachesEffectuees, setTachesEffectuees] = useState<TacheEffectuee[]>([]);
   const [pieces, setPieces] = useState<Piece[]>([]);
   const [mainOeuvre, setMainOeuvre] = useState<MainOeuvreRow[]>([]);
@@ -268,6 +277,10 @@ export default function BonTravailPage() {
 
   const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [taskModalValue, setTaskModalValue] = useState("");
+
+  const [autorisationModalTask, setAutorisationModalTask] = useState<NoteMeca | null>(null);
+  const [autorisationModalNote, setAutorisationModalNote] = useState("");
+  const [savingAutorisationModal, setSavingAutorisationModal] = useState(false);
 
   const [tempsModalOpen, setTempsModalOpen] = useState(false);
 
@@ -554,6 +567,42 @@ export default function BonTravailPage() {
       setDocuments([]);
     } finally {
       setDocumentsLoading(false);
+    }
+  }
+
+
+  async function loadAutorisations(btId: string) {
+    try {
+      const { data, error } = await supabase
+        .from("bt_autorisation_taches")
+        .select("id, unite_note_id, decision, note_client, created_at")
+        .eq("bt_id", btId)
+        .order("created_at", { ascending: true });
+
+      if (error) throw error;
+
+      const map: Record<string, AutorisationInfo> = {};
+
+      for (const row of data || []) {
+        const noteId = String((row as any).unite_note_id || "").trim();
+        if (!noteId) continue;
+
+        const decision = String((row as any).decision || "").trim();
+
+        map[noteId] = {
+          autorisation_tache_id: String((row as any).id || ""),
+          decision:
+            decision === "autorise" || decision === "refuse" || decision === "a_discuter"
+              ? decision
+              : "attente",
+          note_client: (row as any).note_client ?? null,
+        };
+      }
+
+      setAutorisationMap(map);
+    } catch (e) {
+      console.error("Erreur chargement autorisations BT:", e);
+      setAutorisationMap({});
     }
   }
 
@@ -1145,7 +1194,13 @@ export default function BonTravailPage() {
       if (eTe) throw eTe;
       setTachesEffectuees((teData || []) as TacheEffectuee[]);
 
-      await Promise.all([loadPieces(id), loadMainOeuvre(id), loadPointages(id), loadDocuments(id)]);
+      await Promise.all([
+        loadPieces(id),
+        loadMainOeuvre(id),
+        loadPointages(id),
+        loadDocuments(id),
+        loadAutorisations(btRow.id),
+      ]);
       await syncInventaireInstallationsForBt(btRow.id);
 
       const persistedTotals = await recalcAndPersistTotals(btRow.id);
@@ -1248,16 +1303,42 @@ export default function BonTravailPage() {
     await loadAll();
   }
 
-  async function completeSelectedTasks() {
-    if (!bt || !selectedIds.length) return;
+  async function completeTaskIds(taskIds: string[], opts?: { skipConfirm?: boolean; forceAuthorize?: boolean }) {
+    if (!bt || !taskIds.length) return;
     if (isReadOnly) {
       alert("BT fermé / verrouillé / facturé : impossible de modifier.");
       return;
     }
 
-    const selectedTasks = notes.filter((n) => selectedIds.includes(n.id));
+    const selectedTasks = notes.filter((n) => taskIds.includes(n.id));
     if (!selectedTasks.length) return;
-    if (!confirm(`Marquer ${selectedTasks.length} tâche(s) comme effectuée(s) ?`)) return;
+
+    const blockedTasks = selectedTasks.filter((t) => {
+      const decision = autorisationMap[t.id]?.decision;
+      return decision === "attente" || decision === "refuse" || decision === "a_discuter";
+    });
+
+    if (blockedTasks.length > 0 && !opts?.forceAuthorize) {
+      alert("Une ou plusieurs tâches sont en attente, à discuter ou refusées par le client. Autorise-les avant de les effectuer.");
+      return;
+    }
+
+    if (!opts?.skipConfirm && !confirm(`Marquer ${selectedTasks.length} tâche(s) comme effectuée(s) ?`)) return;
+
+    if (opts?.forceAuthorize) {
+      for (const task of blockedTasks) {
+        const { error } = await supabase
+          .from("bt_autorisation_taches")
+          .update({ decision: "autorise" })
+          .eq("bt_id", bt.id)
+          .eq("unite_note_id", task.id);
+
+        if (error) {
+          alert(error.message);
+          return;
+        }
+      }
+    }
 
     for (const task of selectedTasks) {
       const res = await upsertEntretienHistoriqueForTask(task);
@@ -1267,17 +1348,24 @@ export default function BonTravailPage() {
       }
     }
 
-    const insertRows = selectedTasks.map((t) => ({
-      bt_id: bt.id,
-      unite_id: bt.unite_id,
-      unite_note_id: t.id,
-      titre: t.titre,
-      details: t.details,
-      date_effectuee: new Date().toISOString(),
-      entretien_template_item_id: t.entretien_template_item_id ?? null,
-      entretien_unite_item_id: t.entretien_unite_item_id ?? null,
-      entretien_auto: Boolean(t.entretien_auto),
-    }));
+    const insertRows = selectedTasks.map((t) => {
+      const autorisation = autorisationMap[t.id];
+
+      return {
+        bt_id: bt.id,
+        unite_id: bt.unite_id,
+        unite_note_id: t.id,
+        titre: t.titre,
+        details: t.details,
+        date_effectuee: new Date().toISOString(),
+        entretien_template_item_id: t.entretien_template_item_id ?? null,
+        entretien_unite_item_id: t.entretien_unite_item_id ?? null,
+        entretien_auto: Boolean(t.entretien_auto),
+        autorisation_tache_id: autorisation?.autorisation_tache_id || null,
+        decision_client: autorisation?.decision === "autorise" ? "autorise" : null,
+        note_client: autorisation?.note_client || null,
+      };
+    });
 
     const { error: insertErr } = await supabase.from("bt_taches_effectuees").insert(insertRows);
     if (insertErr) {
@@ -1285,7 +1373,7 @@ export default function BonTravailPage() {
       return;
     }
 
-    const { error: deleteErr } = await supabase.from("unite_notes").delete().in("id", selectedIds);
+    const { error: deleteErr } = await supabase.from("unite_notes").delete().in("id", taskIds);
     if (deleteErr) {
       alert(deleteErr.message);
       return;
@@ -1299,6 +1387,68 @@ export default function BonTravailPage() {
     });
 
     await loadAll();
+  }
+
+  async function completeSelectedTasks() {
+    await completeTaskIds(selectedIds);
+  }
+
+  function autoriserManuellementTache(t: NoteMeca) {
+    if (isReadOnly) {
+      alert("BT fermé / verrouillé / facturé : impossible de modifier.");
+      return;
+    }
+
+    setAutorisationModalTask(t);
+    setAutorisationModalNote("");
+  }
+
+  function closeAutorisationModal() {
+    if (savingAutorisationModal) return;
+    setAutorisationModalTask(null);
+    setAutorisationModalNote("");
+  }
+
+  async function confirmerAutoriserAFaire() {
+    if (!bt || !autorisationModalTask) return;
+
+    const note = autorisationModalNote.trim();
+    if (!note) {
+      alert("Ajoute une note pour conserver la raison du changement.");
+      return;
+    }
+
+    setSavingAutorisationModal(true);
+
+    try {
+      const current = autorisationMap[autorisationModalTask.id];
+      const now = new Date().toLocaleString("fr-CA");
+      const existingNote = String(current?.note_client || "").trim();
+      const nextNote = [existingNote, `[${now}] Autorisé à faire : ${note}`]
+        .filter(Boolean)
+        .join("\n\n");
+
+      const { error } = await supabase
+        .from("bt_autorisation_taches")
+        .update({ decision: "autorise", note_client: nextNote })
+        .eq("bt_id", bt.id)
+        .eq("unite_note_id", autorisationModalTask.id);
+
+      if (error) throw error;
+
+      closeAutorisationModal();
+      await loadAutorisations(bt.id);
+    } catch (e: any) {
+      alert(e?.message || "Erreur lors de l’autorisation manuelle.");
+    } finally {
+      setSavingAutorisationModal(false);
+    }
+  }
+
+  async function completeSingleTaskFromAutorisation(t: NoteMeca) {
+    const ok = confirm(`Autoriser manuellement et marquer cette tâche comme effectuée ?\n\n${t.titre}`);
+    if (!ok) return;
+    await completeTaskIds([t.id], { skipConfirm: true, forceAuthorize: true });
   }
 
   async function deleteSelectedTasks() {
@@ -2133,6 +2283,7 @@ export default function BonTravailPage() {
               <BonTravailOperations
                 btId={id}
                 notes={notes}
+                autorisationMap={autorisationMap}
                 selected={selected}
                 setSelected={setSelected}
                 selectedIds={selectedIds}
@@ -2144,6 +2295,9 @@ export default function BonTravailPage() {
                 }}
                 onCompleteSelectedTasks={completeSelectedTasks}
                 onDeleteSelectedTasks={deleteSelectedTasks}
+                onAutoriserManuellementTache={autoriserManuellementTache}
+                onCompleteSingleTaskFromAutorisation={completeSingleTaskFromAutorisation}
+                onRefresh={loadAll}
                 onRemettreTacheOuverte={remettreTacheOuverte}
                 pieces={pieces}
                 setPieces={setPieces}
@@ -2355,6 +2509,42 @@ export default function BonTravailPage() {
               </button>
               <button type="button" style={styles.btnPrimary} onClick={addTask}>
                 Enregistrer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {autorisationModalTask && (
+        <div style={styles.modalBackdrop} onClick={closeAutorisationModal}>
+          <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <h3 style={styles.modalTitle}>Autoriser à faire</h3>
+              <button type="button" style={styles.iconCloseBtn} onClick={closeAutorisationModal} disabled={savingAutorisationModal}>
+                ×
+              </button>
+            </div>
+
+            <div style={styles.modalBody}>
+              <div style={{ fontWeight: 900, marginBottom: 8 }}>{autorisationModalTask.titre}</div>
+              <div style={{ ...styles.muted, marginBottom: 12 }}>
+                Cette note sera conservée avec le suivi d’autorisation de la tâche.
+              </div>
+              <textarea
+                style={{ ...styles.input, width: "100%", minWidth: 0, minHeight: 110, resize: "vertical" }}
+                placeholder="Ex. Client a rappelé et autorise finalement cette tâche."
+                value={autorisationModalNote}
+                onChange={(e) => setAutorisationModalNote(e.target.value)}
+                autoFocus
+              />
+            </div>
+
+            <div style={styles.modalFooter}>
+              <button type="button" style={styles.btnDanger} onClick={closeAutorisationModal} disabled={savingAutorisationModal}>
+                Annuler
+              </button>
+              <button type="button" style={styles.btnPrimary} onClick={confirmerAutoriserAFaire} disabled={savingAutorisationModal}>
+                {savingAutorisationModal ? "Enregistrement..." : "Autoriser à faire"}
               </button>
             </div>
           </div>

@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useParams } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 
+type DecisionClient = "autorise" | "refuse" | "a_discuter";
+
 type Autorisation = {
   id: string;
   bt_id: string;
@@ -52,7 +54,12 @@ export default function AutorisationBtClientPage() {
   const allAnswered = useMemo(
     () =>
       taches.length > 0 &&
-      taches.every((t) => t.decision === "autorise" || t.decision === "refuse"),
+      taches.every(
+        (t) =>
+          t.decision === "autorise" ||
+          t.decision === "refuse" ||
+          t.decision === "a_discuter"
+      ),
     [taches]
   );
 
@@ -133,7 +140,7 @@ export default function AutorisationBtClientPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
-  function setDecision(tacheId: string, decision: "autorise" | "refuse") {
+  function setDecision(tacheId: string, decision: DecisionClient) {
     setTaches((rows) =>
       rows.map((t) => (t.id === tacheId ? { ...t, decision } : t))
     );
@@ -149,7 +156,16 @@ export default function AutorisationBtClientPage() {
     if (!autorisation) return;
 
     if (!allAnswered) {
-      alert("Veuillez autoriser ou refuser chaque tâche avant de confirmer.");
+      alert("Veuillez choisir Autoriser, Refuser ou À discuter pour chaque tâche.");
+      return;
+    }
+
+    const missingDiscussNote = taches.some(
+      (t) => t.decision === "a_discuter" && !t.note_client?.trim()
+    );
+
+    if (missingDiscussNote) {
+      alert("Veuillez ajouter une note pour chaque élément marqué À discuter.");
       return;
     }
 
@@ -169,11 +185,16 @@ export default function AutorisationBtClientPage() {
       }
 
       const hasRefus = taches.some((t) => t.decision === "refuse");
+      const hasDiscussion = taches.some((t) => t.decision === "a_discuter");
 
       const { error: authErr } = await supabase
         .from("bt_autorisations")
         .update({
-          statut: hasRefus ? "reponse_partielle" : "autorisee",
+          statut: hasDiscussion
+            ? "a_discuter"
+            : hasRefus
+            ? "reponse_partielle"
+            : "autorisee",
           submitted_at: new Date().toISOString(),
         })
         .eq("id", autorisation.id);
@@ -182,7 +203,7 @@ export default function AutorisationBtClientPage() {
 
       const lienAutorisation = `${window.location.origin}/autorisation-bt/${autorisation.token}`;
 
-      const { error: emailErr } = await supabase.functions.invoke("bt-autorisation-email", {
+      await supabase.functions.invoke("bt-autorisation-email", {
         body: {
           type: "send_confirmation",
           bt_id: autorisation.bt_id,
@@ -192,10 +213,6 @@ export default function AutorisationBtClientPage() {
           lien_autorisation: lienAutorisation,
         },
       });
-
-      if (emailErr) {
-        console.error("Erreur email confirmation:", emailErr);
-      }
 
       await loadData();
       alert("Votre réponse a bien été transmise. Merci.");
@@ -276,7 +293,7 @@ export default function AutorisationBtClientPage() {
     },
     actions: {
       display: "grid",
-      gridTemplateColumns: "1fr 1fr",
+      gridTemplateColumns: "1fr 1fr 1fr",
       gap: 10,
       marginTop: 8,
     },
@@ -316,6 +333,24 @@ export default function AutorisationBtClientPage() {
       fontWeight: 950,
       cursor: "pointer",
     },
+    discuss: {
+      padding: "12px 10px",
+      borderRadius: 12,
+      border: "1px solid #2563eb",
+      background: "#fff",
+      color: "#1d4ed8",
+      fontWeight: 950,
+      cursor: "pointer",
+    },
+    discussActive: {
+      padding: "12px 10px",
+      borderRadius: 12,
+      border: "1px solid #2563eb",
+      background: "#2563eb",
+      color: "#fff",
+      fontWeight: 950,
+      cursor: "pointer",
+    },
     decisionBoxAutorise: {
       marginTop: 10,
       padding: "10px 12px",
@@ -333,6 +368,15 @@ export default function AutorisationBtClientPage() {
       background: "#fee2e2",
       color: "#991b1b",
       border: "1px solid #fecaca",
+    },
+    decisionBoxDiscuss: {
+      marginTop: 10,
+      padding: "10px 12px",
+      borderRadius: 12,
+      fontWeight: 950,
+      background: "#dbeafe",
+      color: "#1d4ed8",
+      border: "1px solid #93c5fd",
     },
     noteBox: {
       marginTop: 10,
@@ -446,20 +490,17 @@ export default function AutorisationBtClientPage() {
             <div style={styles.subtitle}>
               {submitted
                 ? "Voici le détail des réponses transmises."
-                : "Veuillez autoriser ou refuser les tâches proposées."}
+                : "Veuillez autoriser, refuser ou indiquer les tâches à discuter."}
             </div>
           </div>
 
           <div style={styles.body}>
-            {submitted && (
-              <div style={styles.alertDone}>Réponse déjà transmise. Merci.</div>
-            )}
+            {submitted && <div style={styles.alertDone}>Réponse déjà transmise. Merci.</div>}
 
             {autorisation.message && <div style={styles.message}>{autorisation.message}</div>}
 
             {taches.map((t) => {
               const photos = photosByTask[t.unite_note_id] || [];
-              const isAutorise = t.decision === "autorise";
 
               return (
                 <div key={t.id} style={styles.task}>
@@ -486,9 +527,19 @@ export default function AutorisationBtClientPage() {
                   )}
 
                   {submitted ? (
-                    <div style={isAutorise ? styles.decisionBoxAutorise : styles.decisionBoxRefuse}>
-                      {isAutorise ? "Travail autorisé" : "Travail refusé"}
-                    </div>
+                    <>
+                      {t.decision === "autorise" && (
+                        <div style={styles.decisionBoxAutorise}>Travail autorisé</div>
+                      )}
+
+                      {t.decision === "refuse" && (
+                        <div style={styles.decisionBoxRefuse}>Travail refusé</div>
+                      )}
+
+                      {t.decision === "a_discuter" && (
+                        <div style={styles.decisionBoxDiscuss}>À discuter</div>
+                      )}
+                    </>
                   ) : (
                     <div style={styles.actions}>
                       <button
@@ -506,6 +557,18 @@ export default function AutorisationBtClientPage() {
                       >
                         Refuser
                       </button>
+
+                      <button
+                        type="button"
+                        style={
+                          t.decision === "a_discuter"
+                            ? styles.discussActive
+                            : styles.discuss
+                        }
+                        onClick={() => setDecision(t.id, "a_discuter")}
+                      >
+                        À discuter
+                      </button>
                     </div>
                   )}
 
@@ -514,7 +577,11 @@ export default function AutorisationBtClientPage() {
                   ) : (
                     <textarea
                       style={styles.textarea}
-                      placeholder="Note optionnelle"
+                      placeholder={
+                        t.decision === "a_discuter"
+                          ? "Note obligatoire pour préciser ce qui est à discuter"
+                          : "Note optionnelle"
+                      }
                       value={t.note_client || ""}
                       onChange={(e) => setNote(t.id, e.target.value)}
                     />

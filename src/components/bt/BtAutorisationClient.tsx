@@ -76,9 +76,9 @@ export default function BtAutorisationClient({ btId, notes, isReadOnly, onSent }
       const { error: taskErr } = await supabase.from("bt_autorisation_taches").insert(rows);
       if (taskErr) throw taskErr;
 
-      const { error: fnErr } = await supabase.functions.invoke("smart-function", {
+      const { error: fnErr } = await supabase.functions.invoke("bt-autorisation-email", {
         body: {
-          type: "bt_autorisation_client",
+          type: "send_demande",
           bt_id: btId,
           autorisation_id: auth.id,
           client_email: email,

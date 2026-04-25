@@ -12,6 +12,14 @@ type NoteMeca = {
   created_at: string;
 };
 
+type AutorisationDecision = "autorise" | "refuse" | "attente" | "a_discuter";
+
+type AutorisationInfo = {
+  decision: AutorisationDecision;
+  note_client: string | null;
+  autorisation_tache_id: string;
+};
+
 type TacheEffectuee = {
   id: string;
   bt_id: string;
@@ -99,6 +107,7 @@ function localToIsoOrNull(v: string) {
 type Props = {
   btId: string;
   notes: NoteMeca[];
+  autorisationMap: Record<string, AutorisationInfo>;
   selected: Record<string, boolean>;
   setSelected: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
   selectedIds: string[];
@@ -107,6 +116,9 @@ type Props = {
   onOpenTaskModal: () => void;
   onCompleteSelectedTasks: () => void;
   onDeleteSelectedTasks: () => void;
+  onAutoriserManuellementTache: (t: NoteMeca) => void;
+  onCompleteSingleTaskFromAutorisation: (t: NoteMeca) => void;
+  onRefresh?: () => void | Promise<void>;
   onRemettreTacheOuverte: (t: TacheEffectuee) => void;
 
   pieces: Piece[];
@@ -198,6 +210,41 @@ export default function BonTravailOperations(props: Props) {
       cursor: "pointer",
       fontSize: 13,
     },
+    btnMini: {
+      padding: "6px 9px",
+      borderRadius: 9,
+      border: "1px solid rgba(0,0,0,.12)",
+      background: "#fff",
+      fontWeight: 850,
+      cursor: "pointer",
+      fontSize: 12,
+    },
+    btnMiniPrimary: {
+      padding: "6px 9px",
+      borderRadius: 9,
+      border: "1px solid #2563eb",
+      background: "#2563eb",
+      color: "#fff",
+      fontWeight: 850,
+      cursor: "pointer",
+      fontSize: 12,
+    },
+    authStatusText: {
+      marginTop: 3,
+      fontSize: 11,
+      fontWeight: 850,
+    },
+    clientNoteBox: {
+      marginTop: 6,
+      padding: "7px 9px",
+      borderRadius: 10,
+      background: "rgba(255,255,255,.75)",
+      border: "1px solid rgba(0,0,0,.08)",
+      color: "#334155",
+      fontSize: 12,
+      fontWeight: 700,
+      whiteSpace: "pre-wrap",
+    },
     input: {
       padding: "10px 12px",
       borderRadius: 10,
@@ -231,6 +278,7 @@ export default function BonTravailOperations(props: Props) {
       textAlign: "center",
       width: 80,
     },
+       
     tableWrap: {
       width: "100%",
       overflowX: "auto",
@@ -363,6 +411,7 @@ export default function BonTravailOperations(props: Props) {
   const {
     btId,
     notes,
+    autorisationMap,
     selected,
     setSelected,
     selectedIds,
@@ -371,6 +420,8 @@ export default function BonTravailOperations(props: Props) {
     onOpenTaskModal,
     onCompleteSelectedTasks,
     onDeleteSelectedTasks,
+    onAutoriserManuellementTache,
+    onRefresh,
     onRemettreTacheOuverte,
     pieces,
     setPieces,
@@ -436,6 +487,7 @@ export default function BonTravailOperations(props: Props) {
   btId={btId}
   notes={notes}
   isReadOnly={isReadOnly}
+  onSent={() => void onRefresh?.()}
 />
           </div>
         </div>
@@ -477,35 +529,95 @@ export default function BonTravailOperations(props: Props) {
                   </td>
                 </tr>
               ) : (
-                notes.map((t) => (
-                  <tr key={t.id}>
-                    <td style={styles.td}>
-                      <input
-                        type="checkbox"
-                        checked={Boolean(selected[t.id])}
-                        onChange={(e) => setSelected((s) => ({ ...s, [t.id]: e.target.checked }))}
-                        disabled={isReadOnly}
-                      />
-                    </td>
+                notes.map((t) => {
+                  const autorisation = autorisationMap[t.id];
+                  const decision = autorisation?.decision;
+                  const noteClient = String(autorisation?.note_client || "").trim();
+                  const isPendingClient = decision === "attente";
+                  const isRefusedClient = decision === "refuse";
+                  const isADiscuterClient = decision === "a_discuter";
+                  const isBlockedClient = isPendingClient || isRefusedClient || isADiscuterClient;
 
-                    <td style={styles.td}>
-                      <div style={{ fontWeight: 500, textTransform: "uppercase" }}>
-                        {String(t.titre || "")}
-                      </div>
-                    </td>
+                  const rowStyle: CSSProperties = {
+                    background: isRefusedClient
+                      ? "#fef2f2"
+                      : isPendingClient
+                      ? "#fefce8"
+                      : isADiscuterClient
+                      ? "#eff6ff"
+                      : "transparent",
+                    opacity: isRefusedClient ? 0.62 : isPendingClient || isADiscuterClient ? 0.9 : 1,
+                    transition: "background .15s ease, opacity .15s ease",
+                  };
 
-                    <td style={styles.td}>{fmtDateTimeNoSeconds(t.created_at)}</td>
+                  return (
+                    <tr key={t.id} style={rowStyle}>
+                      <td style={styles.td}>
+                        <input
+                          type="checkbox"
+                          checked={Boolean(selected[t.id])}
+                          onChange={(e) =>
+                            setSelected((s) => ({ ...s, [t.id]: e.target.checked }))
+                          }
+                          disabled={isReadOnly || isBlockedClient}
+                        />
+                      </td>
 
-                    <td style={styles.photoTd}>
-                      <BtTachePhotos
-                        btId={btId}
-                        uniteId={t.unite_id}
-                        uniteNoteId={t.id}
-                        isReadOnly={isReadOnly}
-                      />
-                    </td>
-                  </tr>
-                ))
+                      <td style={styles.td}>
+                        <div style={{ fontWeight: 500, textTransform: "uppercase" }}>
+                          {String(t.titre || "")}
+                        </div>
+
+                        {isPendingClient && (
+                          <div style={{ ...styles.authStatusText, color: "#a16207" }}>
+                            En attente client
+                          </div>
+                        )}
+
+                        {isADiscuterClient && (
+                          <div style={{ ...styles.authStatusText, color: "#2563eb" }}>
+                            À discuter
+                          </div>
+                        )}
+
+                        {isRefusedClient && (
+                          <div style={{ ...styles.authStatusText, color: "#dc2626" }}>
+                            Refusé par le client
+                          </div>
+                        )}
+
+                        {noteClient && (
+                          <div style={styles.clientNoteBox}>
+                            Note client : {noteClient}
+                          </div>
+                        )}
+
+                        {isRefusedClient && !isReadOnly && (
+                          <div style={{ ...styles.row, gap: 6, marginTop: 8 }}>
+                            <button
+                              type="button"
+                              style={styles.btnMiniPrimary}
+                              onClick={() => onAutoriserManuellementTache(t)}
+                            >
+                              Autoriser à faire
+                            </button>
+                          </div>
+                        )}
+                      </td>
+
+                      <td style={styles.td}>{fmtDateTimeNoSeconds(t.created_at)}</td>
+
+                      <td style={styles.photoTd}>
+                        <BtTachePhotos
+                          btId={btId}
+                          uniteId={t.unite_id}
+                          uniteNoteId={t.id}
+                          isReadOnly={isReadOnly}
+                        />
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
