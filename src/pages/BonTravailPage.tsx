@@ -2282,6 +2282,8 @@ export default function BonTravailPage() {
 
               <BonTravailOperations
                 btId={id}
+clientId={bt?.client_id || unite?.client_id || null}
+  uniteNo={unite?.no_unite || ""}
                 notes={notes}
                 autorisationMap={autorisationMap}
                 selected={selected}

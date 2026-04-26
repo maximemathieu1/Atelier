@@ -1,8 +1,8 @@
-import { useState, type CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
+import { supabase } from "../../lib/supabaseClient";
 import BtPiecesCard, { type Piece } from "./BtPiecesCard";
 import BtTachePhotos from "./BtTachePhotos";
 import BtAutorisationClient from "./BtAutorisationClient";
-
 
 type NoteMeca = {
   id: string;
@@ -10,6 +10,17 @@ type NoteMeca = {
   titre: string;
   details: string | null;
   created_at: string;
+};
+
+type ClientContact = {
+  id: string;
+  client_id: string | null;
+  nom: string;
+  poste: string | null;
+  telephone: string | null;
+  courriel: string | null;
+  principal: boolean | null;
+  type_facturation: boolean;
 };
 
 type AutorisationDecision = "autorise" | "refuse" | "attente" | "a_discuter";
@@ -106,6 +117,9 @@ function localToIsoOrNull(v: string) {
 
 type Props = {
   btId: string;
+  clientId?: string | null;
+  uniteNo?: string | null;
+  autorisationClientUrl?: string | null;
   notes: NoteMeca[];
   autorisationMap: Record<string, AutorisationInfo>;
   selected: Record<string, boolean>;
@@ -172,6 +186,26 @@ type Props = {
 
 export default function BonTravailOperations(props: Props) {
   const [showPointageDetails, setShowPointageDetails] = useState(false);
+
+  const initialUniteNo = String(props.uniteNo || "").trim();
+  const initialVehicleReadyMessage = initialUniteNo
+    ? `Groupe Breton: votre véhicule/unité ${initialUniteNo} est prêt. Vous pouvez passer le récupérer.`
+    : "Groupe Breton: votre véhicule est prêt. Vous pouvez passer le récupérer.";
+
+  const [sendClientChoiceOpen, setSendClientChoiceOpen] = useState(false);
+  const [taskAuthSmsOpen, setTaskAuthSmsOpen] = useState(false);
+  const [taskAuthSmsSending, setTaskAuthSmsSending] = useState(false);
+  const [taskAuthSmsMessage, setTaskAuthSmsMessage] = useState("");
+  const [vehicleReadyOpen, setVehicleReadyOpen] = useState(false);
+  const [vehicleReadySending, setVehicleReadySending] = useState(false);
+
+  const [clientContacts, setClientContacts] = useState<ClientContact[]>([]);
+  const [selectedContactId, setSelectedContactId] = useState("");
+  const [vehicleReadyPhone, setVehicleReadyPhone] = useState("");
+  const [vehicleReadyEmail, setVehicleReadyEmail] = useState("");
+  const [vehicleReadySendSms, setVehicleReadySendSms] = useState(true);
+  const [vehicleReadySendEmail, setVehicleReadySendEmail] = useState(false);
+  const [vehicleReadyMessage, setVehicleReadyMessage] = useState(initialVehicleReadyMessage);
 
   const styles: Record<string, CSSProperties> = {
     card: {
@@ -252,6 +286,15 @@ export default function BonTravailOperations(props: Props) {
       minWidth: 220,
       background: "#fff",
     },
+    textarea: {
+      padding: "10px 12px",
+      borderRadius: 10,
+      border: "1px solid rgba(0,0,0,.14)",
+      minHeight: 96,
+      resize: "vertical",
+      background: "#fff",
+      width: "100%",
+    },
     table: { width: "100%", borderCollapse: "collapse" },
     th: {
       textAlign: "left",
@@ -278,7 +321,6 @@ export default function BonTravailOperations(props: Props) {
       textAlign: "center",
       width: 80,
     },
-       
     tableWrap: {
       width: "100%",
       overflowX: "auto",
@@ -406,10 +448,87 @@ export default function BonTravailOperations(props: Props) {
       margin: "14px 0 6px",
       color: "#111827",
     },
+    modalBackdrop: {
+      position: "fixed",
+      inset: 0,
+      background: "rgba(15,23,42,.45)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      zIndex: 9999,
+      padding: 16,
+    },
+    modalCard: {
+      width: "min(560px, 100%)",
+      background: "#fff",
+      borderRadius: 18,
+      border: "1px solid rgba(0,0,0,.10)",
+      boxShadow: "0 24px 80px rgba(0,0,0,.25)",
+      padding: 18,
+      position: "relative",
+    },
+    modalCardLarge: {
+      width: "min(680px, 100%)",
+      maxHeight: "calc(100vh - 48px)",
+      overflowY: "auto",
+      background: "#fff",
+      borderRadius: 18,
+      border: "1px solid rgba(0,0,0,.10)",
+      boxShadow: "0 24px 80px rgba(0,0,0,.25)",
+      padding: 18,
+      position: "relative",
+    },
+    modalClose: {
+      position: "absolute",
+      top: 12,
+      right: 12,
+      width: 36,
+      height: 36,
+      borderRadius: 12,
+      border: "1px solid rgba(0,0,0,.12)",
+      background: "#fff",
+      fontWeight: 950,
+      cursor: "pointer",
+    },
+    modalTitle: {
+      fontSize: 20,
+      fontWeight: 950,
+      margin: "0 46px 6px 0",
+    },
+    modalText: {
+      fontSize: 14,
+      color: "#475569",
+      marginBottom: 14,
+    },
+    modalActionsColumn: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 10,
+    },
+    checkRow: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      fontWeight: 850,
+      color: "#111827",
+    },
+    helpBox: {
+      background: "#f8fafc",
+      border: "1px solid rgba(15,23,42,.08)",
+      borderRadius: 12,
+      padding: 10,
+      color: "#475569",
+      fontSize: 13,
+      fontWeight: 700,
+      lineHeight: 1.35,
+    },
   };
 
   const {
     btId,
+    clientId,
+    uniteNo,
+    autorisationClientUrl,
     notes,
     autorisationMap,
     selected,
@@ -459,6 +578,198 @@ export default function BonTravailOperations(props: Props) {
     totalGeneral,
   } = props;
 
+  useEffect(() => {
+    async function loadClientContacts() {
+      if (!clientId) {
+        setClientContacts([]);
+        setSelectedContactId("");
+        setVehicleReadyPhone("");
+        setVehicleReadyEmail("");
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("client_contacts")
+        .select("id, client_id, nom, poste, telephone, courriel, principal, type_facturation")
+        .eq("client_id", clientId)
+        .order("principal", { ascending: false })
+        .order("type_facturation", { ascending: false })
+        .order("nom", { ascending: true });
+
+      if (error) {
+        console.error("Erreur contacts client:", error);
+        setClientContacts([]);
+        return;
+      }
+
+      const contacts = data || [];
+      setClientContacts(contacts);
+
+      const preferred = contacts.find((c) => c.principal) || contacts[0];
+
+      if (preferred) {
+        setSelectedContactId(preferred.id);
+        setVehicleReadyPhone(preferred.telephone || "");
+        setVehicleReadyEmail(preferred.courriel || "");
+      }
+    }
+
+    void loadClientContacts();
+  }, [clientId]);
+
+  useEffect(() => {
+    const currentUniteNo = String(uniteNo || "").trim();
+    setVehicleReadyMessage(
+      currentUniteNo
+        ? `Groupe Breton: votre véhicule/unité ${currentUniteNo} est prêt. Vous pouvez passer le récupérer.`
+        : "Groupe Breton: votre véhicule est prêt. Vous pouvez passer le récupérer."
+    );
+  }, [uniteNo]);
+
+  useEffect(() => {
+    if (!taskAuthSmsOpen) return;
+
+    const selectedTasks = notes.filter((t) => selected[t.id]);
+    const taskLines = selectedTasks
+      .slice(0, 6)
+      .map((t) => `- ${String(t.titre || "Tâche").trim()}`)
+      .join("\n");
+
+    const more = selectedTasks.length > 6 ? `\n- +${selectedTasks.length - 6} autre(s) tâche(s)` : "";
+    const url = getAutorisationUrl();
+    const currentUniteNo = String(uniteNo || "").trim();
+    const intro = currentUniteNo
+      ? `Groupe Breton: des travaux sont à autoriser pour le véhicule/unité ${currentUniteNo}.`
+      : "Groupe Breton: des travaux sont à autoriser pour votre véhicule.";
+
+    setTaskAuthSmsMessage(
+      `${intro}\n${taskLines}${more}\nLien: ${url}`.trim()
+    );
+  }, [taskAuthSmsOpen, selected, notes, uniteNo, autorisationClientUrl, btId]);
+
+  function getAutorisationUrl() {
+    const provided = String(autorisationClientUrl || "").trim();
+    if (provided) return provided;
+
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    return `${origin}/autorisation-client/${btId}`;
+  }
+
+  function onSelectVehicleReadyContact(contactId: string) {
+    setSelectedContactId(contactId);
+
+    const contact = clientContacts.find((c) => c.id === contactId);
+    if (!contact) return;
+
+    setVehicleReadyPhone(contact.telephone || "");
+    setVehicleReadyEmail(contact.courriel || "");
+  }
+
+  async function sendTaskAutorisationSms() {
+    const phone = vehicleReadyPhone.trim();
+    const message = taskAuthSmsMessage.trim();
+    const selectedTasks = notes.filter((t) => selected[t.id]);
+
+    if (!phone) {
+      alert("Inscris un numéro de téléphone.");
+      return;
+    }
+
+    if (!selectedTasks.length) {
+      alert("Sélectionne au moins une tâche dans le tableau avant d’envoyer le SMS.");
+      return;
+    }
+
+    if (!message) {
+      alert("Le message ne peut pas être vide.");
+      return;
+    }
+
+    try {
+      setTaskAuthSmsSending(true);
+
+      const { error } = await supabase.functions.invoke("send-ready-sms", {
+        body: {
+          to: phone,
+          message,
+        },
+      });
+
+      if (error) throw error;
+
+      alert("SMS d’autorisation envoyé au client.");
+      setTaskAuthSmsOpen(false);
+      void onRefresh?.();
+    } catch (err: any) {
+      console.error(err);
+      alert("Erreur SMS autorisation: " + (err?.message || String(err)));
+    } finally {
+      setTaskAuthSmsSending(false);
+    }
+  }
+
+  async function sendVehicleReadySms() {
+    const phone = vehicleReadyPhone.trim();
+    const email = vehicleReadyEmail.trim();
+    const message = vehicleReadyMessage.trim();
+
+    if (!vehicleReadySendSms && !vehicleReadySendEmail) {
+      alert("Choisis au moins SMS ou courriel.");
+      return;
+    }
+
+    if (vehicleReadySendSms && !phone) {
+      alert("Inscris un numéro de téléphone.");
+      return;
+    }
+
+    if (vehicleReadySendEmail && !email) {
+      alert("Inscris un courriel.");
+      return;
+    }
+
+    if (!message) {
+      alert("Le message ne peut pas être vide.");
+      return;
+    }
+
+    try {
+      setVehicleReadySending(true);
+
+      if (vehicleReadySendSms) {
+        const { error } = await supabase.functions.invoke("send-ready-sms", {
+          body: {
+            to: phone,
+            message,
+          },
+        });
+
+        if (error) throw error;
+      }
+
+      if (vehicleReadySendEmail) {
+        const { error } = await supabase.functions.invoke("send-ready-email", {
+          body: {
+            to: email,
+            subject: "Véhicule prêt - Groupe Breton",
+            message,
+          },
+        });
+
+        if (error) throw error;
+      }
+
+      alert("Avis envoyé au client.");
+      setVehicleReadyOpen(false);
+      void onRefresh?.();
+    } catch (err: any) {
+      console.error(err);
+      alert("Erreur envoi client: " + (err?.message || String(err)));
+    } finally {
+      setVehicleReadySending(false);
+    }
+  }
+
   return (
     <>
       <div style={styles.card}>
@@ -467,28 +778,29 @@ export default function BonTravailOperations(props: Props) {
 
           <div style={styles.row}>
             <button
-  style={styles.btn}
-  onClick={onCompleteSelectedTasks}
-  disabled={!selectedIds.length || isReadOnly}
->
-  Effectuer
-</button>
+              style={styles.btn}
+              onClick={onCompleteSelectedTasks}
+              disabled={!selectedIds.length || isReadOnly}
+            >
+              Effectuer
+            </button>
 
-<button
-  style={styles.btn}
-  onClick={onDeleteSelectedTasks}
-  disabled={!selectedIds.length || isReadOnly}
->
-  Supprimer
-</button>
+            <button
+              style={styles.btn}
+              onClick={onDeleteSelectedTasks}
+              disabled={!selectedIds.length || isReadOnly}
+            >
+              Supprimer
+            </button>
 
-{/* 🔥 NOUVEAU */}
-<BtAutorisationClient
-  btId={btId}
-  notes={notes}
-  isReadOnly={isReadOnly}
-  onSent={() => void onRefresh?.()}
-/>
+            <button
+              type="button"
+              style={styles.btnPrimary}
+              onClick={() => setSendClientChoiceOpen(true)}
+              disabled={isReadOnly}
+            >
+              Envoyer au client
+            </button>
           </div>
         </div>
 
@@ -587,9 +899,7 @@ export default function BonTravailOperations(props: Props) {
                         )}
 
                         {noteClient && (
-                          <div style={styles.clientNoteBox}>
-                            Note client : {noteClient}
-                          </div>
+                          <div style={styles.clientNoteBox}>Note client : {noteClient}</div>
                         )}
 
                         {isRefusedClient && !isReadOnly && (
@@ -814,8 +1124,12 @@ export default function BonTravailOperations(props: Props) {
                                     ? fmtHours(
                                         Math.max(
                                           0,
-                                          (new Date(localToIsoOrNull(editingPointageEnd) || 0).getTime() -
-                                            new Date(localToIsoOrNull(editingPointageStart) || 0).getTime()) /
+                                          (new Date(
+                                            localToIsoOrNull(editingPointageEnd) || 0
+                                          ).getTime() -
+                                            new Date(
+                                              localToIsoOrNull(editingPointageStart) || 0
+                                            ).getTime()) /
                                             3600000
                                         )
                                       )
@@ -824,7 +1138,9 @@ export default function BonTravailOperations(props: Props) {
                                           ? Number(p.duration_minutes || 0) / 60
                                           : Math.max(
                                               0,
-                                              (new Date(p.ended_at || new Date().toISOString()).getTime() -
+                                              (new Date(
+                                                p.ended_at || new Date().toISOString()
+                                              ).getTime() -
                                                 new Date(p.started_at).getTime()) /
                                                 3600000
                                             )
@@ -839,7 +1155,9 @@ export default function BonTravailOperations(props: Props) {
                                       type="button"
                                       style={styles.iconBtn}
                                       onClick={() =>
-                                        setPointageMenuOpenId((cur) => (cur === p.id ? null : p.id))
+                                        setPointageMenuOpenId((cur) =>
+                                          cur === p.id ? null : p.id
+                                        )
                                       }
                                       disabled={isReadOnly}
                                     >
@@ -1027,7 +1345,10 @@ export default function BonTravailOperations(props: Props) {
                                                 </button>
                                                 <button
                                                   type="button"
-                                                  style={{ ...styles.menuItem, borderBottom: "none" }}
+                                                  style={{
+                                                    ...styles.menuItem,
+                                                    borderBottom: "none",
+                                                  }}
                                                   onClick={() => onDeleteMainOeuvreRow(row.id)}
                                                 >
                                                   Supprimer
@@ -1044,7 +1365,10 @@ export default function BonTravailOperations(props: Props) {
                                                 </button>
                                                 <button
                                                   type="button"
-                                                  style={{ ...styles.menuItem, borderBottom: "none" }}
+                                                  style={{
+                                                    ...styles.menuItem,
+                                                    borderBottom: "none",
+                                                  }}
                                                   onClick={() => onDeleteMainOeuvreRow(row.id)}
                                                 >
                                                   Supprimer
@@ -1102,6 +1426,227 @@ export default function BonTravailOperations(props: Props) {
           </div>
         </div>
       </div>
+
+      {sendClientChoiceOpen && (
+        <div style={styles.modalBackdrop}>
+          <div style={styles.modalCard}>
+            <button
+              type="button"
+              style={styles.modalClose}
+              onClick={() => setSendClientChoiceOpen(false)}
+            >
+              ×
+            </button>
+
+            <div style={styles.modalTitle}>Envoyer au client</div>
+            <div style={styles.modalText}>Choisissez le type d’envoi.</div>
+
+            <div style={styles.modalActionsColumn}>
+              <BtAutorisationClient
+  btId={btId}
+  clientId={clientId}
+  uniteNo={uniteNo}
+  notes={notes}
+  isReadOnly={isReadOnly}
+  onSent={() => {
+    setSendClientChoiceOpen(false);
+    void onRefresh?.();
+  }}
+/>
+
+              
+              <button
+                type="button"
+                style={styles.btnPrimary}
+                onClick={() => {
+                  setSendClientChoiceOpen(false);
+                  setVehicleReadyOpen(true);
+                }}
+              >
+                Aviser que le véhicule est prêt
+              </button>
+
+              <button
+                type="button"
+                style={styles.btn}
+                onClick={() => setSendClientChoiceOpen(false)}
+              >
+                Annuler
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {taskAuthSmsOpen && (
+        <div style={styles.modalBackdrop}>
+          <div style={styles.modalCardLarge}>
+            <button
+              type="button"
+              style={styles.modalClose}
+              onClick={() => setTaskAuthSmsOpen(false)}
+            >
+              ×
+            </button>
+
+            <div style={styles.modalTitle}>Tâches à autoriser par SMS</div>
+            <div style={styles.modalText}>
+              Sélectionne les tâches dans le tableau avant d’envoyer. Le contact principal est sélectionné par défaut, mais tu peux choisir un autre contact ou écrire le numéro manuellement.
+            </div>
+
+            <div style={{ display: "grid", gap: 10 }}>
+              <select
+                style={{ ...styles.input, width: "100%" }}
+                value={selectedContactId}
+                onChange={(e) => onSelectVehicleReadyContact(e.target.value)}
+              >
+                <option value="">Sélectionner un contact</option>
+                {clientContacts.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.nom}
+                    {c.principal ? " — Principal" : ""}
+                    {c.type_facturation ? " — Facturation" : ""}
+                    {c.telephone ? ` — ${c.telephone}` : ""}
+                    {c.courriel ? ` — ${c.courriel}` : ""}
+                  </option>
+                ))}
+              </select>
+
+              <input
+                style={{ ...styles.input, width: "100%" }}
+                placeholder="Téléphone client ex: +14189575921"
+                value={vehicleReadyPhone}
+                onChange={(e) => setVehicleReadyPhone(e.target.value)}
+              />
+
+              <div style={styles.helpBox}>
+                Tâches sélectionnées : {selectedIds.length}. Le lien utilisé sera : {getAutorisationUrl()}
+              </div>
+
+              <textarea
+                style={styles.textarea}
+                value={taskAuthSmsMessage}
+                onChange={(e) => setTaskAuthSmsMessage(e.target.value)}
+              />
+
+              <button
+                type="button"
+                style={styles.btnPrimary}
+                onClick={sendTaskAutorisationSms}
+                disabled={taskAuthSmsSending || !selectedIds.length}
+              >
+                {taskAuthSmsSending ? "Envoi..." : "Envoyer SMS au client"}
+              </button>
+
+              <button
+                type="button"
+                style={styles.btn}
+                onClick={() => setTaskAuthSmsOpen(false)}
+                disabled={taskAuthSmsSending}
+              >
+                Annuler
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {vehicleReadyOpen && (
+        <div style={styles.modalBackdrop}>
+          <div style={styles.modalCardLarge}>
+            <button
+              type="button"
+              style={styles.modalClose}
+              onClick={() => setVehicleReadyOpen(false)}
+            >
+              ×
+            </button>
+
+            <div style={styles.modalTitle}>Véhicule prêt</div>
+            <div style={styles.modalText}>
+              Le contact principal est sélectionné par défaut. Tu peux choisir un autre contact ou
+              écrire les informations manuellement.
+            </div>
+
+            <div style={{ display: "grid", gap: 10 }}>
+              <select
+                style={{ ...styles.input, width: "100%" }}
+                value={selectedContactId}
+                onChange={(e) => onSelectVehicleReadyContact(e.target.value)}
+              >
+                <option value="">Sélectionner un contact</option>
+                {clientContacts.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.nom}
+                    {c.principal ? " — Principal" : ""}
+                    {c.type_facturation ? " — Facturation" : ""}
+                    {c.telephone ? ` — ${c.telephone}` : ""}
+                    {c.courriel ? ` — ${c.courriel}` : ""}
+                  </option>
+                ))}
+              </select>
+
+              <input
+                style={{ ...styles.input, width: "100%" }}
+                placeholder="Téléphone client ex: +14189575921"
+                value={vehicleReadyPhone}
+                onChange={(e) => setVehicleReadyPhone(e.target.value)}
+              />
+
+              <input
+                style={{ ...styles.input, width: "100%" }}
+                placeholder="Courriel client"
+                value={vehicleReadyEmail}
+                onChange={(e) => setVehicleReadyEmail(e.target.value)}
+              />
+
+              <div style={{ ...styles.row, gap: 14 }}>
+                <label style={styles.checkRow}>
+                  <input
+                    type="checkbox"
+                    checked={vehicleReadySendSms}
+                    onChange={(e) => setVehicleReadySendSms(e.target.checked)}
+                  />
+                  SMS
+                </label>
+
+                <label style={styles.checkRow}>
+                  <input
+                    type="checkbox"
+                    checked={vehicleReadySendEmail}
+                    onChange={(e) => setVehicleReadySendEmail(e.target.checked)}
+                  />
+                  Courriel
+                </label>
+              </div>
+
+              <textarea
+                style={styles.textarea}
+                value={vehicleReadyMessage}
+                onChange={(e) => setVehicleReadyMessage(e.target.value)}
+              />
+
+              <button
+                type="button"
+                style={styles.btnPrimary}
+                onClick={sendVehicleReadySms}
+                disabled={vehicleReadySending}
+              >
+                {vehicleReadySending ? "Envoi..." : "Envoyer au client"}
+              </button>
+
+              <button
+                type="button"
+                style={styles.btn}
+                onClick={() => setVehicleReadyOpen(false)}
+                disabled={vehicleReadySending}
+              >
+                Annuler
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
