@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type SetStateAction } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import { type Piece } from "../components/bt/BtPiecesCard";
@@ -254,6 +254,7 @@ export default function BonTravailPage() {
   const [err, setErr] = useState<string | null>(null);
 
   const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const [selectedOrder, setSelectedOrder] = useState<string[]>([]);
   const [kmInput, setKmInput] = useState<string>("");
   const [poInput, setPoInput] = useState<string>("");
   const [dateOuvertureInput, setDateOuvertureInput] = useState<string>("");
@@ -298,7 +299,28 @@ export default function BonTravailPage() {
   const [uploadingDocuments, setUploadingDocuments] = useState(false);
   const [draggingDocuments, setDraggingDocuments] = useState(false);
 
-  const selectedIds = useMemo(() => Object.keys(selected).filter((k) => selected[k]), [selected]);
+  const selectedIds = useMemo(() => {
+  return selectedOrder.filter((id) => selected[id]);
+}, [selected, selectedOrder]);
+
+  function setSelectedInClickOrder(value: SetStateAction<Record<string, boolean>>) {
+    setSelected((prev) => {
+      const next = typeof value === "function" ? value(prev) : value;
+
+      setSelectedOrder((prevOrder) => {
+        const stillSelected = prevOrder.filter((selectedId) => next[selectedId]);
+        const newlySelected = Object.keys(next).filter(
+          (selectedId) => next[selectedId] && !prev[selectedId] && !stillSelected.includes(selectedId)
+        );
+        const missingSelected = Object.keys(next).filter(
+          (selectedId) => next[selectedId] && !stillSelected.includes(selectedId) && !newlySelected.includes(selectedId)
+        );
+        return [...stillSelected, ...newlySelected, ...missingSelected];
+      });
+
+      return next;
+    });
+  }
 
   const snapshotClientNom = useMemo(() => bt?.client_nom?.trim() || client?.nom || "—", [bt, client]);
 
@@ -1179,17 +1201,18 @@ export default function BonTravailPage() {
           "id,unite_id,titre,details,created_at,entretien_template_item_id,entretien_unite_item_id,entretien_auto"
         )
         .eq("unite_id", btRow.unite_id)
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: true });
 
       if (eN) throw eN;
       setNotes((nData || []) as NoteMeca[]);
       setSelected({});
+      setSelectedOrder([]);
 
       const { data: teData, error: eTe } = await supabase
         .from("bt_taches_effectuees")
         .select("*")
         .eq("bt_id", btRow.id)
-        .order("date_effectuee", { ascending: false });
+        .order("date_effectuee", { ascending: true });
 
       if (eTe) throw eTe;
       setTachesEffectuees((teData || []) as TacheEffectuee[]);
@@ -1310,35 +1333,57 @@ export default function BonTravailPage() {
       return;
     }
 
-    const selectedTasks = notes.filter((n) => taskIds.includes(n.id));
+    const selectedTasks = taskIds
+      .map((taskId) => notes.find((n) => n.id === taskId))
+      .filter((n): n is NoteMeca => Boolean(n));
     if (!selectedTasks.length) return;
 
-    const blockedTasks = selectedTasks.filter((t) => {
-      const decision = autorisationMap[t.id]?.decision;
-      return decision === "attente" || decision === "refuse" || decision === "a_discuter";
-    });
+    for (const task of selectedTasks) {
+  const decision = autorisationMap[task.id]?.decision;
 
-    if (blockedTasks.length > 0 && !opts?.forceAuthorize) {
-      alert("Une ou plusieurs tâches sont en attente, à discuter ou refusées par le client. Autorise-les avant de les effectuer.");
-      return;
-    }
+  if (decision === "refuse") {
+    const ok = window.confirm(
+      `ATTENTION\n\nCette tâche a été REFUSÉE par le client.\n\n${task.titre}\n\nVoulez-vous continuer ?`
+    );
+    if (!ok) return;
+  }
+
+  if (decision === "a_discuter") {
+    const ok = window.confirm(
+      `Cette tâche est À DISCUTER avec le client.\n\n${task.titre}\n\nVoulez-vous continuer ?`
+    );
+    if (!ok) return;
+  }
+
+  if (decision === "attente") {
+    const ok = window.confirm(
+      `Cette tâche est EN ATTENTE d’autorisation.\n\n${task.titre}\n\nVoulez-vous continuer ?`
+    );
+    if (!ok) return;
+  }
+}
 
     if (!opts?.skipConfirm && !confirm(`Marquer ${selectedTasks.length} tâche(s) comme effectuée(s) ?`)) return;
 
     if (opts?.forceAuthorize) {
-      for (const task of blockedTasks) {
-        const { error } = await supabase
-          .from("bt_autorisation_taches")
-          .update({ decision: "autorise" })
-          .eq("bt_id", bt.id)
-          .eq("unite_note_id", task.id);
+  const tasksToAuthorize = selectedTasks.filter((t) => {
+    const decision = autorisationMap[t.id]?.decision;
+    return decision === "attente" || decision === "refuse" || decision === "a_discuter";
+  });
 
-        if (error) {
-          alert(error.message);
-          return;
-        }
-      }
+  for (const task of tasksToAuthorize) {
+    const { error } = await supabase
+      .from("bt_autorisation_taches")
+      .update({ decision: "autorise" })
+      .eq("bt_id", bt.id)
+      .eq("unite_note_id", task.id);
+
+    if (error) {
+      alert(error.message);
+      return;
     }
+  }
+}
 
     for (const task of selectedTasks) {
       const res = await upsertEntretienHistoriqueForTask(task);
@@ -1348,7 +1393,9 @@ export default function BonTravailPage() {
       }
     }
 
-    const insertRows = selectedTasks.map((t) => {
+    const completedAtBase = Date.now();
+
+    const insertRows = selectedTasks.map((t, index) => {
       const autorisation = autorisationMap[t.id];
 
       return {
@@ -1357,12 +1404,12 @@ export default function BonTravailPage() {
         unite_note_id: t.id,
         titre: t.titre,
         details: t.details,
-        date_effectuee: new Date().toISOString(),
+        date_effectuee: new Date(completedAtBase + index).toISOString(),
         entretien_template_item_id: t.entretien_template_item_id ?? null,
         entretien_unite_item_id: t.entretien_unite_item_id ?? null,
         entretien_auto: Boolean(t.entretien_auto),
         autorisation_tache_id: autorisation?.autorisation_tache_id || null,
-        decision_client: autorisation?.decision === "autorise" ? "autorise" : null,
+        decision_client: autorisation?.decision ?? null,
         note_client: autorisation?.note_client || null,
       };
     });
@@ -1386,6 +1433,8 @@ export default function BonTravailPage() {
       p_unite_id: currentBt.unite_id,
     });
 
+    setSelected({});
+    setSelectedOrder([]);
     await loadAll();
   }
 
@@ -1550,6 +1599,21 @@ export default function BonTravailPage() {
 
     if (!hasKmColumn) {
       alert("La colonne 'km' n'existe pas dans la DB. Ajoute-la via la migration SQL.");
+      return;
+    }
+
+    const resolvedClientId = bt.client_id || unite.client_id || null;
+    if (!resolvedClientId) {
+      alert("Impossible de fermer ce bon de travail : aucun client n'est assigné à l'unité / au BT.");
+      return;
+    }
+
+    const activePointages = pointages.filter((p) => Boolean(p.actif) || !p.ended_at);
+    if (activePointages.length > 0) {
+      const noms = Array.from(
+        new Set(activePointages.map((p) => String(p.mecano_nom || "Mécano").trim() || "Mécano"))
+      ).join(", ");
+      alert(`Impossible de fermer ce bon de travail : mécano encore punché dessus.\n\n${noms}`);
       return;
     }
 
@@ -2287,7 +2351,7 @@ clientId={bt?.client_id || unite?.client_id || null}
                 notes={notes}
                 autorisationMap={autorisationMap}
                 selected={selected}
-                setSelected={setSelected}
+                setSelected={setSelectedInClickOrder}
                 selectedIds={selectedIds}
                 tachesEffectuees={tachesEffectuees}
                 isReadOnly={isReadOnly}

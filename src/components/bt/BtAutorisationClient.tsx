@@ -85,17 +85,11 @@ export default function BtAutorisationClient({
       const list = data || [];
       setContacts(list);
 
-      const preferred =
-        list.find((c) => c.principal) ||
-        list.find((c) => c.type_facturation) ||
-        list[0];
-
-      if (preferred) {
-        setSelectedContactId(preferred.id);
-        setClientNom(preferred.nom || "");
-        setClientEmail(preferred.courriel || "");
-        setClientPhone(preferred.telephone || "");
-      }
+      // Charger les contacts sans auto-sélection
+setSelectedContactId("");
+setClientNom("");
+setClientEmail("");
+setClientPhone("");
     }
 
     void loadContacts();

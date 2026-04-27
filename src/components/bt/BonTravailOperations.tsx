@@ -605,13 +605,10 @@ export default function BonTravailOperations(props: Props) {
       const contacts = data || [];
       setClientContacts(contacts);
 
-      const preferred = contacts.find((c) => c.principal) || contacts[0];
-
-      if (preferred) {
-        setSelectedContactId(preferred.id);
-        setVehicleReadyPhone(preferred.telephone || "");
-        setVehicleReadyEmail(preferred.courriel || "");
-      }
+      // Aucun auto-remplissage
+setSelectedContactId("");
+setVehicleReadyPhone("");
+setVehicleReadyEmail("");
     }
 
     void loadClientContacts();
@@ -848,7 +845,7 @@ export default function BonTravailOperations(props: Props) {
                   const isPendingClient = decision === "attente";
                   const isRefusedClient = decision === "refuse";
                   const isADiscuterClient = decision === "a_discuter";
-                  const isBlockedClient = isPendingClient || isRefusedClient || isADiscuterClient;
+                  
 
                   const rowStyle: CSSProperties = {
                     background: isRefusedClient
@@ -871,7 +868,7 @@ export default function BonTravailOperations(props: Props) {
                           onChange={(e) =>
                             setSelected((s) => ({ ...s, [t.id]: e.target.checked }))
                           }
-                          disabled={isReadOnly || isBlockedClient}
+                          disabled={isReadOnly}
                         />
                       </td>
 

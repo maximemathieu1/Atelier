@@ -174,6 +174,29 @@ type UniteNoteRow = {
   } | null;
 };
 
+type AutorisationRow = {
+  id: string;
+  bt_id: string;
+  tache_id?: string | null;
+  statut?: string | null;
+  envoye_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  bons_travail?: BtRow | null;
+};
+
+type AutorisationBtRow = {
+  bt: BtRow;
+  total: number;
+  pending: number;
+  refused: number;
+  approved: number;
+  done: number;
+  lastDate: string | null;
+  statusLabel: string;
+  statusStyle: React.CSSProperties;
+};
+
 type TacheOuverteParUnite = {
   unite_id: string;
   unite_no: string;
@@ -194,6 +217,7 @@ type DashboardData = {
   templateItems: EntretienTemplateItem[];
   unitItems: UniteEntretienItem[];
   historique: EntretienHistorique[];
+  autorisations: AutorisationRow[];
 };
 
 export default function DashboardAtelier() {
@@ -214,6 +238,7 @@ export default function DashboardAtelier() {
     templateItems: [],
     unitItems: [],
     historique: [],
+    autorisations: [],
   });
 
   const [openTasks, setOpenTasks] = useState<UniteNoteRow[]>([]);
@@ -234,6 +259,7 @@ export default function DashboardAtelier() {
         unitItemsRes,
         historiqueRes,
         openTasksRes,
+        autorisationsRes,
       ] = await Promise.all([
         supabase
           .from("bons_travail")
@@ -384,6 +410,39 @@ export default function DashboardAtelier() {
             )
           `)
           .order("created_at", { ascending: true }),
+
+        supabase
+          .from("bt_autorisations")
+          .select(`
+            id,
+            bt_id,
+            tache_id,
+            statut,
+            envoye_at,
+            created_at,
+            updated_at,
+            bons_travail:bt_id (
+              id,
+              numero,
+              statut,
+              verrouille,
+              date_ouverture,
+              date_fermeture,
+              updated_at,
+              client_nom,
+              export_acomba_at,
+              total_final,
+              unites:unite_id (
+                id,
+                no_unite,
+                marque,
+                modele,
+                km_actuel
+              )
+            )
+          `)
+          .order("updated_at", { ascending: false })
+          .limit(500),
       ]);
 
       if (btRes.error) console.error("Dashboard bons_travail error:", btRes.error);
@@ -395,6 +454,7 @@ export default function DashboardAtelier() {
       if (unitItemsRes.error) console.error("Dashboard unite_entretien_items error:", unitItemsRes.error);
       if (historiqueRes.error) console.error("Dashboard unite_entretien_historique error:", historiqueRes.error);
       if (openTasksRes.error) console.error("Dashboard unite_notes error:", openTasksRes.error);
+      if (autorisationsRes.error) console.error("Dashboard bt_autorisations error:", autorisationsRes.error);
 
       const btRows = (btRes.data ?? []) as BtRow[];
       const stockRows = (stockRes.data ?? []) as StockRow[];
@@ -405,6 +465,12 @@ export default function DashboardAtelier() {
       const unitItems = (unitItemsRes.data ?? []) as UniteEntretienItem[];
       const historique = (historiqueRes.data ?? []) as EntretienHistorique[];
       const openTasksRows = (openTasksRes.data ?? []) as UniteNoteRow[];
+      const autorisations = ((autorisationsRes.data ?? []) as unknown as AutorisationRow[]).map((a) => ({
+  ...a,
+  bons_travail: Array.isArray(a.bons_travail)
+    ? a.bons_travail[0] ?? null
+    : a.bons_travail,
+}));
 
       const normalize = (value: string | null | undefined) =>
         (value ?? "")
@@ -426,22 +492,15 @@ export default function DashboardAtelier() {
       });
 
       const btAFacturer = btRows.filter((bt) => {
-        const s = normalize(bt.statut);
-        const closedLike =
-          s === "ferme" ||
-          s === "fermee" ||
-          s === "fermé" ||
-          s === "fermée" ||
-          s === "termine" ||
-          s === "terminé" ||
-          s === "a_facturer" ||
-          s === "a facturer" ||
-          s === "à facturer" ||
-          bt.date_fermeture != null;
+  const s = normalize(bt.statut);
 
-        const notExported = !bt.export_acomba_at;
-        return closedLike && notExported;
-      });
+  return (
+    (s === "a_facturer" ||
+     s === "a facturer" ||
+     s === "à facturer") &&
+    !bt.export_acomba_at
+  );
+});
 
       const mecanosMap = new Map<string, ActiveMecano>();
 
@@ -485,6 +544,7 @@ export default function DashboardAtelier() {
         templateItems,
         unitItems,
         historique,
+        autorisations,
       });
 
       setOpenTasks(openTasksRows);
@@ -498,7 +558,8 @@ export default function DashboardAtelier() {
         templateItemsRes.error ||
         unitItemsRes.error ||
         historiqueRes.error ||
-        openTasksRes.error
+        openTasksRes.error ||
+        autorisationsRes.error
       ) {
         setErrorMsg(
           "Certaines données n'ont pas pu être chargées. Vérifie la console pour le détail."
@@ -515,6 +576,26 @@ export default function DashboardAtelier() {
 
   useEffect(() => {
     loadDashboard();
+  }, []);
+
+  useEffect(() => {
+    const channel = supabase
+      .channel("dashboard-autorisations")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "bt_autorisations" },
+        () => loadDashboard(true)
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "bons_travail" },
+        () => loadDashboard(true)
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const entretiensComputed = useMemo<EntretienDashboardRow[]>(() => {
@@ -874,9 +955,125 @@ export default function DashboardAtelier() {
     });
   }, [openTasks]);
 
+  const autorisationsDashboard = useMemo<AutorisationBtRow[]>(() => {
+    const normalize = (value: string | null | undefined) =>
+      (value ?? "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .trim()
+        .toLowerCase();
+
+    const isClosedBt = (bt?: BtRow | null) => {
+      if (!bt) return true;
+      const s = normalize(bt.statut);
+      return Boolean(
+        bt.date_fermeture ||
+          s === "ferme" ||
+          s === "fermé" ||
+          s === "facture" ||
+          s === "facturé" ||
+          s === "a_facturer" ||
+          s === "a facturer" ||
+          s === "à facturer"
+      );
+    };
+
+    const map = new Map<string, AutorisationBtRow>();
+
+    for (const auth of data.autorisations) {
+      const bt = auth.bons_travail;
+      if (!bt?.id) continue;
+      if (isClosedBt(bt)) continue;
+
+      const statut = normalize(auth.statut);
+
+      const isPending =
+        !statut ||
+        statut === "envoyee" ||
+        statut === "envoyé" ||
+        statut === "en_attente" ||
+        statut === "en attente" ||
+        statut === "vue" ||
+        statut === "vu";
+
+      const isRefused =
+        statut === "refusee" ||
+        statut === "refusée" ||
+        statut === "refuse" ||
+        statut === "refusé";
+
+      const isApproved =
+        statut === "approuvee" ||
+        statut === "approuvée" ||
+        statut === "approuve" ||
+        statut === "approuvé" ||
+        statut === "autorisee" ||
+        statut === "autorisée" ||
+        statut === "autorise" ||
+        statut === "autorisé";
+
+      const isDone =
+        statut === "effectuee" ||
+        statut === "effectuée" ||
+        statut === "effectue" ||
+        statut === "effectué" ||
+        statut === "terminee" ||
+        statut === "terminée" ||
+        statut === "termine" ||
+        statut === "terminé";
+
+      if (!map.has(bt.id)) {
+        map.set(bt.id, {
+          bt,
+          total: 0,
+          pending: 0,
+          refused: 0,
+          approved: 0,
+          done: 0,
+          lastDate: null,
+          statusLabel: "En attente",
+          statusStyle: styles.badgeWarning,
+        });
+      }
+
+      const row = map.get(bt.id)!;
+      row.total += 1;
+      if (isPending) row.pending += 1;
+      if (isRefused) row.refused += 1;
+      if (isApproved) row.approved += 1;
+      if (isDone) row.done += 1;
+
+      const d = auth.updated_at || auth.envoye_at || auth.created_at || null;
+      if (d && (!row.lastDate || d > row.lastDate)) row.lastDate = d;
+    }
+
+    return (Array.from(map.values())
+      .map((row) => {
+        if (row.total > 0 && row.done >= row.total) return null;
+
+        if (row.pending > 0) {
+          row.statusLabel = "En attente";
+          row.statusStyle = styles.badgeWarning;
+        } else if (row.refused > 0 && row.approved > 0) {
+          row.statusLabel = "Partiel";
+          row.statusStyle = styles.badgeInfo;
+        } else if (row.refused > 0) {
+          row.statusLabel = "Refus à traiter";
+          row.statusStyle = styles.badgeDanger;
+        } else {
+          row.statusLabel = "À effectuer";
+          row.statusStyle = styles.badgeSuccess;
+        }
+
+        return row;
+      })
+      .filter(Boolean) as AutorisationBtRow[])
+      .sort((a, b) => (b.lastDate || "").localeCompare(a.lastDate || ""));
+  }, [data.autorisations]);
+
   const stats = useMemo(
     () => ({
-      btOuverts: data.btOuverts.length,
+      autorisations: autorisationsDashboard.length,
       btAFacturer: data.btAFacturer.length,
       entretiensAVenir: entretiensComputed.filter(
         (x) =>
@@ -887,7 +1084,7 @@ export default function DashboardAtelier() {
       mecanosActifs: data.mecanosActifs.length,
     }),
     [
-      data.btOuverts.length,
+      autorisationsDashboard.length,
       data.btAFacturer.length,
       data.mecanosActifs.length,
       entretiensComputed,
@@ -1037,9 +1234,9 @@ export default function DashboardAtelier() {
         <>
           <div style={styles.statsGrid}>
             <StatCard
-              label="BT ouverts"
-              value={stats.btOuverts}
-              tone="blue"
+              label="Autorisations en attente"
+              value={stats.autorisations}
+              tone="orange"
               onClick={() => goTo("/bt")}
             />
             <StatCard
@@ -1230,32 +1427,38 @@ export default function DashboardAtelier() {
             </SectionCard>
 
             <SectionCard
-              title="BT ouverts"
-              subtitle="Travaux actuellement en cours"
-              actionLabel="Voir tout"
+              title="Autorisations en attente"
+              subtitle="BT ouverts qui attendent une réponse ou une action"
+              actionLabel="Voir BT"
               onAction={() => goTo("/bt")}
               scrollable
             >
-              {data.btOuverts.length === 0 ? (
-                <EmptyState text="Aucun BT ouvert actuellement." />
+              {autorisationsDashboard.length === 0 ? (
+                <EmptyState text="Aucune autorisation en attente." />
               ) : (
                 <div style={styles.listStack}>
-                  {data.btOuverts.map((bt) => (
-                    <div key={bt.id} style={styles.listRow}>
+                  {autorisationsDashboard.map((row) => (
+                    <div key={row.bt.id} style={styles.listRow}>
                       <div>
                         <div style={styles.rowTitle}>
-                          {bt.numero ?? "BT"} — Unité {bt.unites?.no_unite ?? "—"}
+                          {row.bt.numero ?? "BT"} — Unité {row.bt.unites?.no_unite ?? "—"}
                         </div>
+
                         <div style={styles.rowSub}>
-                          {bt.client_nom ? bt.client_nom : "Sans client"}
+                          {row.bt.client_nom ?? "Sans client"}
                         </div>
+
                         <div style={styles.rowMeta}>
-                          Dernière activité : {formatDate(bt.updated_at)}
+                          <span>Demandé le : {formatDate(row.lastDate)}</span>
+                          <span style={styles.metaDivider}>•</span>
+                          <span>
+                            {row.total} tâche{row.total > 1 ? "s" : ""} touchée
+                          </span>
                         </div>
                       </div>
 
-                      <span style={{ ...styles.badge, ...styles.badgeInfo }}>
-                        {bt.statut ?? "Ouvert"}
+                      <span style={{ ...styles.badge, ...row.statusStyle }}>
+                        {row.statusLabel}
                       </span>
                     </div>
                   ))}
