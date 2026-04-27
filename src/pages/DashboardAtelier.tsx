@@ -177,12 +177,15 @@ type UniteNoteRow = {
 type AutorisationRow = {
   id: string;
   bt_id: string;
-  tache_id?: string | null;
   statut?: string | null;
   envoye_at?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
   bons_travail?: BtRow | null;
+  bt_autorisation_taches?: {
+    id?: string;
+    unite_note_id?: string | null;
+  }[];
 };
 
 type AutorisationBtRow = {
@@ -244,26 +247,187 @@ export default function DashboardAtelier() {
   const [openTasks, setOpenTasks] = useState<UniteNoteRow[]>([]);
 
   async function loadDashboard(isRefresh = false) {
-    try {
-      setErrorMsg("");
-      if (isRefresh) setRefreshing(true);
-      else setLoading(true);
+  try {
+    setErrorMsg("");
+    if (isRefresh) setRefreshing(true);
+    else setLoading(true);
 
-      const [
-        btRes,
-        stockRes,
-        pointagesRes,
-        assignedTemplatesRes,
-        templatesRes,
-        templateItemsRes,
-        unitItemsRes,
-        historiqueRes,
-        openTasksRes,
-        autorisationsRes,
-      ] = await Promise.all([
-        supabase
-          .from("bons_travail")
-          .select(`
+    const [
+      btRes,
+      stockRes,
+      pointagesRes,
+      assignedTemplatesRes,
+      templatesRes,
+      templateItemsRes,
+      unitItemsRes,
+      historiqueRes,
+      openTasksRes,
+      autorisationsRes,
+    ] = await Promise.all([
+      supabase
+        .from("bons_travail")
+        .select(`
+          id,
+          numero,
+          statut,
+          verrouille,
+          date_ouverture,
+          date_fermeture,
+          updated_at,
+          client_nom,
+          export_acomba_at,
+          total_final,
+          unites:unite_id (
+            id,
+            no_unite,
+            marque,
+            modele,
+            km_actuel
+          )
+        `)
+        .order("updated_at", { ascending: false })
+        .limit(200),
+
+      supabase
+        .from("inventaire_items")
+        .select(`
+          id,
+          nom,
+          sku,
+          quantite,
+          seuil_alerte,
+          unite,
+          emplacement,
+          actif
+        `)
+        .eq("actif", true)
+        .order("nom", { ascending: true })
+        .limit(200),
+
+      supabase
+        .from("bt_pointages")
+        .select(`
+          id,
+          mecano_nom,
+          started_at,
+          ended_at,
+          actif,
+          bons_travail:bt_id (
+            id,
+            numero,
+            unites:unite_id (
+              no_unite
+            )
+          )
+        `)
+        .or("ended_at.is.null,actif.eq.true")
+        .order("started_at", { ascending: false })
+        .limit(50),
+
+      supabase
+        .from("unite_entretien_templates")
+        .select(`
+          id,
+          unite_id,
+          template_id,
+          actif,
+          unites:unite_id (
+            id,
+            no_unite,
+            marque,
+            modele,
+            km_actuel
+          )
+        `)
+        .eq("actif", true),
+
+      supabase
+        .from("entretien_templates")
+        .select("id,nom,description,actif")
+        .eq("actif", true),
+
+      supabase
+        .from("entretien_template_items")
+        .select("id,template_id,nom,description,periodicite_km,periodicite_jours,ordre,actif")
+        .eq("actif", true),
+
+      supabase
+        .from("unite_entretien_items")
+        .select(`
+          id,
+          unite_id,
+          titre,
+          details,
+          periodicite_km,
+          periodicite_jours,
+          nom,
+          description,
+          frequence_km,
+          frequence_jours,
+          ordre,
+          actif,
+          unites:unite_id (
+            id,
+            no_unite,
+            marque,
+            modele,
+            km_actuel
+          )
+        `)
+        .eq("actif", true),
+
+      supabase
+        .from("unite_entretien_historique")
+        .select(`
+          id,
+          unite_id,
+          template_item_id,
+          unite_item_id,
+          bt_id,
+          km_log_id,
+          nom_snapshot,
+          frequence_km_snapshot,
+          frequence_jours_snapshot,
+          date_effectuee,
+          km_effectue,
+          note,
+          created_at
+        `)
+        .order("date_effectuee", { ascending: false })
+        .order("created_at", { ascending: false }),
+
+      supabase
+        .from("unite_notes")
+        .select(`
+          id,
+          unite_id,
+          titre,
+          details,
+          created_at,
+          entretien_auto,
+          unites:unite_id (
+            id,
+            no_unite,
+            marque,
+            modele
+          )
+        `)
+        .order("created_at", { ascending: true }),
+
+      supabase
+        .from("bt_autorisations")
+        .select(`
+          id,
+          bt_id,
+          statut,
+          envoye_at,
+          created_at,
+          updated_at,
+          bt_autorisation_taches (
+            id,
+            unite_note_id
+          ),
+          bons_travail:bt_id (
             id,
             numero,
             statut,
@@ -281,298 +445,140 @@ export default function DashboardAtelier() {
               modele,
               km_actuel
             )
-          `)
-          .order("updated_at", { ascending: false })
-          .limit(200),
+          )
+        `)
+        .order("updated_at", { ascending: false })
+        .limit(500),
+    ]);
 
-        supabase
-          .from("inventaire_items")
-          .select(`
-            id,
-            nom,
-            sku,
-            quantite,
-            seuil_alerte,
-            unite,
-            emplacement,
-            actif
-          `)
-          .eq("actif", true)
-          .order("nom", { ascending: true })
-          .limit(200),
+    if (btRes.error) console.error("Dashboard bons_travail error:", btRes.error);
+    if (stockRes.error) console.error("Dashboard inventaire_items error:", stockRes.error);
+    if (pointagesRes.error) console.error("Dashboard bt_pointages error:", pointagesRes.error);
+    if (assignedTemplatesRes.error) console.error("Dashboard unite_entretien_templates error:", assignedTemplatesRes.error);
+    if (templatesRes.error) console.error("Dashboard entretien_templates error:", templatesRes.error);
+    if (templateItemsRes.error) console.error("Dashboard entretien_template_items error:", templateItemsRes.error);
+    if (unitItemsRes.error) console.error("Dashboard unite_entretien_items error:", unitItemsRes.error);
+    if (historiqueRes.error) console.error("Dashboard unite_entretien_historique error:", historiqueRes.error);
+    if (openTasksRes.error) console.error("Dashboard unite_notes error:", openTasksRes.error);
+    if (autorisationsRes.error) console.error("Dashboard bt_autorisations error:", autorisationsRes.error);
 
-        supabase
-          .from("bt_pointages")
-          .select(`
-            id,
-            mecano_nom,
-            started_at,
-            ended_at,
-            actif,
-            bons_travail:bt_id (
-              id,
-              numero,
-              unites:unite_id (
-                no_unite
-              )
-            )
-          `)
-          .or("ended_at.is.null,actif.eq.true")
-          .order("started_at", { ascending: false })
-          .limit(50),
+    const btRows = (btRes.data ?? []) as BtRow[];
+    const stockRows = (stockRes.data ?? []) as StockRow[];
+    const pointageRows = (pointagesRes.data ?? []) as PointageRow[];
+    const assignedTemplates = (assignedTemplatesRes.data ?? []) as UniteEntretienTemplate[];
+    const templates = (templatesRes.data ?? []) as EntretienTemplate[];
+    const templateItems = (templateItemsRes.data ?? []) as EntretienTemplateItem[];
+    const unitItems = (unitItemsRes.data ?? []) as UniteEntretienItem[];
+    const historique = (historiqueRes.data ?? []) as EntretienHistorique[];
+    const openTasksRows = (openTasksRes.data ?? []) as UniteNoteRow[];
 
-        supabase
-          .from("unite_entretien_templates")
-          .select(`
-            id,
-            unite_id,
-            template_id,
-            actif,
-            unites:unite_id (
-              id,
-              no_unite,
-              marque,
-              modele,
-              km_actuel
-            )
-          `)
-          .eq("actif", true),
+    const autorisations = ((autorisationsRes.data ?? []) as unknown as AutorisationRow[]).map((a) => ({
+      ...a,
+      bons_travail: Array.isArray(a.bons_travail)
+        ? a.bons_travail[0] ?? null
+        : a.bons_travail,
+    }));
 
-        supabase
-          .from("entretien_templates")
-          .select("id,nom,description,actif")
-          .eq("actif", true),
+    const normalize = (value: string | null | undefined) =>
+      (value ?? "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .trim()
+        .toLowerCase();
 
-        supabase
-          .from("entretien_template_items")
-          .select("id,template_id,nom,description,periodicite_km,periodicite_jours,ordre,actif")
-          .eq("actif", true),
+    const btOuverts = btRows.filter((bt) => {
+      const s = normalize(bt.statut);
+      return (
+        s === "a_faire" ||
+        s === "a faire" ||
+        s === "ouvert" ||
+        s === "ouverte" ||
+        s === "en_cours" ||
+        s === "en cours"
+      );
+    });
 
-        supabase
-          .from("unite_entretien_items")
-          .select(`
-            id,
-            unite_id,
-            titre,
-            details,
-            periodicite_km,
-            periodicite_jours,
-            nom,
-            description,
-            frequence_km,
-            frequence_jours,
-            ordre,
-            actif,
-            unites:unite_id (
-              id,
-              no_unite,
-              marque,
-              modele,
-              km_actuel
-            )
-          `)
-          .eq("actif", true),
+    const btAFacturer = btRows.filter((bt) => {
+      const s = normalize(bt.statut);
+      return (
+        (s === "a_facturer" ||
+          s === "a facturer" ||
+          s === "à facturer") &&
+        !bt.export_acomba_at
+      );
+    });
 
-        supabase
-          .from("unite_entretien_historique")
-          .select(`
-            id,
-            unite_id,
-            template_item_id,
-            unite_item_id,
-            bt_id,
-            km_log_id,
-            nom_snapshot,
-            frequence_km_snapshot,
-            frequence_jours_snapshot,
-            date_effectuee,
-            km_effectue,
-            note,
-            created_at
-          `)
-          .order("date_effectuee", { ascending: false })
-          .order("created_at", { ascending: false }),
+    const mecanosMap = new Map<string, ActiveMecano>();
 
-        supabase
-          .from("unite_notes")
-          .select(`
-            id,
-            unite_id,
-            titre,
-            details,
-            created_at,
-            entretien_auto,
-            unites:unite_id (
-              id,
-              no_unite,
-              marque,
-              modele
-            )
-          `)
-          .order("created_at", { ascending: true }),
+    for (const row of pointageRows) {
+      const isActive = row.ended_at == null || row.actif === true;
+      if (!isActive) continue;
 
-        supabase
-          .from("bt_autorisations")
-          .select(`
-            id,
-            bt_id,
-            tache_id,
-            statut,
-            envoye_at,
-            created_at,
-            updated_at,
-            bons_travail:bt_id (
-              id,
-              numero,
-              statut,
-              verrouille,
-              date_ouverture,
-              date_fermeture,
-              updated_at,
-              client_nom,
-              export_acomba_at,
-              total_final,
-              unites:unite_id (
-                id,
-                no_unite,
-                marque,
-                modele,
-                km_actuel
-              )
-            )
-          `)
-          .order("updated_at", { ascending: false })
-          .limit(500),
-      ]);
+      const nom = row.mecano_nom?.trim() || "Mécano";
+      const key = `${nom}-${row.bons_travail?.id ?? row.id}`;
 
-      if (btRes.error) console.error("Dashboard bons_travail error:", btRes.error);
-      if (stockRes.error) console.error("Dashboard inventaire_items error:", stockRes.error);
-      if (pointagesRes.error) console.error("Dashboard bt_pointages error:", pointagesRes.error);
-      if (assignedTemplatesRes.error) console.error("Dashboard unite_entretien_templates error:", assignedTemplatesRes.error);
-      if (templatesRes.error) console.error("Dashboard entretien_templates error:", templatesRes.error);
-      if (templateItemsRes.error) console.error("Dashboard entretien_template_items error:", templateItemsRes.error);
-      if (unitItemsRes.error) console.error("Dashboard unite_entretien_items error:", unitItemsRes.error);
-      if (historiqueRes.error) console.error("Dashboard unite_entretien_historique error:", historiqueRes.error);
-      if (openTasksRes.error) console.error("Dashboard unite_notes error:", openTasksRes.error);
-      if (autorisationsRes.error) console.error("Dashboard bt_autorisations error:", autorisationsRes.error);
-
-      const btRows = (btRes.data ?? []) as BtRow[];
-      const stockRows = (stockRes.data ?? []) as StockRow[];
-      const pointageRows = (pointagesRes.data ?? []) as PointageRow[];
-      const assignedTemplates = (assignedTemplatesRes.data ?? []) as UniteEntretienTemplate[];
-      const templates = (templatesRes.data ?? []) as EntretienTemplate[];
-      const templateItems = (templateItemsRes.data ?? []) as EntretienTemplateItem[];
-      const unitItems = (unitItemsRes.data ?? []) as UniteEntretienItem[];
-      const historique = (historiqueRes.data ?? []) as EntretienHistorique[];
-      const openTasksRows = (openTasksRes.data ?? []) as UniteNoteRow[];
-      const autorisations = ((autorisationsRes.data ?? []) as unknown as AutorisationRow[]).map((a) => ({
-  ...a,
-  bons_travail: Array.isArray(a.bons_travail)
-    ? a.bons_travail[0] ?? null
-    : a.bons_travail,
-}));
-
-      const normalize = (value: string | null | undefined) =>
-        (value ?? "")
-          .normalize("NFD")
-          .replace(/[\u0300-\u036f]/g, "")
-          .trim()
-          .toLowerCase();
-
-      const btOuverts = btRows.filter((bt) => {
-        const s = normalize(bt.statut);
-        return (
-          s === "a_faire" ||
-          s === "a faire" ||
-          s === "ouvert" ||
-          s === "ouverte" ||
-          s === "en_cours" ||
-          s === "en cours"
-        );
-      });
-
-      const btAFacturer = btRows.filter((bt) => {
-  const s = normalize(bt.statut);
-
-  return (
-    (s === "a_facturer" ||
-     s === "a facturer" ||
-     s === "à facturer") &&
-    !bt.export_acomba_at
-  );
-});
-
-      const mecanosMap = new Map<string, ActiveMecano>();
-
-      for (const row of pointageRows) {
-        const isActive = row.ended_at == null || row.actif === true;
-        if (!isActive) continue;
-
-        const nom = row.mecano_nom?.trim() || "Mécano";
-        const key = `${nom}-${row.bons_travail?.id ?? row.id}`;
-
-        if (!mecanosMap.has(key)) {
-          mecanosMap.set(key, {
-            id: key,
-            nom,
-            unite: row.bons_travail?.unites?.no_unite ?? null,
-            btNumero: row.bons_travail?.numero ?? null,
-          });
-        }
+      if (!mecanosMap.has(key)) {
+        mecanosMap.set(key, {
+          id: key,
+          nom,
+          unite: row.bons_travail?.unites?.no_unite ?? null,
+          btNumero: row.bons_travail?.numero ?? null,
+        });
       }
-
-      const stockBas = stockRows
-        .filter((item) => {
-          const q = Number(item.quantite ?? 0);
-          const seuil = Number(item.seuil_alerte ?? 0);
-          return seuil > 0 && q <= seuil;
-        })
-        .sort(
-          (a, b) =>
-            Number(a.quantite ?? 0) - Number(b.quantite ?? 0) ||
-            (a.nom ?? "").localeCompare(b.nom ?? "", "fr")
-        )
-        .slice(0, 20);
-
-      setData({
-        btOuverts,
-        btAFacturer,
-        stockBas,
-        mecanosActifs: Array.from(mecanosMap.values()),
-        assignedTemplates,
-        templates,
-        templateItems,
-        unitItems,
-        historique,
-        autorisations,
-      });
-
-      setOpenTasks(openTasksRows);
-
-      if (
-        btRes.error ||
-        stockRes.error ||
-        pointagesRes.error ||
-        assignedTemplatesRes.error ||
-        templatesRes.error ||
-        templateItemsRes.error ||
-        unitItemsRes.error ||
-        historiqueRes.error ||
-        openTasksRes.error ||
-        autorisationsRes.error
-      ) {
-        setErrorMsg(
-          "Certaines données n'ont pas pu être chargées. Vérifie la console pour le détail."
-        );
-      }
-    } catch (err: any) {
-      console.error("Dashboard fatal error:", err);
-      setErrorMsg(err?.message ?? "Impossible de charger le tableau de bord.");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
     }
+
+    const stockBas = stockRows
+      .filter((item) => {
+        const q = Number(item.quantite ?? 0);
+        const seuil = Number(item.seuil_alerte ?? 0);
+        return seuil > 0 && q <= seuil;
+      })
+      .sort(
+        (a, b) =>
+          Number(a.quantite ?? 0) - Number(b.quantite ?? 0) ||
+          (a.nom ?? "").localeCompare(b.nom ?? "", "fr")
+      )
+      .slice(0, 20);
+
+    setData({
+      btOuverts,
+      btAFacturer,
+      stockBas,
+      mecanosActifs: Array.from(mecanosMap.values()),
+      assignedTemplates,
+      templates,
+      templateItems,
+      unitItems,
+      historique,
+      autorisations,
+    });
+
+    setOpenTasks(openTasksRows);
+
+    if (
+      btRes.error ||
+      stockRes.error ||
+      pointagesRes.error ||
+      assignedTemplatesRes.error ||
+      templatesRes.error ||
+      templateItemsRes.error ||
+      unitItemsRes.error ||
+      historiqueRes.error ||
+      openTasksRes.error ||
+      autorisationsRes.error
+    ) {
+      setErrorMsg(
+        "Certaines données n'ont pas pu être chargées. Vérifie la console pour le détail."
+      );
+    }
+  } catch (err: any) {
+    console.error("Dashboard fatal error:", err);
+    setErrorMsg(err?.message ?? "Impossible de charger le tableau de bord.");
+  } finally {
+    setLoading(false);
+    setRefreshing(false);
   }
+}
 
   useEffect(() => {
     loadDashboard();
@@ -956,120 +962,134 @@ export default function DashboardAtelier() {
   }, [openTasks]);
 
   const autorisationsDashboard = useMemo<AutorisationBtRow[]>(() => {
-    const normalize = (value: string | null | undefined) =>
-      (value ?? "")
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .trim()
-        .toLowerCase();
+  const normalize = (value: string | null | undefined) =>
+    (value ?? "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim()
+      .toLowerCase();
 
-    const isClosedBt = (bt?: BtRow | null) => {
-      if (!bt) return true;
-      const s = normalize(bt.statut);
-      return Boolean(
-        bt.date_fermeture ||
-          s === "ferme" ||
-          s === "fermé" ||
-          s === "facture" ||
-          s === "facturé" ||
-          s === "a_facturer" ||
-          s === "a facturer" ||
-          s === "à facturer"
-      );
-    };
+  const isClosedBt = (bt?: BtRow | null) => {
+    if (!bt) return true;
+    const s = normalize(bt.statut);
+    return Boolean(
+      bt.date_fermeture ||
+        s === "ferme" ||
+        s === "fermé" ||
+        s === "facture" ||
+        s === "facturé" ||
+        s === "a_facturer" ||
+        s === "a facturer" ||
+        s === "à facturer"
+    );
+  };
 
-    const map = new Map<string, AutorisationBtRow>();
+  type InternalRow = AutorisationBtRow & {
+    taskIds: Set<string>;
+  };
 
-    for (const auth of data.autorisations) {
-      const bt = auth.bons_travail;
-      if (!bt?.id) continue;
-      if (isClosedBt(bt)) continue;
+  const map = new Map<string, InternalRow>();
 
-      const statut = normalize(auth.statut);
+  for (const auth of data.autorisations) {
+    const bt = auth.bons_travail;
+    if (!bt?.id) continue;
+    if (isClosedBt(bt)) continue;
 
-      const isPending =
-        !statut ||
-        statut === "envoyee" ||
-        statut === "envoyé" ||
-        statut === "en_attente" ||
-        statut === "en attente" ||
-        statut === "vue" ||
-        statut === "vu";
+    const statut = normalize(auth.statut);
 
-      const isRefused =
-        statut === "refusee" ||
-        statut === "refusée" ||
-        statut === "refuse" ||
-        statut === "refusé";
+    const isPending =
+      !statut ||
+      statut === "envoyee" ||
+      statut === "envoyé" ||
+      statut === "en_attente" ||
+      statut === "en attente" ||
+      statut === "vue" ||
+      statut === "vu";
 
-      const isApproved =
-        statut === "approuvee" ||
-        statut === "approuvée" ||
-        statut === "approuve" ||
-        statut === "approuvé" ||
-        statut === "autorisee" ||
-        statut === "autorisée" ||
-        statut === "autorise" ||
-        statut === "autorisé";
+    const isRefused =
+      statut === "refusee" ||
+      statut === "refusée" ||
+      statut === "refuse" ||
+      statut === "refusé";
 
-      const isDone =
-        statut === "effectuee" ||
-        statut === "effectuée" ||
-        statut === "effectue" ||
-        statut === "effectué" ||
-        statut === "terminee" ||
-        statut === "terminée" ||
-        statut === "termine" ||
-        statut === "terminé";
+    const isApproved =
+      statut === "approuvee" ||
+      statut === "approuvée" ||
+      statut === "approuve" ||
+      statut === "approuvé" ||
+      statut === "autorisee" ||
+      statut === "autorisée" ||
+      statut === "autorise" ||
+      statut === "autorisé";
 
-      if (!map.has(bt.id)) {
-        map.set(bt.id, {
-          bt,
-          total: 0,
-          pending: 0,
-          refused: 0,
-          approved: 0,
-          done: 0,
-          lastDate: null,
-          statusLabel: "En attente",
-          statusStyle: styles.badgeWarning,
-        });
-      }
+    const isDone =
+      statut === "effectuee" ||
+      statut === "effectuée" ||
+      statut === "effectue" ||
+      statut === "effectué" ||
+      statut === "terminee" ||
+      statut === "terminée" ||
+      statut === "termine" ||
+      statut === "terminé";
 
-      const row = map.get(bt.id)!;
-      row.total += 1;
-      if (isPending) row.pending += 1;
-      if (isRefused) row.refused += 1;
-      if (isApproved) row.approved += 1;
-      if (isDone) row.done += 1;
-
-      const d = auth.updated_at || auth.envoye_at || auth.created_at || null;
-      if (d && (!row.lastDate || d > row.lastDate)) row.lastDate = d;
+    if (!map.has(bt.id)) {
+      map.set(bt.id, {
+        bt,
+        total: 0,
+        pending: 0,
+        refused: 0,
+        approved: 0,
+        done: 0,
+        lastDate: null,
+        statusLabel: "En attente",
+        statusStyle: styles.badgeWarning,
+        taskIds: new Set<string>(),
+      });
     }
 
-    return (Array.from(map.values())
-      .map((row) => {
-        if (row.total > 0 && row.done >= row.total) return null;
+    const row = map.get(bt.id)!;
+    const tasks = auth.bt_autorisation_taches ?? [];
 
-        if (row.pending > 0) {
-          row.statusLabel = "En attente";
-          row.statusStyle = styles.badgeWarning;
-        } else if (row.refused > 0 && row.approved > 0) {
-          row.statusLabel = "Partiel";
-          row.statusStyle = styles.badgeInfo;
-        } else if (row.refused > 0) {
-          row.statusLabel = "Refus à traiter";
-          row.statusStyle = styles.badgeDanger;
-        } else {
-          row.statusLabel = "À effectuer";
-          row.statusStyle = styles.badgeSuccess;
-        }
+    for (const task of tasks) {
+      if (task.unite_note_id) {
+        row.taskIds.add(task.unite_note_id);
+      }
+    }
 
-        return row;
-      })
-      .filter(Boolean) as AutorisationBtRow[])
-      .sort((a, b) => (b.lastDate || "").localeCompare(a.lastDate || ""));
-  }, [data.autorisations]);
+    if (isPending) row.pending += 1;
+    if (isRefused) row.refused += 1;
+    if (isApproved) row.approved += 1;
+    if (isDone) row.done += 1;
+
+    const d = auth.updated_at || auth.envoye_at || auth.created_at || null;
+    if (d && (!row.lastDate || d > row.lastDate)) row.lastDate = d;
+  }
+
+  return (Array.from(map.values())
+    .map((row) => {
+      row.total = row.taskIds.size;
+
+      if (row.total <= 0) return null;
+
+      if (row.pending > 0) {
+        row.statusLabel = "En attente";
+        row.statusStyle = styles.badgeWarning;
+      } else if (row.refused > 0 && row.approved > 0) {
+        row.statusLabel = "Partiel";
+        row.statusStyle = styles.badgeInfo;
+      } else if (row.refused > 0) {
+        row.statusLabel = "Refus à traiter";
+        row.statusStyle = styles.badgeDanger;
+      } else {
+        row.statusLabel = "À effectuer";
+        row.statusStyle = styles.badgeSuccess;
+      }
+
+      return row;
+    })
+    .filter(Boolean) as AutorisationBtRow[])
+    .sort((a, b) => (b.lastDate || "").localeCompare(a.lastDate || ""));
+}, [data.autorisations]);
 
   const stats = useMemo(
     () => ({
