@@ -40,7 +40,7 @@ type ClientTauxMO = {
   id: string;
   client_id: string;
   type_unite_id: string | null;
-  taux_horaire: number;
+  taux_horaire: number | string;
   actif: boolean;
 };
 
@@ -113,8 +113,8 @@ type MainOeuvreRow = {
   bt_id: string;
   mecano_nom: string;
   description: string | null;
-  heures: number;
-  taux_horaire: number;
+  heures: number | string;
+  taux_horaire: number | string;
   created_at?: string | null;
 };
 

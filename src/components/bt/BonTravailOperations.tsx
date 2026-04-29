@@ -50,7 +50,6 @@ type MainOeuvreRow = {
   taux_horaire: number | string;
   created_at?: string | null;
 };
-
 type BtPointage = {
   id: string;
   bt_id: string;
@@ -66,7 +65,7 @@ type BtPointage = {
 type PointageResume = {
   mecano_nom: string;
   minutes: number;
-  heures: number;
+  heures: number | string;
 };
 
 function money(v: number) {
@@ -98,8 +97,8 @@ function fmtDateTimeNoSeconds(v: string | null | undefined) {
   });
 }
 
-function fmtHours(hours: number) {
-  return `${hours.toFixed(2)} h`;
+function fmtHours(hours: number | string | null | undefined) {
+  return `${decimalToNumber(hours).toFixed(2)} h`;
 }
 
 function decimalToNumber(value: number | string | null | undefined) {
@@ -174,7 +173,7 @@ type Props = {
   setMainOeuvreMenuOpenId: React.Dispatch<React.SetStateAction<string | null>>;
   editingMainOeuvreId: string | null;
   onOpenEditMainOeuvre: (rowId: string) => void;
-  onSaveMainOeuvreRow: (row: MainOeuvreRow) => void;
+  onSaveMainOeuvreRow: (row: MainOeuvreRow) => void | Promise<void>;
   onDeleteMainOeuvreRow: (rowId: string) => void;
   updateMainOeuvreLocal: (rowId: string, patch: Partial<MainOeuvreRow>) => void;
   onOpenTempsModal: () => void;
@@ -1056,7 +1055,7 @@ setVehicleReadyEmail("");
                         </td>
                         <td style={styles.td}>{fmtHours(r.heures)}</td>
                         <td style={styles.td}>{money(effectiveTauxHoraire)}</td>
-                        <td style={styles.td}>{money(r.heures * effectiveTauxHoraire)}</td>
+                        <td style={styles.td}>{money(decimalToNumber(r.heures) * effectiveTauxHoraire)}</td>
                       </tr>
                     ))
                   )}
