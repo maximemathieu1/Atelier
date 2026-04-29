@@ -46,8 +46,8 @@ type MainOeuvreRow = {
   bt_id: string;
   mecano_nom: string;
   description: string | null;
-  heures: number | string;
-  taux_horaire: number | string;
+  heures: number;
+  taux_horaire: number;
   created_at?: string | null;
 };
 
@@ -102,19 +102,9 @@ function fmtHours(hours: number) {
   return `${hours.toFixed(2)} h`;
 }
 
-function decimalToNumber(value: number | string | null | undefined) {
-  const normalized = String(value ?? "")
-    .replace(",", ".")
-    .trim();
-
-  if (!normalized || normalized === ".") return 0;
-
-  const n = Number.parseFloat(normalized);
+function toNum(value: string) {
+  const n = Number(String(value ?? "").trim());
   return Number.isFinite(n) ? n : 0;
-}
-
-function isDecimalInput(value: string) {
-  return /^\d*([.,]\d*)?$/.test(value);
 }
 
 function localToIsoOrNull(v: string) {
@@ -1238,11 +1228,11 @@ setVehicleReadyEmail("");
 
                             <tbody>
                               {mainOeuvre.map((row) => {
-                                const heuresValue = decimalToNumber(row.heures);
-                                const tauxHoraireValue = isBtOpenPricing
-                                  ? effectiveTauxHoraire
-                                  : decimalToNumber(row.taux_horaire);
-                                const total = heuresValue * tauxHoraireValue;
+                                const total =
+                                  Number(row.heures || 0) *
+                                  (isBtOpenPricing
+                                    ? effectiveTauxHoraire
+                                    : Number(row.taux_horaire || 0));
 
                                 const isEditing = editingMainOeuvreId === row.id;
 
@@ -1285,49 +1275,39 @@ setVehicleReadyEmail("");
                                     <td style={styles.td}>
                                       {isEditing ? (
                                         <input
-                                          type="text"
                                           style={{ ...styles.input, minWidth: 90, width: "100%" }}
                                           inputMode="decimal"
-                                          value={String(row.heures ?? "")}
-                                          onChange={(e) => {
-                                            const val = e.target.value;
-
-                                            if (isDecimalInput(val)) {
-                                              updateMainOeuvreLocal(row.id, {
-                                                heures: val,
-                                              });
-                                            }
-                                          }}
+                                          value={String(row.heures ?? 0)}
+                                          onChange={(e) =>
+                                            updateMainOeuvreLocal(row.id, {
+                                              heures: toNum(e.target.value),
+                                            })
+                                          }
                                           disabled={isReadOnly || !mainOeuvreTableAvailable}
                                         />
                                       ) : (
-                                        fmtHours(decimalToNumber(row.heures))
+                                        fmtHours(Number(row.heures || 0))
                                       )}
                                     </td>
 
                                     <td style={styles.td}>
                                       {isEditing ? (
                                         <input
-                                          type="text"
                                           style={{ ...styles.input, minWidth: 110, width: "100%" }}
                                           inputMode="decimal"
-                                          value={String(row.taux_horaire ?? "")}
-                                          onChange={(e) => {
-                                            const val = e.target.value;
-
-                                            if (isDecimalInput(val)) {
-                                              updateMainOeuvreLocal(row.id, {
-                                                taux_horaire: val,
-                                              });
-                                            }
-                                          }}
+                                          value={String(row.taux_horaire ?? 0)}
+                                          onChange={(e) =>
+                                            updateMainOeuvreLocal(row.id, {
+                                              taux_horaire: toNum(e.target.value),
+                                            })
+                                          }
                                           disabled={isReadOnly || !mainOeuvreTableAvailable}
                                         />
                                       ) : (
                                         money(
                                           isBtOpenPricing
                                             ? effectiveTauxHoraire
-                                            : decimalToNumber(row.taux_horaire)
+                                            : Number(row.taux_horaire || 0)
                                         )
                                       )}
                                     </td>

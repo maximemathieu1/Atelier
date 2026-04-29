@@ -59,6 +59,9 @@ type TacheEffectuee = {
   entretien_template_item_id?: string | null;
   entretien_unite_item_id?: string | null;
   entretien_auto?: boolean | null;
+  autorisation_tache_id?: string | null;
+  decision_client?: AutorisationDecision | null;
+  note_client?: string | null;
 };
 
 type UniteEntretienTemplate = {
@@ -164,6 +167,14 @@ type VoiceCorrection = {
   entendu: string;
   remplacement: string;
   actif: boolean;
+};
+
+type AutorisationDecision = "autorise" | "refuse" | "attente" | "a_discuter";
+
+type AutorisationInfo = {
+  decision: AutorisationDecision;
+  note_client: string | null;
+  autorisation_tache_id: string;
 };
 
 function fmtDateTime(v: string | null | undefined) {
@@ -447,6 +458,7 @@ export default function BonTravailMecanoPage() {
   const [tachesEffectuees, setTachesEffectuees] = useState<TacheEffectuee[]>([]);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [selectedDone, setSelectedDone] = useState<Record<string, boolean>>({});
+  const [autorisationMap, setAutorisationMap] = useState<Record<string, AutorisationInfo>>({});
   const [newTask, setNewTask] = useState("");
   const [taskInterim, setTaskInterim] = useState("");
   const [speechSupported, setSpeechSupported] = useState(false);
@@ -712,6 +724,76 @@ export default function BonTravailMecanoPage() {
     }
   }
 
+  async function loadAutorisations(btId: string) {
+    try {
+      const { data, error } = await supabase
+        .from("bt_autorisation_taches")
+        .select("id, unite_note_id, decision, note_client, created_at")
+        .eq("bt_id", btId)
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+
+      const map: Record<string, AutorisationInfo> = {};
+      for (const row of data || []) {
+        const uniteNoteId = String((row as any).unite_note_id || "");
+        if (!uniteNoteId || map[uniteNoteId]) continue;
+
+        const rawDecision = String((row as any).decision || "attente");
+        const decision: AutorisationDecision =
+          rawDecision === "autorise" || rawDecision === "refuse" || rawDecision === "a_discuter"
+            ? rawDecision
+            : "attente";
+
+        map[uniteNoteId] = {
+          autorisation_tache_id: String((row as any).id || ""),
+          decision,
+          note_client: (row as any).note_client ?? null,
+        };
+      }
+
+      setAutorisationMap(map);
+    } catch (e) {
+      console.error("Erreur chargement autorisations BT:", e);
+      setAutorisationMap({});
+    }
+  }
+
+  function getAutorisationLabel(decision?: AutorisationDecision | null) {
+    if (decision === "autorise") return "Accepté";
+    if (decision === "refuse") return "Refusé";
+    if (decision === "a_discuter") return "À discuter";
+    if (decision === "attente") return "En attente";
+    return "—";
+  }
+
+  function getAutorisationBadgeStyle(decision?: AutorisationDecision | null): CSSProperties {
+    const base: CSSProperties = { ...badgeStyle, whiteSpace: "nowrap" };
+    if (decision === "autorise") return { ...base, color: "#065f46", background: "rgba(16,185,129,.12)", borderColor: "rgba(16,185,129,.28)" };
+    if (decision === "refuse") return { ...base, color: "#991b1b", background: "rgba(239,68,68,.12)", borderColor: "rgba(239,68,68,.28)" };
+    if (decision === "a_discuter") return { ...base, color: "#1d4ed8", background: "rgba(59,130,246,.12)", borderColor: "rgba(59,130,246,.28)" };
+    if (decision === "attente") return { ...base, color: "#92400e", background: "rgba(245,158,11,.14)", borderColor: "rgba(245,158,11,.30)" };
+    return base;
+  }
+
+  async function confirmerCompletionSelonAutorisation(t: NoteMeca) {
+    const decision = autorisationMap[t.id]?.decision;
+
+    if (decision === "refuse") {
+      return window.confirm(`ATTENTION\n\nCette tâche a été REFUSÉE par le client.\n\n${t.titre}\n\nVoulez-vous continuer ?`);
+    }
+
+    if (decision === "a_discuter") {
+      return window.confirm(`Cette tâche est À DISCUTER avec le client.\n\n${t.titre}\n\nVoulez-vous continuer ?`);
+    }
+
+    if (decision === "attente") {
+      return window.confirm(`Cette tâche est EN ATTENTE d’autorisation.\n\n${t.titre}\n\nVoulez-vous continuer ?`);
+    }
+
+    return true;
+  }
+
   async function loadAll() {
     if (!id) return;
 
@@ -776,7 +858,7 @@ export default function BonTravailMecanoPage() {
         supabase
           .from("bt_taches_effectuees")
           .select(
-            "id,bt_id,unite_id,unite_note_id,titre,details,date_effectuee,entretien_template_item_id,entretien_unite_item_id,entretien_auto"
+            "id,bt_id,unite_id,unite_note_id,titre,details,date_effectuee,entretien_template_item_id,entretien_unite_item_id,entretien_auto,autorisation_tache_id,decision_client,note_client"
           )
           .eq("bt_id", btRow.id)
           .order("date_effectuee", { ascending: true }),
@@ -836,7 +918,7 @@ export default function BonTravailMecanoPage() {
       setUnitItems((unitItemsRes.data || []) as UniteEntretienItem[]);
       setHistorique((historiqueRes.data || []) as EntretienHistorique[]);
 
-      await loadPieces(btRow.id);
+      await Promise.all([loadPieces(btRow.id), loadAutorisations(btRow.id)]);
     } catch (e: any) {
       setErr(e?.message ?? "Erreur chargement");
     } finally {
@@ -1025,6 +1107,12 @@ export default function BonTravailMecanoPage() {
     if (!bt || isReadOnly) return;
     if (!checked) return;
 
+    const canContinue = await confirmerCompletionSelonAutorisation(t);
+    if (!canContinue) {
+      setSelected((s) => ({ ...s, [t.id]: false }));
+      return;
+    }
+
     const isEntretienTask =
       !!t.entretien_template_item_id || !!t.entretien_unite_item_id || !!t.entretien_auto;
 
@@ -1104,6 +1192,9 @@ export default function BonTravailMecanoPage() {
     entretien_template_item_id: t.entretien_template_item_id ?? null,
     entretien_unite_item_id: t.entretien_unite_item_id ?? null,
     entretien_auto: Boolean(t.entretien_auto),
+    autorisation_tache_id: autorisationMap[t.id]?.autorisation_tache_id || null,
+    decision_client: autorisationMap[t.id]?.decision ?? null,
+    note_client: autorisationMap[t.id]?.note_client || null,
   })
   .select("id")
   .single();
@@ -1734,17 +1825,15 @@ await supabase
     </th>
 
     <th style={styles.th}>Titre</th>
-
+    <th style={{ ...styles.th, width: 140 }}>Autorisation</th>
     <th style={{ ...styles.th, width: 180 }}>Créé</th>
-
-    {/* 🔥 NOUVELLE COLONNE */}
     <th style={{ ...styles.th, width: 90, textAlign: "center" }}>Photos</th>
   </tr>
 </thead>
               <tbody>
                 {notes.length === 0 ? (
                   <tr>
-                    <td style={styles.td} colSpan={4}>
+                    <td style={styles.td} colSpan={5}>
                       <span style={styles.muted}>Aucune tâche ouverte.</span>
                     </td>
                   </tr>
@@ -1775,12 +1864,28 @@ await supabase
     ) : null}
   </td>
 
+  <td style={styles.td}>
+    {autorisationMap[t.id] ? (
+      <>
+        <span style={getAutorisationBadgeStyle(autorisationMap[t.id]?.decision)}>
+          {getAutorisationLabel(autorisationMap[t.id]?.decision)}
+        </span>
+        {autorisationMap[t.id]?.note_client ? (
+          <div style={{ ...styles.muted, fontSize: 12, marginTop: 4, whiteSpace: "pre-wrap" }}>
+            {autorisationMap[t.id]?.note_client}
+          </div>
+        ) : null}
+      </>
+    ) : (
+      <span style={styles.muted}>—</span>
+    )}
+  </td>
+
   {/* Date */}
   <td style={styles.td}>
     {fmtDateTime(t.created_at)}
   </td>
 
-  {/* 🔥 NOUVELLE COLONNE PHOTOS */}
 <td style={{ ...styles.td, textAlign: "center", verticalAlign: "middle" }}>
     <BtTachePhotos
       btId={bt.id}
@@ -1834,18 +1939,16 @@ await supabase
                       />
                     </th>
                     <th style={styles.th}>Titre</th>
+                    <th style={{ ...styles.th, width: 140 }}>Autorisation</th>
                     <th style={{ ...styles.th, width: 190 }}>Date</th>
-
-{/* 🔥 NOUVELLE COLONNE */}
-<th style={{ ...styles.th, width: 90, textAlign: "center" }}>Photos</th>
-
-<th style={{ ...styles.th, width: 140 }}>Action</th>
+                    <th style={{ ...styles.th, width: 90, textAlign: "center" }}>Photos</th>
+                    <th style={{ ...styles.th, width: 140 }}>Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {tachesEffectuees.length === 0 ? (
                     <tr>
-                      <td style={styles.td} colSpan={5}>
+                      <td style={styles.td} colSpan={6}>
                         <span style={styles.muted}>Aucune tâche effectuée.</span>
                       </td>
                     </tr>
@@ -1866,6 +1969,23 @@ await supabase
                         </td>
                       <td style={styles.td}>
   <div style={{ fontWeight: 900 }}>{t.titre}</div>
+</td>
+
+<td style={styles.td}>
+  {t.decision_client ? (
+    <>
+      <span style={getAutorisationBadgeStyle(t.decision_client)}>
+        {getAutorisationLabel(t.decision_client)}
+      </span>
+      {t.note_client ? (
+        <div style={{ ...styles.muted, fontSize: 12, marginTop: 4, whiteSpace: "pre-wrap" }}>
+          {t.note_client}
+        </div>
+      ) : null}
+    </>
+  ) : (
+    <span style={styles.muted}>—</span>
+  )}
 </td>
 
 <td style={styles.td}>

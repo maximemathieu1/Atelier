@@ -594,11 +594,6 @@ export default function DashboardAtelier() {
       )
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "bt_autorisation_taches" },
-        () => loadDashboard(true)
-      )
-      .on(
-        "postgres_changes",
         { event: "*", schema: "public", table: "bons_travail" },
         () => loadDashboard(true)
       )
@@ -967,183 +962,147 @@ export default function DashboardAtelier() {
   }, [openTasks]);
 
   const autorisationsDashboard = useMemo<AutorisationBtRow[]>(() => {
-    const normalize = (value: string | null | undefined) =>
-      (value ?? "")
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .trim()
-        .toLowerCase();
+  const normalize = (value: string | null | undefined) =>
+    (value ?? "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim()
+      .toLowerCase();
 
-    const isClosedBt = (bt?: BtRow | null) => {
-      if (!bt) return true;
-      const s = normalize(bt.statut);
-      return Boolean(
-        bt.date_fermeture ||
-          s === "ferme" ||
-          s === "fermé" ||
-          s === "facture" ||
-          s === "facturé" ||
-          s === "a_facturer" ||
-          s === "a facturer" ||
-          s === "à facturer"
-      );
-    };
+  const isClosedBt = (bt?: BtRow | null) => {
+    if (!bt) return true;
+    const s = normalize(bt.statut);
+    return Boolean(
+      bt.date_fermeture ||
+        s === "ferme" ||
+        s === "fermé" ||
+        s === "facture" ||
+        s === "facturé" ||
+        s === "a_facturer" ||
+        s === "a facturer" ||
+        s === "à facturer"
+    );
+  };
 
-    const getAuthDate = (auth: AutorisationRow, hasResponse: boolean) => {
-      if (hasResponse) {
-        return auth.updated_at || auth.created_at || auth.envoye_at || null;
-      }
-      return auth.envoye_at || auth.created_at || auth.updated_at || null;
-    };
+  type InternalRow = AutorisationBtRow & {
+    taskIds: Set<string>;
+  };
 
-    type InternalRow = AutorisationBtRow & {
-      taskIds: Set<string>;
-      latestStatus: string;
-      latestHasResponse: boolean;
-    };
+  const map = new Map<string, InternalRow>();
 
-    const map = new Map<string, InternalRow>();
+  for (const auth of data.autorisations) {
+    const bt = auth.bons_travail;
+    if (!bt?.id) continue;
+    if (isClosedBt(bt)) continue;
 
-    for (const auth of data.autorisations) {
-      const bt = auth.bons_travail;
-      if (!bt?.id) continue;
-      if (isClosedBt(bt)) continue;
+    const statut = normalize(auth.statut);
 
-      const statut = normalize(auth.statut);
-      const isPending = !statut || statut === "envoyee" || statut === "envoye";
-      const hasResponse = !isPending;
+    const isPending = statut === "envoyee" || statut === "envoye";
 
-      const isRefused =
-        statut === "refusee" ||
-        statut === "refusée" ||
-        statut === "refuse" ||
-        statut === "refusé";
+const isRefused =
+  statut === "refusee" ||
+  statut === "refusée" ||
+  statut === "refuse" ||
+  statut === "refusé";
 
-      const isApproved =
-        statut === "approuvee" ||
-        statut === "approuvée" ||
-        statut === "approuve" ||
-        statut === "approuvé" ||
-        statut === "autorisee" ||
-        statut === "autorisée" ||
-        statut === "autorise" ||
-        statut === "autorisé";
+const isApproved =
+  statut === "autorisee" ||
+  statut === "autorisée" ||
+  statut === "autorise" ||
+  statut === "autorisé";
 
-      const isPartial = statut === "reponse_partielle";
-      const isDiscuss = statut === "a_discuter";
+const isPartial = statut === "reponse_partielle";
 
-      const isDone =
-        statut === "effectuee" ||
-        statut === "effectuée" ||
-        statut === "effectue" ||
-        statut === "effectué" ||
-        statut === "terminee" ||
-        statut === "terminée" ||
-        statut === "termine" ||
-        statut === "terminé";
+const isDiscuss = statut === "a_discuter";
 
-      if (!map.has(bt.id)) {
-        map.set(bt.id, {
-          bt,
-          total: 0,
-          pending: 0,
-          refused: 0,
-          approved: 0,
-          done: 0,
-          lastDate: null,
-          statusLabel: "En attente client",
-          statusStyle: styles.badgeWarning,
-          taskIds: new Set<string>(),
-          latestStatus: statut,
-          latestHasResponse: hasResponse,
-        });
-      }
+    const isRefused =
+      statut === "refusee" ||
+      statut === "refusée" ||
+      statut === "refuse" ||
+      statut === "refusé";
 
-      const row = map.get(bt.id)!;
-      const tasks = auth.bt_autorisation_taches ?? [];
+    const isApproved =
+      statut === "approuvee" ||
+      statut === "approuvée" ||
+      statut === "approuve" ||
+      statut === "approuvé" ||
+      statut === "autorisee" ||
+      statut === "autorisée" ||
+      statut === "autorise" ||
+      statut === "autorisé";
 
-      for (const task of tasks) {
-        if (task.unite_note_id) {
-          row.taskIds.add(task.unite_note_id);
-        }
-      }
+    const isDone =
+      statut === "effectuee" ||
+      statut === "effectuée" ||
+      statut === "effectue" ||
+      statut === "effectué" ||
+      statut === "terminee" ||
+      statut === "terminée" ||
+      statut === "termine" ||
+      statut === "terminé";
 
-      if (isPending) row.pending += 1;
-      if (isRefused || isDiscuss) row.refused += 1;
-      if (isApproved) row.approved += 1;
-      if (isPartial) {
-        row.refused += 1;
-        row.approved += 1;
-      }
-      if (isDone) row.done += 1;
+    if (!map.has(bt.id)) {
+      map.set(bt.id, {
+        bt,
+        total: 0,
+        pending: 0,
+        refused: 0,
+        approved: 0,
+        done: 0,
+        lastDate: null,
+        statusLabel: "En attente",
+        statusStyle: styles.badgeWarning,
+        taskIds: new Set<string>(),
+      });
+    }
 
-      const d = getAuthDate(auth, hasResponse);
-      if (d && (!row.lastDate || d > row.lastDate)) {
-        row.lastDate = d;
-        row.latestStatus = statut;
-        row.latestHasResponse = hasResponse;
+    const row = map.get(bt.id)!;
+    const tasks = auth.bt_autorisation_taches ?? [];
+
+    for (const task of tasks) {
+      if (task.unite_note_id) {
+        row.taskIds.add(task.unite_note_id);
       }
     }
 
-    return (Array.from(map.values())
-      .map((row) => {
-        row.total = row.taskIds.size;
+    if (isPending) row.pending += 1;
+    if (isRefused) row.refused += 1;
+    if (isApproved) row.approved += 1;
+    if (isDone) row.done += 1;
 
-        if (row.total <= 0) return null;
+    const d = auth.updated_at || auth.envoye_at || auth.created_at || null;
+    if (d && (!row.lastDate || d > row.lastDate)) row.lastDate = d;
+  }
 
-        const latest = row.latestStatus;
+  return (Array.from(map.values())
+    .map((row) => {
+      row.total = row.taskIds.size;
 
-        if (!row.latestHasResponse) {
-          row.statusLabel = "En attente client";
-          row.statusStyle = styles.badgeWarning;
-        } else if (latest === "a_discuter") {
-          row.statusLabel = "À discuter";
-          row.statusStyle = styles.badgeWarning;
-        } else if (latest === "reponse_partielle") {
-          row.statusLabel = "Réponse partielle";
-          row.statusStyle = styles.badgeInfo;
-        } else if (
-          latest === "refusee" ||
-          latest === "refusée" ||
-          latest === "refuse" ||
-          latest === "refusé"
-        ) {
-          row.statusLabel = "Refusé";
-          row.statusStyle = styles.badgeDanger;
-        } else if (
-          latest === "approuvee" ||
-          latest === "approuvée" ||
-          latest === "approuve" ||
-          latest === "approuvé" ||
-          latest === "autorisee" ||
-          latest === "autorisée" ||
-          latest === "autorise" ||
-          latest === "autorisé"
-        ) {
-          row.statusLabel = "Autorisé";
-          row.statusStyle = styles.badgeSuccess;
-        } else {
-          row.statusLabel = "Réponse reçue";
-          row.statusStyle = styles.badgeInfo;
-        }
+      if (row.total <= 0) return null;
 
-        return row;
-      })
-      .filter(Boolean) as AutorisationBtRow[])
-      .sort((a, b) => (b.lastDate || "").localeCompare(a.lastDate || ""));
-  }, [data.autorisations]);
+      if (row.pending > 0) {
+        row.statusLabel = "En attente";
+        row.statusStyle = styles.badgeWarning;
+      } else if (row.refused > 0 && row.approved > 0) {
+        row.statusLabel = "Partiel";
+        row.statusStyle = styles.badgeInfo;
+      } else if (row.refused > 0) {
+        row.statusLabel = "Refus à traiter";
+        row.statusStyle = styles.badgeDanger;
+      } else {
+        row.statusLabel = "À effectuer";
+        row.statusStyle = styles.badgeSuccess;
+      }
 
-  const autorisationsEnAttenteCount = useMemo(
-    () =>
-      autorisationsDashboard.filter(
-        (row) => row.statusLabel === "En attente client"
-      ).length,
-    [autorisationsDashboard]
-  );
+      return row;
+    })
+    .filter(Boolean) as AutorisationBtRow[])
+    .sort((a, b) => (b.lastDate || "").localeCompare(a.lastDate || ""));
+}, [data.autorisations]);
 
   const stats = useMemo(
     () => ({
-      autorisations: autorisationsEnAttenteCount,
+      autorisations: autorisationsDashboard.length,
       btAFacturer: data.btAFacturer.length,
       entretiensAVenir: entretiensComputed.filter(
         (x) =>
@@ -1154,7 +1113,7 @@ export default function DashboardAtelier() {
       mecanosActifs: data.mecanosActifs.length,
     }),
     [
-      autorisationsEnAttenteCount,
+      autorisationsDashboard.length,
       data.btAFacturer.length,
       data.mecanosActifs.length,
       entretiensComputed,

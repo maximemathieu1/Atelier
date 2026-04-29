@@ -23,6 +23,7 @@ import BtPrintPage from "./pages/BtPrintPage";
 import OperationTempsReelPage from "./pages/OperationTempsReelPage";
 import Inventaire from "./pages/Inventaire";
 import FacturationBT from "./pages/FacturationBT";
+import FacturesFournisseurs from "./pages/FacturesFournisseurs";
 import AutorisationBtClientPage from "./pages/AutorisationBtClientPage";
 
 import ParametresSysteme from "./pages/systeme/ParametresSysteme";
@@ -144,7 +145,11 @@ function AppShell({ onLogout }: { onLogout: () => void | Promise<void> }) {
           <div className="section-title">COMPTABILITÉ</div>
 
           <NavLink to="/facturation" className={linkClass} onClick={onNavClick}>
-            Comptabilité
+            Facturation Client
+          </NavLink>
+
+          <NavLink to="/factures-fournisseurs" className={linkClass} onClick={onNavClick}>
+            Factures fournisseurs
           </NavLink>
         </div>
 
@@ -210,6 +215,7 @@ function AppShell({ onLogout }: { onLogout: () => void | Promise<void> }) {
           <Route path="/pep/final" element={<PepFinal />} />
 
           <Route path="/facturation" element={<FacturationBT />} />
+          <Route path="/factures-fournisseurs" element={<FacturesFournisseurs />} />
 
           <Route path="/parametres-systeme" element={<ParametresSysteme />} />
           <Route path="/parametres-systeme/configuration" element={<ParametresSysteme />} />

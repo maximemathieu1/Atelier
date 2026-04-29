@@ -352,9 +352,15 @@ export default function Inventaire() {
       if (statusFilter === "actifs" && !item.actif) return false;
       if (statusFilter === "inactifs" && item.actif) return false;
 
-      if (showLowStockOnly && !(Number(item.quantite ?? 0) <= Number(item.seuil_alerte ?? 0))) {
-        return false;
-      }
+      if (showLowStockOnly) {
+  const seuil = Number(item.seuil_alerte ?? 0);
+  const quantite = Number(item.quantite ?? 0);
+
+  // 👉 Ignore si pas de seuil
+  if (seuil <= 0) return false;
+
+  if (quantite > seuil) return false;
+}
 
       if (!q) return true;
 
@@ -448,9 +454,12 @@ export default function Inventaire() {
   }, [filteredSortedItems, page, pageSize]);
 
   const stats = useMemo(() => {
-    const lowStock = items.filter(
-      (x) => Number(x.quantite ?? 0) <= Number(x.seuil_alerte ?? 0)
-    ).length;
+    const lowStock = items.filter((x) => {
+  const seuil = Number(x.seuil_alerte ?? 0);
+  const quantite = Number(x.quantite ?? 0);
+
+  return seuil > 0 && quantite <= seuil;
+}).length;
 
     return {
       lowStock,
@@ -779,8 +788,10 @@ export default function Inventaire() {
 
                 <tbody>
                   {paginatedItems.map((item, index) => {
-                    const isLow =
-                      Number(item.quantite ?? 0) <= Number(item.seuil_alerte ?? 0);
+                    const seuil = Number(item.seuil_alerte ?? 0);
+const quantite = Number(item.quantite ?? 0);
+
+const isLow = seuil > 0 && quantite <= seuil;
 
                     const rowBg = index % 2 === 0 ? "#ffffff" : "#f8fafc";
                     const bg = isLow ? "#fff8e1" : rowBg;

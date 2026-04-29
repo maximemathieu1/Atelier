@@ -142,30 +142,33 @@ export default function BtPiecesCard({
   }
 
   async function adjustInventoryStock(itemId: string, delta: number) {
-    if (!itemId || !Number.isFinite(delta) || delta === 0) return;
+  if (!itemId || !Number.isFinite(delta) || delta === 0) return;
 
-    const { data, error } = await supabase
-      .from("inventaire_items")
-      .select("quantite")
-      .eq("id", itemId)
-      .single();
+  const { data, error } = await supabase
+    .from("inventaire_items")
+    .select("quantite")
+    .eq("id", itemId)
+    .single();
 
-    if (error) throw error;
+  if (error) throw error;
 
-    const currentQty = Number((data as any)?.quantite || 0);
-    const nextQty = currentQty + delta;
+  const currentQty = Number((data as any)?.quantite || 0);
 
-    if (nextQty < 0) {
-      throw new Error("Stock insuffisant pour cette modification.");
-    }
+  // ✅ NOUVELLE LOGIQUE
+  let nextQty = currentQty + delta;
 
-    const { error: updateError } = await supabase
-      .from("inventaire_items")
-      .update({ quantite: nextQty })
-      .eq("id", itemId);
-
-    if (updateError) throw updateError;
+  // 👉 Empêche juste de descendre sous 0 (sans erreur)
+  if (nextQty < 0) {
+    nextQty = 0;
   }
+
+  const { error: updateError } = await supabase
+    .from("inventaire_items")
+    .update({ quantite: nextQty })
+    .eq("id", itemId);
+
+  if (updateError) throw updateError;
+}
 
   async function searchInventory(term: string) {
     const q = term.trim();

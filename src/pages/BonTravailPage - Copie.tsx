@@ -232,16 +232,6 @@ function fmtHours(value: number | null | undefined) {
   }).format(n);
 }
 
-function parseDecimal(value: unknown) {
-  const cleaned = String(value ?? "")
-    .trim()
-    .replace(/\s/g, "")
-    .replace(",", ".");
-
-  if (cleaned === "") return 0;
-  return Number.parseFloat(cleaned);
-}
-
 export default function BonTravailPage() {
   const { id } = useParams();
   const nav = useNavigate();
@@ -1735,8 +1725,10 @@ export default function BonTravailPage() {
 
     const mecano_nom = newMoMecano.trim();
     const description = newMoDesc.trim() || null;
-    const heures = parseDecimal(newMoHeures);
-    const taux_horaire = parseDecimal(newMoTaux);
+    const heures = Number.parseFloat(
+  String(newMoHeures || "0").replace(",", ".")
+);
+    const taux_horaire = Number(newMoTaux || 0);
 
     if (!mecano_nom) {
       alert("Nom du mécano requis.");
@@ -1778,8 +1770,8 @@ export default function BonTravailPage() {
     if (!mainOeuvreTableAvailable) return;
 
     const mecano_nom = String(row.mecano_nom || "").trim();
-    const heures = parseDecimal(row.heures);
-    const taux_horaire = parseDecimal(row.taux_horaire);
+    const heures = Number(row.heures || 0);
+    const taux_horaire = Number(row.taux_horaire || 0);
 
     if (!mecano_nom) {
       alert("Nom du mécano requis.");
@@ -2658,19 +2650,15 @@ clientId={bt?.client_id || unite?.client_id || null}
 
               <div style={{ ...styles.row, marginTop: 10, alignItems: "flex-start" }}>
                 <input
-                  type="text"
-                  style={{ ...styles.input, width: 120, minWidth: 120 }}
-                  inputMode="decimal"
-                  placeholder="Heures"
-                  value={newMoHeures}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    if (/^\d*([,.]\d*)?$/.test(value)) {
-                      setNewMoHeures(value);
-                    }
-                  }}
-                  disabled={isReadOnly || !mainOeuvreTableAvailable}
-                />
+  type="number"
+  step="0.25"
+  min="0"
+  style={{ ...styles.input, width: 120, minWidth: 120 }}
+  placeholder="Heures"
+  value={newMoHeures}
+  onChange={(e) => setNewMoHeures(e.target.value)}
+  disabled={isReadOnly || !mainOeuvreTableAvailable}
+/>
 
                 <input
                   style={{ ...styles.input, width: 140, minWidth: 140 }}
