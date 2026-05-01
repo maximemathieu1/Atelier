@@ -710,12 +710,11 @@ export default function BTListe() {
     },
 
     btLink: {
-  color: "#0f172a",
-  fontWeight: 900,
+  color: "#334155",
+  fontWeight: 600,
   cursor: "pointer",
   textDecoration: "none",
 },
-
     statusPill: {
       display: "inline-flex",
       alignItems: "center",
@@ -937,177 +936,197 @@ export default function BTListe() {
   }
 
   function renderSortableHeader(label: string, key: typeof sortKey, amount = false) {
-    return (
-      <th style={amount ? styles.thAmount : styles.thBase}>
-        <button type="button" style={styles.sortBtn} onClick={() => handleSort(key)}>
-          <span>{label}</span>
-          <SortArrow col={key} />
-        </button>
-      </th>
-    );
-  }
-
   return (
-    <div style={styles.page}>
-      <div style={styles.topBar}>
-        <div style={styles.titleBlock}>
-          <h1 style={styles.h1}>Bons de travail</h1>
-          <div style={styles.subtitle}>Vue liste dans le style nolisé</div>
-        </div>
+    <th style={amount ? styles.thAmount : styles.thBase}>
+      <button type="button" style={styles.sortBtn} onClick={() => handleSort(key)}>
+        <span>{label}</span>
+        <SortArrow col={key} />
+      </button>
+    </th>
+  );
+}
 
-        <div style={styles.topActions}>
-          <button type="button" style={styles.primaryBtn} onClick={openNewModal}>
-            + Nouveau BT
-          </button>
-        </div>
+return (
+  <div style={styles.page}>
+    <div style={styles.topBar}>
+      <div style={styles.titleBlock}>
+        <h1 style={styles.h1}>Bons de travail</h1>
+        <div style={styles.subtitle}>Vue liste dans le style nolisé</div>
       </div>
 
-      {err ? <div style={styles.errorBox}>Erreur : {err}</div> : null}
+      <div style={styles.topActions}>
+        <button type="button" style={styles.primaryBtn} onClick={openNewModal}>
+          + Nouveau BT
+        </button>
+      </div>
+    </div>
 
-      <div style={styles.toolbarCard}>
-        <input
-          style={styles.searchInput}
-          placeholder="Recherche BT, unité, client, statut, kilométrage..."
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-        />
+    {err ? <div style={styles.errorBox}>Erreur : {err}</div> : null}
 
-        <select
-          style={styles.select}
-          value={statut}
-          onChange={(e) => setStatut(e.target.value as any)}
-        >
-          <option value="tous">Tous les statuts</option>
-          <option value="ouvert">Ouvert</option>
-          <option value="ferme">Fermé</option>
-          <option value="facture">Facturé</option>
-          <option value="verrouille">Verrouillé</option>
-        </select>
+    <div style={styles.toolbarCard}>
+      <input
+        style={styles.searchInput}
+        placeholder="Recherche BT, unité, client, statut, kilométrage..."
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+      />
 
-        <select
-          style={styles.select}
-          value={String(pageSize)}
-          onChange={(e) => setPageSize(Number(e.target.value))}
-        >
-          <option value="10">10 / page</option>
-          <option value="25">25 / page</option>
-          <option value="50">50 / page</option>
-          <option value="100">100 / page</option>
-        </select>
+      <select
+        style={styles.select}
+        value={statut}
+        onChange={(e) => setStatut(e.target.value as any)}
+      >
+        <option value="tous">Tous les statuts</option>
+        <option value="ouvert">Ouvert</option>
+        <option value="ferme">Fermé</option>
+        <option value="facture">Facturé</option>
+        <option value="verrouille">Verrouillé</option>
+      </select>
 
-        <div style={styles.toolbarRight}>
-          <div style={styles.resultsText}>
-            {filteredSorted.length} résultat{filteredSorted.length > 1 ? "s" : ""}
-          </div>
+      <select
+        style={styles.select}
+        value={String(pageSize)}
+        onChange={(e) => setPageSize(Number(e.target.value))}
+      >
+        <option value="10">10 / page</option>
+        <option value="25">25 / page</option>
+        <option value="50">50 / page</option>
+        <option value="100">100 / page</option>
+      </select>
+
+      <div style={styles.toolbarRight}>
+        <div style={styles.resultsText}>
+          {filteredSorted.length} résultat{filteredSorted.length > 1 ? "s" : ""}
         </div>
       </div>
+    </div>
 
-      <div style={styles.tableShell}>
-        {loading ? (
-          <div style={styles.emptyWrap}>Chargement…</div>
-        ) : (
-          <>
-            <div style={styles.tableWrap}>
-              <table style={styles.table}>
-                <thead>
-                  <tr style={styles.theadRow}>
-                    {renderSortableHeader("No BT", "numero")}
-                    {renderSortableHeader("Unité", "unite")}
-                    {renderSortableHeader("Client", "client")}
-                    {renderSortableHeader("KM", "km")}
-                    {renderSortableHeader("Date", "date")}
-                    {renderSortableHeader("Pièces + atelier", "pieces", true)}
-                    {renderSortableHeader("Main-d’œuvre", "mo", true)}
-                    {renderSortableHeader("Total", "total", true)}
-                    {renderSortableHeader("Statut", "statut")}
+    <div style={styles.tableShell}>
+      {loading ? (
+        <div style={styles.emptyWrap}>Chargement…</div>
+      ) : (
+        <>
+          <div style={styles.tableWrap}>
+            <table style={styles.table}>
+              <thead>
+                <tr style={styles.theadRow}>
+                  {renderSortableHeader("No BT", "numero")}
+                  {renderSortableHeader("Unité", "unite")}
+                  {renderSortableHeader("Client", "client")}
+                  {renderSortableHeader("KM", "km")}
+                  {renderSortableHeader("Date", "date")}
+                  {renderSortableHeader("Pièces + atelier", "pieces", true)}
+                  {renderSortableHeader("Main-d’œuvre", "mo", true)}
+                  {renderSortableHeader("Total", "total", true)}
+                  {renderSortableHeader("Statut", "statut")}
+                </tr>
+              </thead>
+
+              <tbody>
+                {paginatedRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={9}>
+                      <div style={styles.emptyWrap}>Aucun bon de travail.</div>
+                    </td>
                   </tr>
-                </thead>
+                ) : (
+                  paginatedRows.map((bt, index) => {
+                    const u = unitesById[bt.unite_id];
+                    const kmVal = (bt as any).km ?? (bt as any).kilometrage ?? null;
+                    const opened = (bt as any).date_ouverture ?? (bt as any).created_at ?? null;
+                    const client = resolveClientName(bt);
+                    const totalPiecesAtelier = resolvePiecesAtelier(bt);
+                    const totalMainOeuvre = resolveMainOeuvre(bt);
+                    const grandTotal = resolveGrandTotal(bt);
+                    const tone = statutTone(bt.statut);
+                    const rowBg = index % 2 === 0 ? "#ffffff" : "#f8fafc";
 
-                <tbody>
-                  {paginatedRows.length === 0 ? (
-                    <tr>
-                      <td colSpan={9}>
-                        <div style={styles.emptyWrap}>Aucun bon de travail.</div>
-                      </td>
-                    </tr>
-                  ) : (
-                    paginatedRows.map((bt, index) => {
-                      const u = unitesById[bt.unite_id];
-                      const kmVal = (bt as any).km ?? (bt as any).kilometrage ?? null;
-                      const opened = (bt as any).date_ouverture ?? (bt as any).created_at ?? null;
-                      const client = resolveClientName(bt);
-                      const totalPiecesAtelier = resolvePiecesAtelier(bt);
-                      const totalMainOeuvre = resolveMainOeuvre(bt);
-                      const grandTotal = resolveGrandTotal(bt);
-                      const tone = statutTone(bt.statut);
-                      const rowBg = index % 2 === 0 ? "#ffffff" : "#f8fafc";
+                    return (
+                      <tr
+                        key={bt.id}
+                        style={{
+                          background: rowBg,
+                          cursor: "default",
+                          transition: "background 0.15s ease",
+                        }}
+                        onClick={() => nav(`/bt/${bt.id}`)}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = "#eef2f7";
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = rowBg;
+                        }}
+                      >
+                        <td style={{ ...styles.td, background: "transparent" }}>
+                          <div style={styles.btLink} title="Cliquer pour ouvrir">
+                            {bt.numero || (bt as any).no_bt || "(BT)"}
+                          </div>
+                        </td>
 
-                      return (
-                        <tr key={bt.id} style={{ background: rowBg }}>
-                          <td style={{ ...styles.td, background: rowBg }}>
-                            <div
-                              style={styles.btLink}
-                              onClick={() => nav(`/bt/${bt.id}`)}
-                              title="Ouvrir le BT"
-                            >
-                              {bt.numero || (bt as any).no_bt || "(BT)"}
-                            </div>
-                          </td>
+                        <td style={{ ...styles.td, background: "transparent" }}>
+                          <div
+                            style={{
+                              ...styles.cellPrimary,
+                              fontWeight: 900,
+                              fontSize: 16,
+                              letterSpacing: "0.3px",
+                            }}
+                          >
+                            {u?.no_unite ?? "—"}
+                          </div>
 
-                          <td style={{ ...styles.td, background: rowBg }}>
-                            <div style={styles.cellPrimary}>{u?.no_unite ?? "—"}</div>
-                            <div style={styles.cellMuted}>
-                              {u ? [u.marque, u.modele, u.annee].filter(Boolean).join(" ") : ""}
-                            </div>
-                          </td>
+                          <div style={styles.cellMuted}>
+                            {u ? [u.marque, u.modele, u.annee].filter(Boolean).join(" ") : ""}
+                          </div>
+                        </td>
 
-                          <td style={{ ...styles.td, background: rowBg }} title={client}>
-                            <div style={styles.cellPrimary}>{client}</div>
-                          </td>
+                        <td style={{ ...styles.td, background: "transparent" }} title={client}>
+                          <div style={styles.cellPrimary}>{client}</div>
+                        </td>
 
-                          <td style={{ ...styles.td, background: rowBg }}>
-                            <div style={styles.cellPrimary}>{kmVal ?? "—"}</div>
-                          </td>
+                        <td style={{ ...styles.td, background: "transparent" }}>
+                          <div style={styles.cellPrimary}>{kmVal ?? "—"}</div>
+                        </td>
 
-                          <td style={{ ...styles.td, background: rowBg }}>
-                            <div style={styles.cellPrimary}>{fmtDate(opened)}</div>
-                          </td>
+                        <td style={{ ...styles.td, background: "transparent" }}>
+                          <div style={styles.cellPrimary}>{fmtDate(opened)}</div>
+                        </td>
 
-                          <td style={{ ...styles.tdAmount, background: rowBg }}>
-                            {money(totalPiecesAtelier)}
-                          </td>
+                        <td style={{ ...styles.tdAmount, background: "transparent" }}>
+                          {money(totalPiecesAtelier)}
+                        </td>
 
-                          <td style={{ ...styles.tdAmount, background: rowBg }}>
-                            {money(totalMainOeuvre)}
-                          </td>
+                        <td style={{ ...styles.tdAmount, background: "transparent" }}>
+                          {money(totalMainOeuvre)}
+                        </td>
 
-                          <td style={{ ...styles.tdAmount, background: rowBg }}>
-                            {money(grandTotal)}
-                          </td>
+                        <td style={{ ...styles.tdAmount, background: "transparent" }}>
+                          {money(grandTotal)}
+                        </td>
 
-                          <td style={{ ...styles.td, background: rowBg }}>
-                            <span
-                              style={{
-                                ...styles.statusPill,
-                                background: tone.bg,
-                                borderColor: tone.border,
-                                color: tone.color,
-                              }}
-                            >
-                              {statutLabel(bt.statut)}
-                            </span>
+                        <td style={{ ...styles.td, background: "transparent" }}>
+                          <span
+                            style={{
+                              ...styles.statusPill,
+                              background: tone.bg,
+                              borderColor: tone.border,
+                              color: tone.color,
+                            }}
+                          >
+                            {statutLabel(bt.statut)}
+                          </span>
 
-                            {Boolean(bt.verrouille) && (
-                              <span style={styles.lockPill}>Verrouillé</span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
+                          {Boolean(bt.verrouille) && (
+                            <span style={styles.lockPill}>Verrouillé</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
 
             <div style={styles.pagerWrap}>
               <div style={styles.pagerLeft}>

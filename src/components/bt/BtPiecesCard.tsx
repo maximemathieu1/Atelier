@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import React, { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { supabase } from "../../lib/supabaseClient";
 
 export type Piece = {
@@ -44,6 +44,18 @@ type PendingPiece = {
   matched_by?: "sku" | "supersed" | null;
 };
 
+type QuickCreateForm = {
+  sku: string;
+  nom: string;
+  categorie: string;
+  quantite: string;
+  unite: string;
+  cout_unitaire: string;
+  seuil_alerte: string;
+  emplacement: string;
+  note: string;
+};
+
 type BtPiecesCardProps = {
   btId: string;
   pieces: Piece[];
@@ -71,8 +83,41 @@ function toNum(value: string) {
   return Number.isFinite(n) ? n : 0;
 }
 
+function toNullableText(value: string) {
+  const cleaned = String(value ?? "").trim();
+  return cleaned ? cleaned : null;
+}
+
+function toNumberOrZero(value: string) {
+  const n = Number(String(value ?? "").trim().replace(",", "."));
+  return Number.isFinite(n) ? n : 0;
+}
+
+function toNullableNumber(value: string) {
+  const cleaned = String(value ?? "").trim().replace(",", ".");
+  if (!cleaned) return null;
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : null;
+}
+
 function makePendingKey(prefix = "piece") {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function makeQuickCreateForm(searchTerm = ""): QuickCreateForm {
+  const text = searchTerm.trim();
+
+  return {
+    sku: text && !text.includes(" ") ? text : "",
+    nom: text,
+    categorie: "",
+    quantite: "0",
+    unite: "UN",
+    cout_unitaire: "0",
+    seuil_alerte: "0",
+    emplacement: "",
+    note: "Créée rapidement depuis un bon de travail.",
+  };
 }
 
 export default function BtPiecesCard({
@@ -93,7 +138,14 @@ export default function BtPiecesCard({
   const [pendingPieces, setPendingPieces] = useState<PendingPiece[]>([]);
   const [scanHint, setScanHint] = useState<string>("");
 
+  const [quickCreateOpen, setQuickCreateOpen] = useState(false);
+  const [quickCreateSaving, setQuickCreateSaving] = useState(false);
+  const [quickCreateForm, setQuickCreateForm] = useState<QuickCreateForm>(() =>
+    makeQuickCreateForm()
+  );
+
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const quickNameInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (!pieceModalOpen) return;
@@ -103,6 +155,15 @@ export default function BtPiecesCard({
     }, 50);
     return () => clearTimeout(t);
   }, [pieceModalOpen]);
+
+  useEffect(() => {
+    if (!quickCreateOpen) return;
+    const t = setTimeout(() => {
+      quickNameInputRef.current?.focus();
+      quickNameInputRef.current?.select();
+    }, 50);
+    return () => clearTimeout(t);
+  }, [quickCreateOpen]);
 
   function getPieceFactureU(p: Piece) {
     if (isBtOpenPricing) {
@@ -142,33 +203,29 @@ export default function BtPiecesCard({
   }
 
   async function adjustInventoryStock(itemId: string, delta: number) {
-  if (!itemId || !Number.isFinite(delta) || delta === 0) return;
+    if (!itemId || !Number.isFinite(delta) || delta === 0) return;
 
-  const { data, error } = await supabase
-    .from("inventaire_items")
-    .select("quantite")
-    .eq("id", itemId)
-    .single();
+    const { data, error } = await supabase
+      .from("inventaire_items")
+      .select("quantite")
+      .eq("id", itemId)
+      .single();
 
-  if (error) throw error;
+    if (error) throw error;
 
-  const currentQty = Number((data as any)?.quantite || 0);
+    const currentQty = Number((data as any)?.quantite || 0);
+    let nextQty = currentQty + delta;
 
-  // ✅ NOUVELLE LOGIQUE
-  let nextQty = currentQty + delta;
+    // Empêche juste de descendre sous 0 sans bloquer l'ajout au BT.
+    if (nextQty < 0) nextQty = 0;
 
-  // 👉 Empêche juste de descendre sous 0 (sans erreur)
-  if (nextQty < 0) {
-    nextQty = 0;
+    const { error: updateError } = await supabase
+      .from("inventaire_items")
+      .update({ quantite: nextQty })
+      .eq("id", itemId);
+
+    if (updateError) throw updateError;
   }
-
-  const { error: updateError } = await supabase
-    .from("inventaire_items")
-    .update({ quantite: nextQty })
-    .eq("id", itemId);
-
-  if (updateError) throw updateError;
-}
 
   async function searchInventory(term: string) {
     const q = term.trim();
@@ -231,6 +288,7 @@ export default function BtPiecesCard({
 
     setSearchTerm("");
     setInventoryResults([]);
+    setQuickCreateOpen(false);
     setTimeout(() => {
       searchInputRef.current?.focus();
     }, 0);
@@ -295,6 +353,64 @@ export default function BtPiecesCard({
     ]);
   }
 
+  function openQuickCreate() {
+    setQuickCreateForm(makeQuickCreateForm(searchTerm));
+    setQuickCreateOpen(true);
+    setScanHint("");
+  }
+
+  function cancelQuickCreate() {
+    if (quickCreateSaving) return;
+    setQuickCreateOpen(false);
+    setQuickCreateForm(makeQuickCreateForm());
+  }
+
+  async function createInventoryItemAndAddToBt() {
+    if (isReadOnly || !piecesTableAvailable || quickCreateSaving) return;
+
+    const nom = quickCreateForm.nom.trim();
+    if (!nom) {
+      alert("Le nom de la pièce est obligatoire.");
+      return;
+    }
+
+    const payload = {
+      sku: toNullableText(quickCreateForm.sku),
+      nom,
+      categorie: toNullableText(quickCreateForm.categorie),
+      quantite: toNumberOrZero(quickCreateForm.quantite),
+      unite: toNullableText(quickCreateForm.unite),
+      cout_unitaire: toNullableNumber(quickCreateForm.cout_unitaire),
+      seuil_alerte: toNumberOrZero(quickCreateForm.seuil_alerte),
+      emplacement: toNullableText(quickCreateForm.emplacement),
+      actif: true,
+      note: toNullableText(quickCreateForm.note),
+    };
+
+    setQuickCreateSaving(true);
+
+    try {
+      const { data, error } = await supabase
+        .from("inventaire_items")
+        .insert(payload)
+        .select("id, sku, nom, unite, cout_unitaire, quantite, actif")
+        .single();
+
+      if (error) throw error;
+      if (!data) throw new Error("La pièce a été créée, mais elle est introuvable.");
+
+      chooseInventoryItem(data as InventaireItem, null);
+      setQuickCreateForm(makeQuickCreateForm());
+      setQuickCreateOpen(false);
+      setScanHint("Nouvelle pièce créée dans l’inventaire et ajoutée à la liste du BT.");
+    } catch (e: any) {
+      console.error("Erreur création rapide inventaire:", e);
+      alert(e?.message || "Erreur lors de la création de la pièce.");
+    } finally {
+      setQuickCreateSaving(false);
+    }
+  }
+
   function openSelectionModal() {
     setPieceModalOpen(true);
   }
@@ -304,6 +420,8 @@ export default function BtPiecesCard({
     setSearchTerm("");
     setInventoryResults([]);
     setScanHint("");
+    setQuickCreateOpen(false);
+    setQuickCreateForm(makeQuickCreateForm());
   }
 
   function closePieceModal() {
@@ -501,6 +619,12 @@ export default function BtPiecesCard({
       return sum + qty * factureU;
     }, 0);
   }, [pendingPieces, effectiveMargePiecesPct]);
+
+  const canQuickCreate =
+    searchTerm.trim().length >= 2 &&
+    !inventoryLoading &&
+    !quickCreateOpen &&
+    inventoryResults.length === 0;
 
   const styles: Record<string, CSSProperties> = {
     card: {
@@ -765,6 +889,35 @@ export default function BtPiecesCard({
       fontWeight: 900,
       marginTop: 8,
     },
+    quickCreateBox: {
+      marginTop: 12,
+      border: "1px solid rgba(37,99,235,.20)",
+      borderRadius: 12,
+      background: "#fff",
+      padding: 12,
+    },
+    quickCreateGrid: {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: 10,
+    },
+    quickCreateFull: {
+      gridColumn: "1 / -1",
+    },
+    fieldLabel: {
+      display: "block",
+      fontSize: 12,
+      fontWeight: 900,
+      color: "rgba(0,0,0,.65)",
+      marginBottom: 5,
+    },
+    quickActions: {
+      display: "flex",
+      justifyContent: "flex-end",
+      gap: 10,
+      marginTop: 12,
+      flexWrap: "wrap",
+    },
   };
 
   return (
@@ -930,7 +1083,7 @@ export default function BtPiecesCard({
                     style={styles.btnPlus}
                     onClick={addManualPendingPiece}
                     disabled={isReadOnly || !piecesTableAvailable}
-                    title="Ajouter une pièce manuellement"
+                    title="Ajouter une pièce manuellement au BT sans créer dans l'inventaire"
                   >
                     +
                   </button>
@@ -958,6 +1111,164 @@ export default function BtPiecesCard({
                 </div>
 
                 {scanHint ? <div style={styles.info}>{scanHint}</div> : null}
+
+                {canQuickCreate && (
+                  <div style={{ marginTop: 10 }}>
+                    <button
+                      type="button"
+                      style={styles.btnPrimary}
+                      onClick={openQuickCreate}
+                      disabled={isReadOnly || !piecesTableAvailable}
+                    >
+                      + Créer “{searchTerm.trim()}” dans l’inventaire
+                    </button>
+                  </div>
+                )}
+
+                {quickCreateOpen && (
+                  <div style={styles.quickCreateBox}>
+                    <div style={styles.modalSectionTitle}>Création rapide inventaire</div>
+
+                    <div style={styles.quickCreateGrid}>
+                      <div>
+                        <label style={styles.fieldLabel}>SKU / code</label>
+                        <input
+                          style={{ ...styles.input, width: "100%", minWidth: 0 }}
+                          value={quickCreateForm.sku}
+                          onChange={(e) =>
+                            setQuickCreateForm((p) => ({ ...p, sku: e.target.value }))
+                          }
+                          disabled={quickCreateSaving}
+                          autoComplete="off"
+                          spellCheck={false}
+                        />
+                      </div>
+
+                      <div>
+                        <label style={styles.fieldLabel}>Nom *</label>
+                        <input
+                          ref={quickNameInputRef}
+                          style={{ ...styles.input, width: "100%", minWidth: 0 }}
+                          value={quickCreateForm.nom}
+                          onChange={(e) =>
+                            setQuickCreateForm((p) => ({ ...p, nom: e.target.value }))
+                          }
+                          disabled={quickCreateSaving}
+                          autoComplete="off"
+                          spellCheck={false}
+                        />
+                      </div>
+
+                      <div>
+                        <label style={styles.fieldLabel}>Catégorie</label>
+                        <input
+                          style={{ ...styles.input, width: "100%", minWidth: 0 }}
+                          value={quickCreateForm.categorie}
+                          onChange={(e) =>
+                            setQuickCreateForm((p) => ({ ...p, categorie: e.target.value }))
+                          }
+                          disabled={quickCreateSaving}
+                        />
+                      </div>
+
+                      <div>
+                        <label style={styles.fieldLabel}>Unité</label>
+                        <input
+                          style={{ ...styles.input, width: "100%", minWidth: 0 }}
+                          value={quickCreateForm.unite}
+                          onChange={(e) =>
+                            setQuickCreateForm((p) => ({ ...p, unite: e.target.value }))
+                          }
+                          disabled={quickCreateSaving}
+                          placeholder="UN, L, boîte..."
+                        />
+                      </div>
+
+                      <div>
+                        <label style={styles.fieldLabel}>Quantité initiale</label>
+                        <input
+                          style={{ ...styles.input, width: "100%", minWidth: 0 }}
+                          value={quickCreateForm.quantite}
+                          onChange={(e) =>
+                            setQuickCreateForm((p) => ({ ...p, quantite: e.target.value }))
+                          }
+                          disabled={quickCreateSaving}
+                          inputMode="decimal"
+                        />
+                      </div>
+
+                      <div>
+                        <label style={styles.fieldLabel}>Coût unitaire</label>
+                        <input
+                          style={{ ...styles.input, width: "100%", minWidth: 0 }}
+                          value={quickCreateForm.cout_unitaire}
+                          onChange={(e) =>
+                            setQuickCreateForm((p) => ({ ...p, cout_unitaire: e.target.value }))
+                          }
+                          disabled={quickCreateSaving}
+                          inputMode="decimal"
+                        />
+                      </div>
+
+                      <div>
+                        <label style={styles.fieldLabel}>Seuil alerte</label>
+                        <input
+                          style={{ ...styles.input, width: "100%", minWidth: 0 }}
+                          value={quickCreateForm.seuil_alerte}
+                          onChange={(e) =>
+                            setQuickCreateForm((p) => ({ ...p, seuil_alerte: e.target.value }))
+                          }
+                          disabled={quickCreateSaving}
+                          inputMode="decimal"
+                        />
+                      </div>
+
+                      <div>
+                        <label style={styles.fieldLabel}>Emplacement</label>
+                        <input
+                          style={{ ...styles.input, width: "100%", minWidth: 0 }}
+                          value={quickCreateForm.emplacement}
+                          onChange={(e) =>
+                            setQuickCreateForm((p) => ({ ...p, emplacement: e.target.value }))
+                          }
+                          disabled={quickCreateSaving}
+                        />
+                      </div>
+
+                      <div style={styles.quickCreateFull}>
+                        <label style={styles.fieldLabel}>Note</label>
+                        <textarea
+                          style={{ ...styles.input, width: "100%", minWidth: 0, minHeight: 70 }}
+                          value={quickCreateForm.note}
+                          onChange={(e) =>
+                            setQuickCreateForm((p) => ({ ...p, note: e.target.value }))
+                          }
+                          disabled={quickCreateSaving}
+                        />
+                      </div>
+                    </div>
+
+                    <div style={styles.quickActions}>
+                      <button
+                        type="button"
+                        style={styles.btn}
+                        onClick={cancelQuickCreate}
+                        disabled={quickCreateSaving}
+                      >
+                        Annuler création
+                      </button>
+
+                      <button
+                        type="button"
+                        style={styles.btnPrimary}
+                        onClick={createInventoryItemAndAddToBt}
+                        disabled={quickCreateSaving}
+                      >
+                        {quickCreateSaving ? "Création..." : "Créer et ajouter au BT"}
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {inventoryResults.length > 0 && (
                   <div style={{ ...styles.resultsWrap, marginTop: 10 }}>
@@ -987,8 +1298,8 @@ export default function BtPiecesCard({
 
                 {!pendingPieces.length ? (
                   <div style={styles.tiny}>
-                    Sélectionne une ou plusieurs pièces, ou clique sur + si elle n’existe pas dans
-                    l’inventaire.
+                    Sélectionne une ou plusieurs pièces, crée une pièce inventaire si elle n’existe
+                    pas, ou clique sur + pour ajouter une ligne manuelle sans inventaire.
                   </div>
                 ) : (
                   <div style={styles.selectedList}>

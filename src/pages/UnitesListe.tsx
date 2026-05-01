@@ -77,7 +77,7 @@ export default function UnitesListe() {
       if (error) throw error;
       if (!data?.id) throw new Error("Impossible de créer l’unité.");
 
-      nav(`/unites/${data.id}`);
+      nav(`/unites/${data.id}?edit=1`);
     } catch (e: any) {
       alert(e?.message ?? String(e));
     } finally {

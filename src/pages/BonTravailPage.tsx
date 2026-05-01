@@ -288,6 +288,7 @@ export default function BonTravailPage() {
 
   const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [taskModalValue, setTaskModalValue] = useState("");
+  const [pendingTasks, setPendingTasks] = useState<string[]>([]);
 
   const [autorisationModalTask, setAutorisationModalTask] = useState<NoteMeca | null>(null);
   const [autorisationModalNote, setAutorisationModalNote] = useState("");
@@ -1309,30 +1310,49 @@ export default function BonTravailPage() {
     };
   }, [bt, loading, hasKmColumn, isReadOnly, currentHeaderSignature]);
 
-  async function addTask() {
-    if (!bt) return;
+  function closeTaskModal() {
+    setTaskModalOpen(false);
+    setTaskModalValue("");
+    setPendingTasks([]);
+  }
 
+  function addPendingTask() {
     const titre = taskModalValue.trim().toUpperCase();
     if (!titre) return;
+
+    setPendingTasks((prev) => [...prev, titre]);
+    setTaskModalValue("");
+  }
+
+  async function savePendingTasks() {
+    if (!bt) return;
+
+    const currentTask = taskModalValue.trim().toUpperCase();
+    const tasksToSave = [...pendingTasks, ...(currentTask ? [currentTask] : [])]
+      .map((t) => t.trim().toUpperCase())
+      .filter(Boolean);
+
+    if (tasksToSave.length === 0) return;
 
     if (isReadOnly) {
       alert("BT fermé / verrouillé / facturé : impossible de modifier.");
       return;
     }
 
-    const { error } = await supabase.from("unite_notes").insert({
+    const rows = tasksToSave.map((titre) => ({
       unite_id: bt.unite_id,
       titre,
       details: null,
-    });
+    }));
+
+    const { error } = await supabase.from("unite_notes").insert(rows);
 
     if (error) {
       alert(error.message);
       return;
     }
 
-    setTaskModalValue("");
-    setTaskModalOpen(false);
+    closeTaskModal();
     await loadAll();
   }
 
@@ -2176,6 +2196,31 @@ export default function BonTravailPage() {
       fontWeight: 900,
       cursor: "pointer",
     },
+    pendingList: {
+      marginTop: 12,
+      border: "1px solid rgba(0,0,0,.08)",
+      borderRadius: 12,
+      overflow: "hidden",
+      background: "#f8fafc",
+    },
+    pendingItem: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 10,
+      padding: "9px 10px",
+      borderTop: "1px solid rgba(0,0,0,.06)",
+    },
+    smallDangerBtn: {
+      width: 30,
+      height: 30,
+      borderRadius: 9,
+      border: "1px solid rgba(220,38,38,.25)",
+      background: "rgba(220,38,38,.08)",
+      color: "#dc2626",
+      fontWeight: 900,
+      cursor: "pointer",
+    },
     tabsWrap: {
       display: "flex",
       gap: 8,
@@ -2367,6 +2412,7 @@ clientId={bt?.client_id || unite?.client_id || null}
                 isReadOnly={isReadOnly}
                 onOpenTaskModal={() => {
                   setTaskModalValue("");
+                  setPendingTasks([]);
                   setTaskModalOpen(true);
                 }}
                 onCompleteSelectedTasks={completeSelectedTasks}
@@ -2537,24 +2583,11 @@ clientId={bt?.client_id || unite?.client_id || null}
       )}
 
       {taskModalOpen && (
-        <div
-          style={styles.modalBackdrop}
-          onClick={() => {
-            setTaskModalOpen(false);
-            setTaskModalValue("");
-          }}
-        >
+        <div style={styles.modalBackdrop}>
           <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
             <div style={styles.modalHeader}>
               <h3 style={styles.modalTitle}>Nouvelle tâche</h3>
-              <button
-                type="button"
-                style={styles.iconCloseBtn}
-                onClick={() => {
-                  setTaskModalOpen(false);
-                  setTaskModalValue("");
-                }}
-              >
+              <button type="button" style={styles.iconCloseBtn} onClick={closeTaskModal}>
                 ×
               </button>
             </div>
@@ -2566,24 +2599,41 @@ clientId={bt?.client_id || unite?.client_id || null}
                 value={taskModalValue}
                 onChange={(e) => setTaskModalValue(e.target.value.toUpperCase())}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") addTask();
+                  if (e.key === "Enter") addPendingTask();
                 }}
                 autoFocus
               />
+
+              {pendingTasks.length > 0 ? (
+                <div style={styles.pendingList}>
+                  <div style={{ padding: "8px 10px", fontSize: 12, fontWeight: 900, color: "rgba(0,0,0,.62)" }}>
+                    Tâches à enregistrer ({pendingTasks.length})
+                  </div>
+                  {pendingTasks.map((task, index) => (
+                    <div key={`${task}-${index}`} style={styles.pendingItem}>
+                      <div style={{ fontWeight: 800, wordBreak: "break-word" }}>{task}</div>
+                      <button
+                        type="button"
+                        style={styles.smallDangerBtn}
+                        onClick={() => setPendingTasks((prev) => prev.filter((_, i) => i !== index))}
+                        title="Retirer"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             </div>
 
             <div style={styles.modalFooter}>
-              <button
-                type="button"
-                style={styles.btnDanger}
-                onClick={() => {
-                  setTaskModalOpen(false);
-                  setTaskModalValue("");
-                }}
-              >
+              <button type="button" style={styles.btnDanger} onClick={closeTaskModal}>
                 Annuler
               </button>
-              <button type="button" style={styles.btnPrimary} onClick={addTask}>
+              <button type="button" style={styles.btn} onClick={addPendingTask}>
+                Ajouter à la liste
+              </button>
+              <button type="button" style={styles.btnPrimary} onClick={savePendingTasks}>
                 Enregistrer
               </button>
             </div>

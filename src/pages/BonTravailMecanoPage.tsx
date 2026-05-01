@@ -484,6 +484,7 @@ export default function BonTravailMecanoPage() {
   const [editKmInput, setEditKmInput] = useState("");
 
   const [taskModalOpen, setTaskModalOpen] = useState(false);
+  const [pendingTasks, setPendingTasks] = useState<string[]>([]);
   const [voiceCorrections, setVoiceCorrections] = useState<VoiceCorrection[]>([]);
 
   useEffect(() => {
@@ -607,6 +608,7 @@ export default function BonTravailMecanoPage() {
     setSpeechError(null);
     setTaskInterim("");
     setNewTask("");
+    setPendingTasks([]);
     setTaskModalOpen(false);
   }
 
@@ -1040,35 +1042,48 @@ export default function BonTravailMecanoPage() {
     setEditKmInput("");
   }
 
-  async function addTask() {
-    if (!bt) return false;
-    const titre = newTask.trim();
-    if (!titre) return false;
-
-    if (isReadOnly) {
-      alert("BT fermé/facturé : impossible de modifier.");
-      return false;
-    }
-
-    const { error } = await supabase.from("unite_notes").insert({
-      unite_id: bt.unite_id,
-      titre,
-      details: null,
-    });
-
-    if (error) {
-      alert(error.message);
-      return false;
-    }
+  function addPendingTask() {
+    const titre = displayTaskValue.trim();
+    if (!titre) return;
 
     stopDictation();
     setSpeechListening(false);
     setSpeechError(null);
     setTaskInterim("");
+    setPendingTasks((prev) => [...prev, titre]);
     setNewTask("");
+  }
 
+  async function savePendingTasks() {
+    if (!bt) return;
+
+    const currentTask = displayTaskValue.trim();
+    const tasksToSave = [...pendingTasks, ...(currentTask ? [currentTask] : [])]
+      .map((t) => t.trim())
+      .filter(Boolean);
+
+    if (tasksToSave.length === 0) return;
+
+    if (isReadOnly) {
+      alert("BT fermé/facturé : impossible de modifier.");
+      return;
+    }
+
+    const rows = tasksToSave.map((titre) => ({
+      unite_id: bt.unite_id,
+      titre,
+      details: null,
+    }));
+
+    const { error } = await supabase.from("unite_notes").insert(rows);
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    resetTaskModalState();
     await loadAll();
-    return true;
   }
 
   async function addEntretienToOpenTasks(row: ItemRow, checked: boolean) {
@@ -1559,6 +1574,31 @@ await supabase
       marginTop: 6,
       color: "#dc2626",
       fontWeight: 700,
+    },
+    pendingList: {
+      marginTop: 12,
+      border: "1px solid rgba(0,0,0,.08)",
+      borderRadius: 12,
+      overflow: "hidden",
+      background: "rgba(0,0,0,.02)",
+    },
+    pendingItem: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 10,
+      padding: "9px 10px",
+      borderTop: "1px solid rgba(0,0,0,.06)",
+    },
+    smallDangerBtn: {
+      width: 30,
+      height: 30,
+      borderRadius: 9,
+      border: "1px solid rgba(220,38,38,.25)",
+      background: "rgba(220,38,38,.08)",
+      color: "#dc2626",
+      fontWeight: 900,
+      cursor: "pointer",
     },
   };
 
@@ -2081,20 +2121,38 @@ await supabase
 
             {speechError ? <div style={styles.helperError}>{speechError}</div> : null}
 
+            {pendingTasks.length > 0 ? (
+              <div style={styles.pendingList}>
+                <div style={{ padding: "8px 10px", fontSize: 12, fontWeight: 900, color: "rgba(0,0,0,.62)" }}>
+                  Tâches à enregistrer ({pendingTasks.length})
+                </div>
+                {pendingTasks.map((task, index) => (
+                  <div key={`${task}-${index}`} style={styles.pendingItem}>
+                    <div style={{ fontWeight: 800, wordBreak: "break-word" }}>{task}</div>
+                    <button
+                      type="button"
+                      style={styles.smallDangerBtn}
+                      onClick={() => setPendingTasks((prev) => prev.filter((_, i) => i !== index))}
+                      title="Retirer"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
             <div style={{ ...styles.row, justifyContent: "flex-end", marginTop: 14 }}>
               <button style={styles.btn} type="button" onClick={resetTaskModalState}>
                 Annuler
               </button>
 
-              <button
-                style={styles.btnPrimary}
-                type="button"
-                onClick={async () => {
-                  const ok = await addTask();
-                  if (ok) resetTaskModalState();
-                }}
-              >
-                Ajouter
+              <button style={styles.btn} type="button" onClick={addPendingTask}>
+                Ajouter à la liste
+              </button>
+
+              <button style={styles.btnPrimary} type="button" onClick={savePendingTasks}>
+                Enregistrer tout
               </button>
             </div>
           </div>
