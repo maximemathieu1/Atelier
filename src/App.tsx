@@ -26,6 +26,9 @@ import FacturationBT from "./pages/FacturationBT";
 import FacturesFournisseurs from "./pages/FacturesFournisseurs";
 import AutorisationBtClientPage from "./pages/AutorisationBtClientPage";
 
+import MobileAtelierPage from "./pages/mobile/MobileAtelierPage";
+import MobileBtPage from "./pages/mobile/MobileBtPage";
+
 import ParametresSysteme from "./pages/systeme/ParametresSysteme";
 import ParametresConfiguration from "./pages/systeme/ParametresConfiguration";
 import ParametresUnitesPage from "./pages/systeme/ParametresUnitesPage";
@@ -54,6 +57,35 @@ function useIsMobile(bp = 900) {
   }, [bp]);
 
   return isMobile;
+}
+
+function useIsPhone(bp = 768) {
+  const [isPhone, setIsPhone] = useState(() =>
+    typeof window !== "undefined" ? window.innerWidth < bp : false
+  );
+
+  useEffect(() => {
+    const onResize = () => setIsPhone(window.innerWidth < bp);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [bp]);
+
+  return isPhone;
+}
+
+function PhoneRedirectGuard({ children }: { children: React.ReactNode }) {
+  const isPhone = useIsPhone(768);
+  const location = useLocation();
+
+  const isMobileRoute = location.pathname.startsWith("/mobile");
+  const isPrintRoute = location.pathname.includes("/imprimer");
+  const isPepFinalRoute = location.pathname.startsWith("/pep/final");
+
+  if (isPhone && !isMobileRoute && !isPrintRoute && !isPepFinalRoute) {
+    return <Navigate to="/mobile" replace />;
+  }
+
+  return <>{children}</>;
 }
 
 function AppShell({ onLogout }: { onLogout: () => void | Promise<void> }) {
@@ -85,161 +117,166 @@ function AppShell({ onLogout }: { onLogout: () => void | Promise<void> }) {
   }
 
   return (
-    <div className="app-shell">
-      {isMobile && drawerOpen && (
-        <div className="drawer-backdrop" onClick={closeDrawer} aria-hidden="true" />
-      )}
-
-      <aside
-        className={
-          "sidebar" +
-          (isMobile ? " sidebar-drawer" : "") +
-          (isMobile && drawerOpen ? " open" : "")
-        }
-      >
-        <div className="brand">
-          <img src="/logo-groupe-breton.png" className="brand-logo" />
-        </div>
-
-        <div className="section">
-          <div className="section-title">ATELIER</div>
-
-          <NavLink to="/dashboard-atelier" className={linkClass} onClick={onNavClick}>
-            Tableau de bord
-          </NavLink>
-
-          <NavLink to="/bt" className={linkClass} onClick={onNavClick}>
-            Bon Travail
-          </NavLink>
-
-          <NavLink to="/operation-temps-reel" className={linkClass} onClick={onNavClick}>
-            Opération Temps réel
-          </NavLink>
-
-          <NavLink to="/pep" className={linkClass} onClick={onNavClick}>
-            PEP
-          </NavLink>
-
-          <NavLink to="/inventaire" className={linkClass} onClick={onNavClick}>
-            Inventaire
-          </NavLink>
-        </div>
-
-        <div className="section">
-          <div className="section-title">ADMINISTRATION</div>
-
-          <NavLink to="/clients" className={linkClass} onClick={onNavClick}>
-            Clients
-          </NavLink>
-
-          <NavLink to="/unites" className={linkClass} onClick={onNavClick}>
-            Unités
-          </NavLink>
-
-          <NavLink to="/employes" className={linkClass} onClick={onNavClick}>
-            Employés
-          </NavLink>
-        </div>
-
-        <div className="section">
-          <div className="section-title">COMPTABILITÉ</div>
-
-          <NavLink to="/facturation" className={linkClass} onClick={onNavClick}>
-            Facturation Client
-          </NavLink>
-
-          <NavLink to="/factures-fournisseurs" className={linkClass} onClick={onNavClick}>
-            Factures fournisseurs
-          </NavLink>
-        </div>
-
-        <div className="section">
-          <div className="section-title">SYSTÈME</div>
-
-          <NavLink to="/parametres-systeme" className={linkClass} onClick={onNavClick}>
-            Système
-          </NavLink>
-        </div>
-
-        <div className="section">
-          <button className="logout-btn" onClick={onLogout} type="button">
-            Se déconnecter
-          </button>
-        </div>
-      </aside>
-
-      <main className="content">
-        {isMobile && (
-          <div className="mobile-topbar">
-            <button
-              className="mobile-menu-btn"
-              onClick={toggleDrawer}
-              aria-label="Ouvrir le menu"
-              type="button"
-            >
-              ☰
-            </button>
-            <div className="mobile-topbar-title">Atelier</div>
-            <div style={{ width: 40 }} />
-          </div>
+    <PhoneRedirectGuard>
+      <div className="app-shell">
+        {isMobile && drawerOpen && (
+          <div className="drawer-backdrop" onClick={closeDrawer} aria-hidden="true" />
         )}
 
-        <Routes>
-          <Route path="/" element={<Navigate to="/dashboard-atelier" replace />} />
+        <aside
+          className={
+            "sidebar" +
+            (isMobile ? " sidebar-drawer" : "") +
+            (isMobile && drawerOpen ? " open" : "")
+          }
+        >
+          <div className="brand">
+            <img src="/logo-groupe-breton.png" className="brand-logo" />
+          </div>
 
-          <Route path="/clients" element={<ClientsListe />} />
-          <Route path="/clients/:id" element={<ClientView />} />
+          <div className="section">
+            <div className="section-title">ATELIER</div>
 
-          <Route path="/unites" element={<UnitesListe />} />
-          <Route path="/unites/:id" element={<UniteView />} />
+            <NavLink to="/dashboard-atelier" className={linkClass} onClick={onNavClick}>
+              Tableau de bord
+            </NavLink>
 
-          <Route path="/employes" element={<EmployesPage />} />
+            <NavLink to="/bt" className={linkClass} onClick={onNavClick}>
+              Bon Travail
+            </NavLink>
 
-          <Route path="/dashboard-atelier" element={<DashboardAtelier />} />
+            <NavLink to="/operation-temps-reel" className={linkClass} onClick={onNavClick}>
+              Opération Temps réel
+            </NavLink>
 
-          <Route path="/bt" element={<BTListe />} />
-          <Route path="/bt/:id" element={<BonTravailPage />} />
-          <Route path="/bt-mecano/:id" element={<BonTravailMecanoPage />} />
-          <Route path="/bt/:id/imprimer" element={<BtPrintPage />} />
+            <NavLink to="/pep" className={linkClass} onClick={onNavClick}>
+              PEP
+            </NavLink>
 
-          <Route path="/inventaire" element={<Inventaire />} />
-          <Route path="/operation-temps-reel" element={<OperationTempsReelPage />} />
+            <NavLink to="/inventaire" className={linkClass} onClick={onNavClick}>
+              Inventaire
+            </NavLink>
+          </div>
 
-          <Route path="/pep" element={<PepAccueil />}>
-            <Route index element={<Navigate to="suivi" replace />} />
-            <Route path="nouvelle" element={<PepNouvelle />} />
-            <Route path="suivi" element={<PepSuivi />} />
-            <Route path="admin" element={<PepAdmin />} />
-          </Route>
+          <div className="section">
+            <div className="section-title">ADMINISTRATION</div>
 
-          <Route path="/pep/final" element={<PepFinal />} />
+            <NavLink to="/clients" className={linkClass} onClick={onNavClick}>
+              Clients
+            </NavLink>
 
-          <Route path="/facturation" element={<FacturationBT />} />
-          <Route path="/factures-fournisseurs" element={<FacturesFournisseurs />} />
+            <NavLink to="/unites" className={linkClass} onClick={onNavClick}>
+              Unités
+            </NavLink>
 
-          <Route path="/parametres-systeme" element={<ParametresSysteme />} />
-          <Route path="/parametres-systeme/configuration" element={<ParametresSysteme />} />
-          <Route path="/parametres-systeme/compatibilite" element={<ParametresSysteme />} />
-          <Route
-            path="/parametres-systeme/entreprise-facturation"
-            element={<ParametresSysteme />}
-          />
-          <Route path="/parametres-systeme/acomba" element={<ParametresSysteme />} />
-          <Route path="/parametres-systeme/dictee-vocale" element={<ParametresSysteme />} />
+            <NavLink to="/employes" className={linkClass} onClick={onNavClick}>
+              Employés
+            </NavLink>
+          </div>
 
-          <Route path="/systeme/parametres" element={<ParametresConfiguration />} />
-          <Route path="/systeme/parametres/unites" element={<ParametresUnitesPage />} />
-          <Route path="/systeme/parametres/pieces" element={<ParametresPiecesPage />} />
-          <Route path="/systeme/parametres/templates" element={<ParametresTemplatesPage />} />
-          <Route
-            path="/systeme/parametres/dictee-vocale"
-            element={<ParametresDicteeVocalePage />}
-          />
+          <div className="section">
+            <div className="section-title">COMPTABILITÉ</div>
 
-          <Route path="*" element={<Navigate to="/dashboard-atelier" replace />} />
-        </Routes>
-      </main>
-    </div>
+            <NavLink to="/facturation" className={linkClass} onClick={onNavClick}>
+              Facturation Client
+            </NavLink>
+
+            <NavLink to="/factures-fournisseurs" className={linkClass} onClick={onNavClick}>
+              Factures fournisseurs
+            </NavLink>
+          </div>
+
+          <div className="section">
+            <div className="section-title">SYSTÈME</div>
+
+            <NavLink to="/parametres-systeme" className={linkClass} onClick={onNavClick}>
+              Système
+            </NavLink>
+          </div>
+
+          <div className="section">
+            <button className="logout-btn" onClick={onLogout} type="button">
+              Se déconnecter
+            </button>
+          </div>
+        </aside>
+
+        <main className="content">
+          {isMobile && (
+            <div className="mobile-topbar">
+              <button
+                className="mobile-menu-btn"
+                onClick={toggleDrawer}
+                aria-label="Ouvrir le menu"
+                type="button"
+              >
+                ☰
+              </button>
+              <div className="mobile-topbar-title">Atelier</div>
+              <div style={{ width: 40 }} />
+            </div>
+          )}
+
+          <Routes>
+            <Route path="/" element={<Navigate to="/dashboard-atelier" replace />} />
+
+            <Route path="/mobile" element={<MobileAtelierPage />} />
+            <Route path="/mobile/bt/:id" element={<MobileBtPage />} />
+
+            <Route path="/clients" element={<ClientsListe />} />
+            <Route path="/clients/:id" element={<ClientView />} />
+
+            <Route path="/unites" element={<UnitesListe />} />
+            <Route path="/unites/:id" element={<UniteView />} />
+
+            <Route path="/employes" element={<EmployesPage />} />
+
+            <Route path="/dashboard-atelier" element={<DashboardAtelier />} />
+
+            <Route path="/bt" element={<BTListe />} />
+            <Route path="/bt/:id" element={<BonTravailPage />} />
+            <Route path="/bt-mecano/:id" element={<BonTravailMecanoPage />} />
+            <Route path="/bt/:id/imprimer" element={<BtPrintPage />} />
+
+            <Route path="/inventaire" element={<Inventaire />} />
+            <Route path="/operation-temps-reel" element={<OperationTempsReelPage />} />
+
+            <Route path="/pep" element={<PepAccueil />}>
+              <Route index element={<Navigate to="suivi" replace />} />
+              <Route path="nouvelle" element={<PepNouvelle />} />
+              <Route path="suivi" element={<PepSuivi />} />
+              <Route path="admin" element={<PepAdmin />} />
+            </Route>
+
+            <Route path="/pep/final" element={<PepFinal />} />
+
+            <Route path="/facturation" element={<FacturationBT />} />
+            <Route path="/factures-fournisseurs" element={<FacturesFournisseurs />} />
+
+            <Route path="/parametres-systeme" element={<ParametresSysteme />} />
+            <Route path="/parametres-systeme/configuration" element={<ParametresSysteme />} />
+            <Route path="/parametres-systeme/compatibilite" element={<ParametresSysteme />} />
+            <Route
+              path="/parametres-systeme/entreprise-facturation"
+              element={<ParametresSysteme />}
+            />
+            <Route path="/parametres-systeme/acomba" element={<ParametresSysteme />} />
+            <Route path="/parametres-systeme/dictee-vocale" element={<ParametresSysteme />} />
+
+            <Route path="/systeme/parametres" element={<ParametresConfiguration />} />
+            <Route path="/systeme/parametres/unites" element={<ParametresUnitesPage />} />
+            <Route path="/systeme/parametres/pieces" element={<ParametresPiecesPage />} />
+            <Route path="/systeme/parametres/templates" element={<ParametresTemplatesPage />} />
+            <Route
+              path="/systeme/parametres/dictee-vocale"
+              element={<ParametresDicteeVocalePage />}
+            />
+
+            <Route path="*" element={<Navigate to="/dashboard-atelier" replace />} />
+          </Routes>
+        </main>
+      </div>
+    </PhoneRedirectGuard>
   );
 }
 
