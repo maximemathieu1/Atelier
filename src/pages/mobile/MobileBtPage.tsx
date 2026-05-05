@@ -48,7 +48,21 @@ export default function MobileBtPage() {
     try {
       const { data: btData, error: btErr } = await supabase
         .from("bons_travail")
-        .select("id,numero,statut,unite_id,client_nom,date_ouverture,km,unite:unites(no_unite,marque,modele,plaque)")
+        .select(`
+          id,
+          numero,
+          statut,
+          unite_id,
+          client_nom,
+          date_ouverture,
+          km,
+          unite:unites!bons_travail_unite_id_fkey(
+            no_unite,
+            marque,
+            modele,
+            plaque
+          )
+        `)
         .eq("id", id)
         .single();
 
@@ -206,12 +220,15 @@ export default function MobileBtPage() {
       <div style={styles.headerCard}>
         <div style={styles.kicker}>Bon de travail</div>
         <div style={styles.title}>BT {bt?.numero || "—"}</div>
+
         <div style={styles.meta}>
           Unité <b>{bt?.unite?.no_unite || "—"}</b>
         </div>
+
         <div style={styles.meta}>
           {bt?.unite?.marque || ""} {bt?.unite?.modele || ""}
         </div>
+
         <div style={styles.meta}>Client : {bt?.client_nom || "—"}</div>
         <div style={styles.badge}>{bt?.statut || "ouvert"}</div>
       </div>
@@ -237,9 +254,12 @@ export default function MobileBtPage() {
                     type="button"
                     onClick={() => void completeTask(t)}
                     disabled={busy}
-                    style={styles.primaryBtn}
+                    style={{
+                      ...styles.primaryBtn,
+                      opacity: busy ? 0.6 : 1,
+                    }}
                   >
-                    ✓ Effectuer
+                    {busy ? "Traitement…" : "✓ Effectuer"}
                   </button>
 
                   <label style={styles.secondaryBtn}>
@@ -285,6 +305,7 @@ export default function MobileBtPage() {
             return (
               <div key={t.id} style={styles.doneCard}>
                 <div style={styles.doneTitle}>{t.titre}</div>
+
                 <div style={styles.doneDate}>
                   {t.date_effectuee
                     ? new Date(t.date_effectuee).toLocaleString("fr-CA")
