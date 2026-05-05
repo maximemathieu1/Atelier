@@ -12,6 +12,7 @@ type UniteRow = {
   plaque: string | null;
   client_id: string | null;
   type_unite_id?: string | null;
+  mode_comptable?: string | null;
   km_actuel?: number | null;
   km_updated_at?: string | null;
   km_status?: "ok" | "warning" | "anomaly" | string | null;
@@ -45,6 +46,8 @@ type BtRow = {
   km?: number | null;
   unite_id: string;
   date_ouverture?: string | null;
+  annee?: number | null;
+  mois?: number | null;
   unite?: {
     id: string;
     no_unite: string | null;
@@ -56,7 +59,6 @@ type BtRow = {
     km_status?: "ok" | "warning" | "anomaly" | string | null;
   } | null;
 };
-
 type Pointage = {
   id: string;
   bt_id: string;
@@ -433,7 +435,7 @@ export default function OperationTempsReelPage() {
   async function loadUnites() {
     const { data, error } = await supabase
       .from("unites")
-      .select("id,no_unite,marque,modele,plaque,client_id,type_unite_id,km_actuel,km_updated_at,km_status")
+      .select("id,no_unite,marque,modele,plaque,client_id,type_unite_id,mode_comptable,km_actuel,km_updated_at,km_status")
       .order("no_unite", { ascending: true });
 
     if (error) throw error;
@@ -471,7 +473,7 @@ export default function OperationTempsReelPage() {
 
     const { data, error } = await supabase
       .from("unites")
-      .select("id,no_unite,marque,modele,plaque,client_id,type_unite_id,km_actuel,km_updated_at,km_status")
+      .select("id,no_unite,marque,modele,plaque,client_id,type_unite_id,mode_comptable,km_actuel,km_updated_at,km_status")
       .eq("no_unite", valeur)
       .maybeSingle();
 
@@ -499,33 +501,42 @@ export default function OperationTempsReelPage() {
   }
 
   async function findOpenBtForUnite(uniteId: string): Promise<BtRow | null> {
-    const { data, error } = await supabase
-      .from("bons_travail")
-      .select("id,numero,statut,date_ouverture,km,unite_id")
-      .eq("unite_id", uniteId)
-      .in("statut", ["a_faire", "en_cours", "ouvert"])
-      .order("date_ouverture", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+  const today = new Date();
+  const currentMonth = today.getMonth() + 1;
+  const currentYear = today.getFullYear();
 
-    if (error) throw error;
-    if (!data) return null;
+  // 🔥 ON VA CHERCHER PRIORITAIREMENT LE BT DU MOIS
+  const { data, error } = await supabase
+    .from("bons_travail")
+    .select("id,numero,statut,date_ouverture,annee,mois,km,unite_id")
+    .eq("unite_id", uniteId)
+    .in("statut", ["a_faire", "en_cours", "ouvert"])
+    .eq("annee", currentYear)
+    .eq("mois", currentMonth)
+    .order("date_ouverture", { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
-    const bt = data as BtRow;
+  if (error) throw error;
 
-    const { data: uniteData, error: uniteError } = await supabase
-      .from("unites")
-      .select("id,no_unite,marque,modele,plaque,km_actuel,km_updated_at,km_status")
-      .eq("id", bt.unite_id)
-      .maybeSingle();
+  // 👉 si aucun BT du mois → retourner null directement
+  if (!data) return null;
 
-    if (uniteError) throw uniteError;
+  const bt = data as BtRow;
 
-    return {
-      ...bt,
-      unite: (uniteData as any) ?? null,
-    };
-  }
+  const { data: uniteData, error: uniteError } = await supabase
+    .from("unites")
+    .select("id,no_unite,marque,modele,plaque,km_actuel,km_updated_at,km_status")
+    .eq("id", bt.unite_id)
+    .maybeSingle();
+
+  if (uniteError) throw uniteError;
+
+  return {
+    ...bt,
+    unite: (uniteData as any) ?? null,
+  };
+}
 
   async function createBtForUnite(unite: UniteRow): Promise<BtRow> {
     const snapshots = await resolveClientSnapshotsForUnite(unite);
@@ -544,7 +555,7 @@ export default function OperationTempsReelPage() {
     const { data, error } = await supabase
       .from("bons_travail")
       .insert(payload)
-      .select("id,numero,statut,date_ouverture,km,unite_id")
+      .select("id,numero,statut,date_ouverture,annee,mois,km,unite_id")
       .single();
 
     if (error) throw error;
@@ -625,98 +636,118 @@ export default function OperationTempsReelPage() {
   }
 
   async function getOrCreateBtForUnite(noUnite: string, km: number | null) {
-    const unite = await findUniteByNo(noUnite);
+  const unite = await findUniteByNo(noUnite);
 
-    if (!unite) {
-      throw new Error("Aucune unité trouvée avec ce numéro.");
-    }
-
-    let bt = await findOpenBtForUnite(unite.id);
-
-    if (bt) {
-      if (bt.statut === "a_faire" || bt.statut === "ouvert") {
-        const { error: updateStatusErr } = await supabase
-          .from("bons_travail")
-          .update({ statut: "en_cours" })
-          .eq("id", bt.id);
-
-        if (updateStatusErr) throw updateStatusErr;
-        bt = { ...bt, statut: "en_cours" };
-      }
-    } else {
-      bt = await createBtForUnite(unite);
-    }
-
-    if (km != null && !Number.isNaN(km)) {
-      const ok = await enregistrerKmSurBt(bt.id, unite.id, km);
-      if (!ok) {
-        throw new Error("Démarrage annulé.");
-      }
-    }
-
-    return bt;
+  if (!unite) {
+    throw new Error("Aucune unité trouvée avec ce numéro.");
   }
 
-  async function demarrerPointage() {
-    const uniteNo = uniteInput.trim();
-    const nom = mecanoNom.trim();
-    const km = toNullableKm(kmInput);
+  const today = new Date();
+  const currentMonth = today.getMonth() + 1;
+  const currentYear = today.getFullYear();
 
-    if (!employeConnecte) {
-      alert("Aucun employé actif n'est lié au user connecté.");
-      return;
-    }
+  const modeComptable = String(unite.mode_comptable || "").trim().toLowerCase();
 
-    if (!nom) {
-      alert("Impossible d’identifier l’employé connecté.");
-      return;
-    }
+  const isUniteInterne =
+    modeComptable === "interne" ||
+    modeComptable === "interne ta";
 
-    if (!uniteNo) {
-      alert("Entre un numéro d’unité.");
-      return;
-    }
+  let bt = await findOpenBtForUnite(unite.id);
 
-    if (Number.isNaN(km)) {
-      alert("Le KM est invalide.");
-      return;
-    }
+  if (bt && isUniteInterne) {
+    const isBtCurrentMonth =
+      Number(bt.annee) === currentYear &&
+      Number(bt.mois) === currentMonth;
 
-    if (activePointage) {
-      alert("Un pointage est déjà actif pour cet employé.");
-      return;
-    }
-
-    setBusy(true);
-
-    try {
-      const bt = await getOrCreateBtForUnite(uniteNo, km);
-
-      const { error } = await supabase.from("bt_pointages").insert({
-        bt_id: bt.id,
-        employe_id: employeConnecte.id,
-        mecano_nom: nom,
-        started_at: nowIso(),
-        ended_at: null,
-        duration_minutes: null,
-        actif: true,
-        note: null,
-      });
-
-      if (error) throw error;
-
-      setUniteInput("");
-      setKmInput("");
-      setPreviewUnite(null);
-      setUniteMenuOpen(false);
-
-      await refreshAll();
-    } catch (e: any) {
-      alert(e?.message ?? String(e));
-    } finally {
-      setBusy(false);
+    if (!isBtCurrentMonth) {
+      bt = null;
     }
   }
+
+  if (bt) {
+    if (bt.statut === "a_faire" || bt.statut === "ouvert") {
+      const { error: updateStatusErr } = await supabase
+        .from("bons_travail")
+        .update({ statut: "en_cours" })
+        .eq("id", bt.id);
+
+      if (updateStatusErr) throw updateStatusErr;
+      bt = { ...bt, statut: "en_cours" };
+    }
+  } else {
+    bt = await createBtForUnite(unite);
+  }
+
+  if (km != null && !Number.isNaN(km)) {
+    const ok = await enregistrerKmSurBt(bt.id, unite.id, km);
+    if (!ok) {
+      throw new Error("Démarrage annulé.");
+    }
+  }
+
+  return bt;
+}
+
+async function demarrerPointage() {
+  const uniteNo = uniteInput.trim();
+  const nom = mecanoNom.trim();
+  const km = toNullableKm(kmInput);
+
+  if (!employeConnecte) {
+    alert("Aucun employé actif n'est lié au user connecté.");
+    return;
+  }
+
+  if (!nom) {
+    alert("Impossible d’identifier l’employé connecté.");
+    return;
+  }
+
+  if (!uniteNo) {
+    alert("Entre un numéro d’unité.");
+    return;
+  }
+
+  if (Number.isNaN(km)) {
+    alert("Le KM est invalide.");
+    return;
+  }
+
+  if (activePointage) {
+    alert("Un pointage est déjà actif pour cet employé.");
+    return;
+  }
+
+  setBusy(true);
+
+  try {
+    const bt = await getOrCreateBtForUnite(uniteNo, km);
+
+    const { error } = await supabase.from("bt_pointages").insert({
+      bt_id: bt.id,
+      employe_id: employeConnecte.id,
+      mecano_nom: nom,
+      started_at: nowIso(),
+      ended_at: null,
+      duration_minutes: null,
+      actif: true,
+      note: null,
+    });
+
+    if (error) throw error;
+
+    setUniteInput("");
+    setKmInput("");
+    setPreviewUnite(null);
+    setUniteMenuOpen(false);
+
+    await refreshAll();
+  } catch (e: any) {
+    alert(e?.message ?? String(e));
+  } finally {
+    setBusy(false);
+  }
+}
 
   async function arreterPointage() {
     if (!activePointage) return;

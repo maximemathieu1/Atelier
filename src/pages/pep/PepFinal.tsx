@@ -46,6 +46,21 @@ type PepArchiveInsert = {
   pages_html: string[];
 };
 
+type ArchiveStep =
+  | "idle"
+  | "archiving"
+  | "ready_pdf"
+  | "pdf"
+  | "done"
+  | "error";
+
+type ArchiveContext = {
+  pepArchiveId: string;
+  btId: string;
+  btNumero: string | null;
+  pepPdfFilename: string;
+};
+
 const PEP_TEMPLATE_ID = "d71006cc-cfd7-4e49-83dd-918ee4201b89";
 
 const EXTRA_STYLE = `
@@ -520,6 +535,19 @@ function dateOnlyToIsoMidday(value?: string | null) {
   return `${dateOnlyOrToday(value)}T12:00:00.000Z`;
 }
 
+function getMonthRangeIso(datePep: string) {
+  const safeDate = dateOnlyOrToday(datePep);
+  const [year, month] = safeDate.split("-").map(Number);
+
+  const start = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0));
+  const end = new Date(Date.UTC(year, month, 1, 0, 0, 0));
+
+  return {
+    startIso: start.toISOString(),
+    endIso: end.toISOString(),
+  };
+}
+
 function isPepTaskLabel(value: unknown) {
   const v = normalizeText(value);
   return v.includes("pep") || v.includes("inspection periodique");
@@ -572,11 +600,15 @@ async function getOrCreatePepBt(
   mecanoNom: string | null,
   numMecano: string | null
 ) {
+  const { startIso, endIso } = getMonthRangeIso(datePep);
+
   const { data: existingBt, error: existingBtErr } = await supabase
     .from("bons_travail")
     .select("*")
     .eq("unite_id", uniteId)
     .in("statut", ["ouvert", "a_faire", "en_cours"])
+    .gte("date_ouverture", startIso)
+    .lt("date_ouverture", endIso)
     .order("date_ouverture", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -863,6 +895,13 @@ export default function PepFinal() {
   const [archiveDone, setArchiveDone] = useState(false);
   const [archiveError, setArchiveError] = useState("");
   const [actionsOpen, setActionsOpen] = useState(false);
+  const [archiveModalOpen, setArchiveModalOpen] = useState(false);
+  const [archiveStep, setArchiveStep] = useState<ArchiveStep>("idle");
+  const [archivePhase1Done, setArchivePhase1Done] = useState(false);
+  const [archivePhase2Done, setArchivePhase2Done] = useState(false);
+  const [archiveMessage, setArchiveMessage] = useState("");
+  const [archiveDetails, setArchiveDetails] = useState<string[]>([]);
+  const [archiveContext, setArchiveContext] = useState<ArchiveContext | null>(null);
 
   const signCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const isDrawingRef = useRef(false);
@@ -1015,18 +1054,35 @@ export default function PepFinal() {
 
   function confirmSignature() {
     setSignature(draftSignature);
-    setArchiveError("");
-    setArchiveDone(false);
+    resetArchiveStateForNewRun();
     setSignModalOpen(false);
   }
 
   function requireSignature(): boolean {
-    if (isSigned) return true;
+  if (isSigned) return true;
 
-    setArchiveError("Signature requise avant d'imprimer ou d'archiver le PEP.");
+  // 👇 ouvre directement le modal
+  setDraftSignature(signature);
+  setSignModalOpen(true);
+
+  return false;
+}
+
+
+  function closeArchiveModal() {
+    if (archiveBusy) return;
+    setArchiveModalOpen(false);
+  }
+
+  function resetArchiveStateForNewRun() {
     setArchiveDone(false);
-    setActionsOpen(false);
-    return false;
+    setArchiveError("");
+    setArchiveStep("idle");
+    setArchivePhase1Done(false);
+    setArchivePhase2Done(false);
+    setArchiveMessage("");
+    setArchiveDetails([]);
+    setArchiveContext(null);
   }
 
   function handlePrint() {
@@ -1079,12 +1135,10 @@ export default function PepFinal() {
   }
 
   function handlePrintClick() {
-    if (!requireSignature()) return;
-    setArchiveError("");
-    setArchiveDone(false);
-    setActionsOpen(false);
-    handlePrint();
-  }
+  if (!requireSignature()) return;
+  setActionsOpen(false);
+  handlePrint();
+}
 
   async function handleArchivePep() {
     if (!payload) return;
@@ -1102,14 +1156,23 @@ export default function PepFinal() {
     }
 
     setArchiveBusy(true);
+    setArchiveModalOpen(true);
     setArchiveDone(false);
     setArchiveError("");
+    setArchiveStep("archiving");
+    setArchivePhase1Done(false);
+    setArchivePhase2Done(false);
+    setArchiveMessage("Archivage du PEP en cours...");
+    setArchiveDetails(["Sauvegarde du PEP", "Liaison au bon de travail", "Mise à jour de l’entretien"]);
+    setArchiveContext(null);
 
     try {
+      const datePep = dateOnlyOrToday(payload.date_pep);
+
       const insertPayload: PepArchiveInsert = {
         unite_id: payload.unite_id,
         unite: payload.unite ?? null,
-        date_pep: payload.date_pep ?? null,
+        date_pep: datePep,
         date_prochain: payload.date_prochain ?? null,
         num_mecano: payload.num_mecano ?? null,
         odometre: payload.odom ?? null,
@@ -1141,34 +1204,109 @@ export default function PepFinal() {
 
       const { bt } = await getOrCreatePepBt(
         payload.unite_id,
-        payload.date_pep ?? new Date().toISOString().slice(0, 10),
+        datePep,
         km,
         payload.mecano_nom ?? null,
         payload.num_mecano ?? null
       );
 
-      await syncPepTaskAndHistorique(
-        bt,
-        payload.date_pep ?? new Date().toISOString().slice(0, 10),
-        km
-      );
+      await syncPepTaskAndHistorique(bt, datePep, km);
 
-      const pepPdfFilename = `PEP-${payload.unite || "unite"}-${payload.date_pep || new Date().toISOString().slice(0, 10)}.pdf`;
+      const pepPdfFilename = `PEP-${payload.unite || "unite"}-${datePep}.pdf`;
+      const btNumero = String((bt as any)?.numero || "").trim() || null;
 
-      const pdfBlob = await renderPepPdfBlob(printHtml, pepPdfFilename);
+      setArchiveContext({
+        pepArchiveId,
+        btId: String(bt.id),
+        btNumero,
+        pepPdfFilename,
+      });
+      setArchivePhase1Done(true);
+      setArchivePhase2Done(false);
+      setArchiveStep("ready_pdf");
+      setArchiveDone(true);
+      setArchiveError("");
+      setArchiveMessage("PEP archivé et lié au bon de travail.");
+      setArchiveDetails([
+        "PEP archivé",
+        btNumero ? `Bon de travail lié : ${btNumero}` : "Bon de travail lié",
+        "Entretien PEP marqué effectué",
+      ]);
+    } catch (e: any) {
+      console.error(e);
+      setArchiveStep("error");
+      setArchiveError(e?.message ?? "Erreur inconnue pendant l'archivage.");
+      setArchiveMessage("Archivage incomplet.");
+      setArchiveDetails(["Le PEP n’a pas été entièrement archivé."]);
+      setArchiveDone(false);
+    } finally {
+      setArchiveBusy(false);
+    }
+  }
+
+  async function handleGenerateAndAttachPdf() {
+    if (!payload) return;
+
+    if (!printHtml) {
+      setArchiveError("Le HTML final n'est pas prêt.");
+      setArchiveStep("error");
+      setArchiveModalOpen(true);
+      return;
+    }
+
+    if (!archiveContext?.pepArchiveId || !archiveContext?.btId) {
+      setArchiveError("Archivage PEP incomplet. Relance l’archivage avant de générer le PDF.");
+      setArchiveStep("error");
+      setArchiveModalOpen(true);
+      return;
+    }
+
+    setArchiveBusy(true);
+    setArchiveModalOpen(true);
+    setArchiveError("");
+    setArchiveStep("pdf");
+    setArchiveMessage("Génération et attachement du PDF en cours...");
+    setArchiveDetails(["Génération du PDF", "Envoi dans les documents du BT", "Attachement au bon de travail"]);
+
+    try {
+      const pdfBlob = await renderPepPdfBlob(printHtml, archiveContext.pepPdfFilename);
 
       await attachPepPdfToBt(
-        bt.id,
-        pepArchiveId,
-        pepPdfFilename,
+        archiveContext.btId,
+        archiveContext.pepArchiveId,
+        archiveContext.pepPdfFilename,
         pdfBlob
       );
 
+      setArchivePhase2Done(true);
+      setArchiveStep("done");
       setArchiveDone(true);
       setArchiveError("");
+      setArchiveMessage("Progression complétée.");
+      setArchiveDetails([
+        "PEP archivé",
+        archiveContext.btNumero
+          ? `Bon de travail lié : ${archiveContext.btNumero}`
+          : "Bon de travail lié",
+        "PDF généré",
+        "PDF attaché au BT",
+      ]);
     } catch (e: any) {
       console.error(e);
-      setArchiveError(e?.message ?? "Erreur inconnue pendant l'archivage.");
+      setArchivePhase2Done(false);
+      setArchiveStep("error");
+      setArchiveError(
+        e?.message ??
+          "PEP archivé, mais une erreur est survenue pendant la génération ou l'attachement du PDF."
+      );
+      setArchiveMessage("PDF non complété.");
+      setArchiveDetails([
+        "PEP déjà archivé",
+        archiveContext.btNumero
+          ? `Bon de travail déjà lié : ${archiveContext.btNumero}`
+          : "Bon de travail déjà lié",
+        "PDF à reprendre seulement",
+      ]);
       setArchiveDone(false);
     } finally {
       setArchiveBusy(false);
@@ -1176,10 +1314,10 @@ export default function PepFinal() {
   }
 
   function handleArchiveClick() {
-    if (!requireSignature()) return;
-    setActionsOpen(false);
-    handleArchivePep();
-  }
+  if (!requireSignature()) return;
+  setActionsOpen(false);
+  handleArchivePep();
+}
 
   const totalPages = pages.length || 1;
   const safePageIndex = Math.min(pageIndex, Math.max(totalPages - 1, 0));
@@ -1213,28 +1351,25 @@ export default function PepFinal() {
             {actionsOpen && (
               <div style={styles.actionsMenu}>
                 <button
-                  type="button"
-                  onClick={handlePrintClick}
-                  style={{
-                    ...styles.actionsMenuItem,
-                    ...(!isSigned ? styles.actionsMenuItemDisabled : {}),
-                  }}
-                >
-                  Imprimer
-                </button>
+  type="button"
+  onClick={handlePrintClick}
+  style={styles.actionsMenuItem}
+>
+  Imprimer
+</button>
 
                 <button
-                  type="button"
-                  onClick={handleArchiveClick}
-                  disabled={!isSigned || archiveBusy}
-                  style={{
-                    ...styles.actionsMenuItem,
-                    ...(!isSigned || archiveBusy ? styles.actionsMenuItemDisabled : {}),
-                    cursor: !isSigned || archiveBusy ? "not-allowed" : "pointer",
-                  }}
-                >
-                  {archiveBusy ? "Génération du PDF..." : "Archiver le PEP"}
-                </button>
+  type="button"
+  onClick={handleArchiveClick}
+  disabled={archiveBusy}
+  style={{
+    ...styles.actionsMenuItem,
+    ...(archiveBusy ? styles.actionsMenuItemDisabled : {}),
+    cursor: archiveBusy ? "not-allowed" : "pointer",
+  }}
+>
+  {archiveBusy ? "Traitement..." : archivePhase1Done ? "Voir progression" : "Archiver le PEP"}
+</button>
               </div>
             )}
           </div>
@@ -1252,48 +1387,99 @@ export default function PepFinal() {
         </div>
       )}
 
-     {archiveBusy && (
-  <div style={styles.loadingOverlay}>
-    <div style={styles.loadingCard}>
-      <svg
-        viewBox="0 0 50 50"
-        style={styles.spinnerSvg}
-        aria-hidden="true"
-      >
-        <circle
-          cx="25"
-          cy="25"
-          r="20"
-          fill="none"
-          stroke="#dbe4f0"
-          strokeWidth="5"
-        />
-        <path
-          d="M25 5
-             a20 20 0 0 1 20 20"
-          fill="none"
-          stroke="#1d4ed8"
-          strokeWidth="5"
-          strokeLinecap="round"
-        >
-          <animateTransform
-            attributeName="transform"
-            type="rotate"
-            from="0 25 25"
-            to="360 25 25"
-            dur="1s"
-            repeatCount="indefinite"
-          />
-        </path>
-      </svg>
+      {archiveModalOpen && (
+        <div style={styles.loadingOverlay}>
+          <div style={styles.loadingCard}>
+            {archiveBusy ? (
+              <svg viewBox="0 0 50 50" style={styles.spinnerSvg} aria-hidden="true">
+                <circle cx="25" cy="25" r="20" fill="none" stroke="#dbe4f0" strokeWidth="5" />
+                <path
+                  d="M25 5 a20 20 0 0 1 20 20"
+                  fill="none"
+                  stroke="#1d4ed8"
+                  strokeWidth="5"
+                  strokeLinecap="round"
+                >
+                  <animateTransform
+                    attributeName="transform"
+                    type="rotate"
+                    from="0 25 25"
+                    to="360 25 25"
+                    dur="1s"
+                    repeatCount="indefinite"
+                  />
+                </path>
+              </svg>
+            ) : (
+              <div
+                style={{
+                  ...styles.progressCircle,
+                  ...(archiveStep === "error" ? styles.progressCircleError : {}),
+                  ...(archiveStep === "done" || archiveStep === "ready_pdf"
+                    ? styles.progressCircleSuccess
+                    : {}),
+                }}
+              >
+                {archiveStep === "error" ? "!" : "✓"}
+              </div>
+            )}
 
-      <div style={styles.loadingTitle}>Traitement du PEP en cours</div>
-      <div style={styles.loadingText}>
-        Génération du PDF, archivage et liaison au bon de travail...
-      </div>
-    </div>
-  </div>
-)}
+            <div style={styles.loadingTitle}>
+              Progression : {archivePhase2Done ? "2 / 2" : archivePhase1Done ? "1 / 2" : "0 / 2"}
+            </div>
+
+            <div style={styles.loadingText}>{archiveMessage || "Traitement du PEP en cours..."}</div>
+
+            <div style={styles.progressBarTrack}>
+              <div
+                style={{
+                  ...styles.progressBarFill,
+                  width: archivePhase2Done ? "100%" : archivePhase1Done ? "50%" : "12%",
+                }}
+              />
+            </div>
+
+            {archiveDetails.length > 0 && (
+              <div style={styles.progressList}>
+                {archiveDetails.map((detail) => (
+                  <div key={detail} style={styles.progressListItem}>
+                    <span style={styles.progressCheck}>✓</span>
+                    <span>{detail}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {archiveError ? <div style={styles.progressErrorText}>{archiveError}</div> : null}
+
+            {!archiveBusy && (
+              <div style={styles.progressActions}>
+                {archiveStep === "ready_pdf" && archivePhase1Done && !archivePhase2Done ? (
+                  <button type="button" onClick={handleGenerateAndAttachPdf} style={styles.btnPrimary}>
+                    Continuer
+                  </button>
+                ) : null}
+
+                {archiveStep === "error" && archivePhase1Done && !archivePhase2Done ? (
+                  <button type="button" onClick={handleGenerateAndAttachPdf} style={styles.btnPrimary}>
+                    Reprendre le PDF
+                  </button>
+                ) : null}
+
+                {archiveStep === "error" && !archivePhase1Done ? (
+                  <button type="button" onClick={handleArchivePep} style={styles.btnPrimary}>
+                    Réessayer l’archivage
+                  </button>
+                ) : null}
+
+                <button type="button" onClick={closeArchiveModal} style={styles.btnSecondary}>
+                  {archiveStep === "done" ? "Fermer" : "Plus tard"}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       <div style={styles.viewerWrap}>
         <div style={styles.viewer}>
@@ -1561,6 +1747,91 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 600,
     color: "#4b5563",
     lineHeight: 1.5,
+  },
+  progressCircle: {
+    width: 54,
+    height: 54,
+    borderRadius: 999,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: 28,
+    fontWeight: 900,
+    background: "#eff6ff",
+    border: "1px solid #bfdbfe",
+    color: "#1d4ed8",
+  },
+  progressCircleSuccess: {
+    background: "#ecfdf5",
+    border: "1px solid #a7f3d0",
+    color: "#047857",
+  },
+  progressCircleError: {
+    background: "#fef2f2",
+    border: "1px solid #fecaca",
+    color: "#b91c1c",
+  },
+  progressBarTrack: {
+    width: "100%",
+    height: 10,
+    borderRadius: 999,
+    background: "#e5e7eb",
+    overflow: "hidden",
+    marginTop: 4,
+  },
+  progressBarFill: {
+    height: "100%",
+    borderRadius: 999,
+    background: "#1d4ed8",
+    transition: "width 200ms ease",
+  },
+  progressList: {
+    width: "100%",
+    display: "grid",
+    gap: 8,
+    textAlign: "left",
+    marginTop: 4,
+  },
+  progressListItem: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    fontSize: 14,
+    fontWeight: 700,
+    color: "#374151",
+  },
+  progressCheck: {
+    width: 22,
+    height: 22,
+    borderRadius: 999,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    background: "#ecfdf5",
+    color: "#047857",
+    fontSize: 13,
+    fontWeight: 900,
+    flex: "0 0 auto",
+  },
+  progressErrorText: {
+    width: "100%",
+    borderRadius: 10,
+    border: "1px solid #fecaca",
+    background: "#fef2f2",
+    color: "#991b1b",
+    padding: "10px 12px",
+    fontSize: 13,
+    fontWeight: 700,
+    textAlign: "left",
+    boxSizing: "border-box",
+  },
+  progressActions: {
+    width: "100%",
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: 10,
+    flexWrap: "wrap",
+    marginTop: 4,
   },
   modalBackdrop: {
     position: "fixed",
