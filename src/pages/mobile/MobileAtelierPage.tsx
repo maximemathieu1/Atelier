@@ -1,89 +1,65 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../../lib/supabaseClient";
 
 export default function MobileAtelierPage() {
   const nav = useNavigate();
+  const [bts, setBts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const [unite, setUnite] = useState("");
-  const [km, setKm] = useState("");
-  const [loading, setLoading] = useState(false);
+  useEffect(() => {
+    load();
+  }, []);
 
-  async function openBt() {
-    if (!unite) return alert("Entrer une unité");
-
+  async function load() {
     setLoading(true);
 
-    try {
-      const { data: uniteRow } = await supabase
-        .from("unites")
-        .select("*")
-        .eq("no_unite", unite)
-        .maybeSingle();
+    const { data } = await supabase
+      .from("bons_travail")
+      .select("id, numero, statut, date_ouverture, unite:unites(no_unite)")
+      .in("statut", ["a_faire", "en_cours", "ouvert"])
+      .order("date_ouverture", { ascending: false });
 
-      if (!uniteRow) throw new Error("Unité introuvable");
-
-      // chercher BT ouvert
-      const { data: bt } = await supabase
-        .from("bons_travail")
-        .select("id")
-        .eq("unite_id", uniteRow.id)
-        .in("statut", ["a_faire", "en_cours", "ouvert"])
-        .limit(1)
-        .maybeSingle();
-
-      let btId = bt?.id;
-
-      if (!btId) {
-        const { data: newBt } = await supabase
-          .from("bons_travail")
-          .insert({
-            unite_id: uniteRow.id,
-            statut: "en_cours",
-          })
-          .select("id")
-          .single();
-
-        btId = newBt?.id;
-      }
-
-      if (km) {
-        await supabase.rpc("enregistrer_km_bt", {
-          p_bt_id: btId,
-          p_unite_id: uniteRow.id,
-          p_km: Number(km),
-        });
-      }
-
-      nav(`/mobile/bt/${btId}`);
-    } catch (e: any) {
-      alert(e.message);
-    } finally {
-      setLoading(false);
-    }
+    setBts(data || []);
+    setLoading(false);
   }
 
   return (
-    <div style={{ padding: 20 }}>
-      <h2>Punch rapide</h2>
+    <div style={{ padding: 16 }}>
+      <h2>BT ouverts</h2>
 
-      <input
-        placeholder="Unité"
-        value={unite}
-        onChange={(e) => setUnite(e.target.value)}
-        style={{ width: "100%", marginBottom: 10 }}
-      />
+      {loading ? (
+        <div>Chargement…</div>
+      ) : bts.length === 0 ? (
+        <div>Aucun BT ouvert</div>
+      ) : (
+        bts.map((bt) => (
+          <div
+            key={bt.id}
+            onClick={() => nav(`/mobile/bt/${bt.id}`)}
+            style={{
+              padding: 14,
+              border: "1px solid #ddd",
+              borderRadius: 12,
+              marginBottom: 10,
+              background: "#fff",
+              cursor: "pointer",
+            }}
+          >
+            <div style={{ fontWeight: 900 }}>
+              BT {bt.numero || ""}
+            </div>
 
-      <input
-        placeholder="KM"
-        value={km}
-        onChange={(e) => setKm(e.target.value)}
-        style={{ width: "100%", marginBottom: 10 }}
-      />
+            <div style={{ opacity: 0.7 }}>
+              Unité: {bt.unite?.no_unite || "-"}
+            </div>
 
-      <button onClick={openBt} disabled={loading}>
-        Ouvrir BT
-      </button>
+            <div style={{ fontSize: 12, marginTop: 4 }}>
+              {new Date(bt.date_ouverture).toLocaleString()}
+            </div>
+          </div>
+        ))
+      )}
     </div>
   );
 }
