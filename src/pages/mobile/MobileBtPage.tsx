@@ -10,7 +10,7 @@ export default function MobileBtPage() {
   const [tasks, setTasks] = useState<any[]>([]);
   const [doneTasks, setDoneTasks] = useState<any[]>([]);
   const [photos, setPhotos] = useState<any[]>([]);
-  const [photoModal, setPhotoModal] = useState<string[] | null>(null);
+  const [photoModal, setPhotoModal] = useState<any[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -166,7 +166,7 @@ export default function MobileBtPage() {
       const path = `bt/${bt.id}/photos/${Date.now()}-${cleanName}`;
 
       const { error: uploadErr } = await supabase.storage
-        .from("bt-documents")
+        .from("bt-photos")
         .upload(path, file, {
           upsert: false,
           contentType: file.type || "image/jpeg",
@@ -175,12 +175,12 @@ export default function MobileBtPage() {
       if (uploadErr) throw uploadErr;
 
       const { error: insertErr } = await supabase.from("bt_tache_photos").insert({
-  bt_id: bt.id,
-  unite_id: bt.unite_id,
-  unite_note_id: t.id,
-  storage_path: path,
-  nom_fichier: file.name,
-});
+        bt_id: bt.id,
+        unite_id: bt.unite_id,
+        unite_note_id: t.id,
+        storage_path: path,
+        nom_fichier: file.name,
+      });
 
       if (insertErr) throw insertErr;
 
@@ -193,17 +193,52 @@ export default function MobileBtPage() {
   }
 
   async function openPhotos(list: any[]) {
-    const signed: string[] = [];
+    const urls: any[] = [];
 
     for (const p of list) {
-      const { data, error } = await supabase.storage
-        .from("bt-documents")
-        .createSignedUrl(String(p.storage_path || ""), 60);
+      const { data } = supabase.storage
+        .from("bt-photos")
+        .getPublicUrl(String(p.storage_path || ""));
 
-      if (!error && data?.signedUrl) signed.push(data.signedUrl);
+      if (data?.publicUrl) {
+        urls.push({
+          ...p,
+          url: data.publicUrl,
+        });
+      }
     }
 
-    setPhotoModal(signed);
+    setPhotoModal(urls);
+  }
+
+  async function deletePhoto(p: any) {
+    const ok = window.confirm("Supprimer cette photo ?");
+    if (!ok) return;
+
+    try {
+      const path = String(p.storage_path || "");
+
+      if (path) {
+        const { error: storageErr } = await supabase.storage
+          .from("bt-photos")
+          .remove([path]);
+
+        if (storageErr) throw storageErr;
+      }
+
+      const { error: dbErr } = await supabase
+        .from("bt_tache_photos")
+        .delete()
+        .eq("id", p.id);
+
+      if (dbErr) throw dbErr;
+
+      setPhotoModal((prev) => (prev || []).filter((x) => x.id !== p.id));
+
+      await load();
+    } catch (e: any) {
+      alert(e?.message || "Impossible de supprimer la photo.");
+    }
   }
 
   if (loading) {
@@ -339,8 +374,18 @@ export default function MobileBtPage() {
             {photoModal.length === 0 ? (
               <div style={styles.empty}>Aucune photo disponible.</div>
             ) : (
-              photoModal.map((url, i) => (
-                <img key={`${url}-${i}`} src={url} alt="Photo tâche" style={styles.photo} />
+              photoModal.map((p) => (
+                <div key={p.id} style={{ marginBottom: 14 }}>
+                  <img src={p.url} alt="Photo tâche" style={styles.photo} />
+
+                  <button
+                    type="button"
+                    onClick={() => void deletePhoto(p)}
+                    style={styles.deletePhotoBtn}
+                  >
+                    Supprimer la photo
+                  </button>
+                </div>
               ))
             )}
           </div>
@@ -512,5 +557,14 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 12,
     marginBottom: 12,
     display: "block",
+  },
+  deletePhotoBtn: {
+    width: "100%",
+    padding: 12,
+    borderRadius: 12,
+    border: "1px solid #dc2626",
+    background: "#dc2626",
+    color: "#fff",
+    fontWeight: 950,
   },
 };
