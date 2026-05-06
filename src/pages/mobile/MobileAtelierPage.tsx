@@ -79,39 +79,35 @@ export default function MobileAtelierPage() {
                 style={styles.card}
               >
                 <div style={styles.cardTop}>
-                  <div>
-                    <div style={styles.btNumber}>
-                      BT {bt.numero || "—"}
-                    </div>
+  <div>
+    <div style={styles.btNumber}>
+      {bt.numero || "—"}
+    </div>
 
-                    <div style={styles.unit}>
-                      🚍 Unité {uniteNo}
-                    </div>
-                  </div>
+    <div style={styles.unit}>
+      🚍 Unité {uniteNo}
+    </div>
+  </div>
+</div>
 
-                  <div style={styles.badge}>
-                    {bt.statut || "ouvert"}
-                  </div>
-                </div>
+<div style={styles.meta}>
+  {bt.unite?.marque || ""} {bt.unite?.modele || ""}
+</div>
 
-                <div style={styles.meta}>
-                  {bt.unite?.marque || ""} {bt.unite?.modele || ""}
-                </div>
+<div style={styles.meta}>
+  Client : {bt.client_nom || "—"}
+</div>
 
-                <div style={styles.meta}>
-                  Client : {bt.client_nom || "—"}
-                </div>
+<div style={styles.footer}>
+  <span>
+    Ouvert :{" "}
+    {bt.date_ouverture
+      ? new Date(bt.date_ouverture).toLocaleDateString("fr-CA")
+      : "—"}
+  </span>
 
-                <div style={styles.footer}>
-                  <span>
-                    Ouvert :{" "}
-                    {bt.date_ouverture
-                      ? new Date(bt.date_ouverture).toLocaleDateString("fr-CA")
-                      : "—"}
-                  </span>
-
-                  <span>KM : {bt.km ?? "—"}</span>
-                </div>
+  <span>KM : {bt.km ?? "—"}</span>
+</div>
               </button>
             );
           })}

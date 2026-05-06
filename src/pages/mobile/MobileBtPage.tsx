@@ -175,13 +175,12 @@ export default function MobileBtPage() {
       if (uploadErr) throw uploadErr;
 
       const { error: insertErr } = await supabase.from("bt_tache_photos").insert({
-        bt_id: bt.id,
-        unite_id: bt.unite_id,
-        unite_note_id: t.id,
-        storage_path: path,
-        nom_fichier: file.name,
-        mime_type: file.type || "image/jpeg",
-      });
+  bt_id: bt.id,
+  unite_id: bt.unite_id,
+  unite_note_id: t.id,
+  storage_path: path,
+  nom_fichier: file.name,
+});
 
       if (insertErr) throw insertErr;
 
