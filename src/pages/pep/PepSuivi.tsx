@@ -26,8 +26,32 @@ type PepArchiveRow = {
   created_at: string;
 };
 
+type EntretienHistoriqueRow = {
+  id: string;
+  unite_id: string;
+  template_item_id: string | null;
+  bt_id: string | null;
+  nom_snapshot: string | null;
+  date_effectuee: string | null;
+  km_effectue: number | null;
+  note: string | null;
+  created_at?: string | null;
+};
+
 type PepStatus = "overdue" | "soon" | "ok" | "missing";
 type ParcFilter = "internes" | "externes" | "tous";
+type PepSource = "archive" | "historique" | "none";
+
+type PepLatest = {
+  source: PepSource;
+  source_id: string | null;
+  date_pep: string | null;
+  date_prochain: string | null;
+  num_mecano: string | null;
+  odometre: string | null;
+  html_complet: string | null;
+  created_at: string | null;
+};
 
 type PepSuiviItem = {
   unite_id: string;
@@ -36,6 +60,7 @@ type PepSuiviItem = {
   statut_unite: string | null;
   mode_comptable: string | null;
   is_externe: boolean;
+  source: PepSource;
   date_pep: string | null;
   date_prochain: string | null;
   num_mecano: string | null;
@@ -46,7 +71,20 @@ type PepSuiviItem = {
   daysRemaining: number | null;
 };
 
+type HistoryEntry = {
+  id: string;
+  source: PepSource;
+  date_pep: string | null;
+  date_prochain: string | null;
+  num_mecano: string | null;
+  odometre: string | null;
+  html_complet: string | null;
+  created_at: string | null;
+  label: string;
+};
+
 const SOON_DAYS = 15;
+const PEP_TEMPLATE_ID = "d71006cc-cfd7-4e49-83dd-918ee4201b89";
 
 function todayLocalIso(): string {
   const d = new Date();
@@ -58,9 +96,26 @@ function todayLocalIso(): string {
 
 function parseIsoDate(dateStr: string | null | undefined): Date | null {
   if (!dateStr) return null;
-  const d = new Date(`${dateStr}T12:00:00`);
+  const clean = String(dateStr).slice(0, 10);
+  const d = new Date(`${clean}T12:00:00`);
   if (Number.isNaN(d.getTime())) return null;
   return d;
+}
+
+function dateOnly(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const s = String(value).slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
+}
+
+function addDaysIso(dateStr: string | null | undefined, days: number): string | null {
+  const d = parseIsoDate(dateStr);
+  if (!d) return null;
+  d.setDate(d.getDate() + days);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
 }
 
 function diffDaysFromToday(dateStr: string | null | undefined): number | null {
@@ -96,6 +151,12 @@ function normalize(value: unknown): string {
     .trim();
 }
 
+function compareDateDesc(a: string | null | undefined, b: string | null | undefined): number {
+  const da = parseIsoDate(a)?.getTime() ?? 0;
+  const db = parseIsoDate(b)?.getTime() ?? 0;
+  return db - da;
+}
+
 function isUniteExterne(modeComptable: string | null | undefined): boolean {
   return normalize(modeComptable) === "externe";
 }
@@ -105,19 +166,11 @@ function isUniteInterne(modeComptable: string | null | undefined): boolean {
   return s === "interne" || s === "interne_ta";
 }
 
-function modeComptableLabel(modeComptable: string | null | undefined): string {
-  const s = normalize(modeComptable);
-  if (s === "interne") return "Interne";
-  if (s === "interne_ta") return "Interne TA";
-  if (s === "externe") return "Externe";
-  return "—";
-}
-
 function getStatus(
   dateProchain: string | null,
-  hasArchive: boolean
+  hasPep: boolean
 ): { status: PepStatus; daysRemaining: number | null } {
-  if (!hasArchive) {
+  if (!hasPep) {
     return { status: "missing", daysRemaining: null };
   }
 
@@ -138,49 +191,13 @@ function getStatus(
   return { status: "ok", daysRemaining: days };
 }
 
-function statusLabel(status: PepStatus, daysRemaining: number | null): string {
-  if (status === "missing") return "Aucun PEP";
-  if (status === "overdue") {
-    const daysLate = Math.abs(daysRemaining ?? 0);
-    return `Passé dû • ${daysLate} j`;
-  }
-  if (status === "soon") {
-    return `À venir • ${daysRemaining ?? 0} j`;
-  }
-  return "Conforme";
+function sourceLabel(source: PepSource): string {
+  if (source === "archive") return "PEP archivé";
+  if (source === "historique") return "Historique manuel";
+  return "—";
 }
 
-function statusBadgeStyle(status: PepStatus): React.CSSProperties {
-  if (status === "overdue") {
-    return {
-      background: "#fef2f2",
-      border: "1px solid #fecaca",
-      color: "#991b1b",
-    };
-  }
 
-  if (status === "soon") {
-    return {
-      background: "#fffbeb",
-      border: "1px solid #fde68a",
-      color: "#92400e",
-    };
-  }
-
-  if (status === "missing") {
-    return {
-      background: "#eef2ff",
-      border: "1px solid #c7d2fe",
-      color: "#3730a3",
-    };
-  }
-
-  return {
-    background: "#ecfdf5",
-    border: "1px solid #a7f3d0",
-    color: "#065f46",
-  };
-}
 
 function printHtmlDocument(html: string) {
   if (!html) return;
@@ -323,9 +340,11 @@ export default function PepSuivi() {
   const [error, setError] = useState("");
   const [unites, setUnites] = useState<UniteRow[]>([]);
   const [archives, setArchives] = useState<PepArchiveRow[]>([]);
+  const [historiques, setHistoriques] = useState<EntretienHistoriqueRow[]>([]);
   const [search, setSearch] = useState("");
-  const [activeTab, setActiveTab] = useState<PepStatus>("soon");
+  const [activeTab, setActiveTab] = useState<Exclude<PepStatus, "missing">>("soon");
   const [parcFilter, setParcFilter] = useState<ParcFilter>("internes");
+  const [showMissing, setShowMissing] = useState(false);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
   const [viewerOpen, setViewerOpen] = useState(false);
@@ -335,7 +354,7 @@ export default function PepSuivi() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyUnitId, setHistoryUnitId] = useState<string | null>(null);
   const [historyUnitNo, setHistoryUnitNo] = useState("");
-  const [selectedHistoryArchiveId, setSelectedHistoryArchiveId] = useState<string | null>(null);
+  const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -345,7 +364,7 @@ export default function PepSuivi() {
       setError("");
 
       try {
-        const [unitesRes, archivesRes] = await Promise.all([
+        const [unitesRes, archivesRes, historiquesRes] = await Promise.all([
           supabase
             .from("unites")
             .select("id, no_unite, marque, modele, annee, statut, mode_comptable")
@@ -356,15 +375,22 @@ export default function PepSuivi() {
               "id, unite_id, unite, date_pep, date_prochain, num_mecano, odometre, payload_json, signature_data_url, html_complet, pages_html, created_at"
             )
             .order("created_at", { ascending: false }),
+          supabase
+            .from("unite_entretien_historique")
+            .select("id, unite_id, template_item_id, bt_id, nom_snapshot, date_effectuee, km_effectue, note, created_at")
+            .eq("template_item_id", PEP_TEMPLATE_ID)
+            .order("date_effectuee", { ascending: false }),
         ]);
 
         if (!alive) return;
 
         if (unitesRes.error) throw unitesRes.error;
         if (archivesRes.error) throw archivesRes.error;
+        if (historiquesRes.error) throw historiquesRes.error;
 
         setUnites((unitesRes.data ?? []) as UniteRow[]);
         setArchives((archivesRes.data ?? []) as PepArchiveRow[]);
+        setHistoriques((historiquesRes.data ?? []) as EntretienHistoriqueRow[]);
       } catch (e: any) {
         if (!alive) return;
         setError(e?.message ?? "Erreur lors du chargement du suivi PEP.");
@@ -386,7 +412,8 @@ export default function PepSuivi() {
 
     for (const row of archives) {
       if (!row.unite_id) continue;
-      if (!map.has(row.unite_id)) {
+      const current = map.get(row.unite_id);
+      if (!current || compareDateDesc(row.date_pep || row.created_at, current.date_pep || current.created_at) < 0) {
         map.set(row.unite_id, row);
       }
     }
@@ -394,25 +421,128 @@ export default function PepSuivi() {
     return map;
   }, [archives]);
 
-  const archivesByUnit = useMemo(() => {
-    const map = new Map<string, PepArchiveRow[]>();
+  const latestHistoriqueByUnit = useMemo(() => {
+    const map = new Map<string, EntretienHistoriqueRow>();
 
-    for (const row of archives) {
+    for (const row of historiques) {
       if (!row.unite_id) continue;
-      if (!map.has(row.unite_id)) {
-        map.set(row.unite_id, []);
+      const current = map.get(row.unite_id);
+      if (!current || compareDateDesc(row.date_effectuee, current.date_effectuee) < 0) {
+        map.set(row.unite_id, row);
       }
-      map.get(row.unite_id)!.push(row);
     }
 
     return map;
-  }, [archives]);
+  }, [historiques]);
+
+  const latestPepByUnit = useMemo(() => {
+    const map = new Map<string, PepLatest>();
+
+    for (const u of unites) {
+      const archive = latestArchiveByUnit.get(u.id) ?? null;
+      const hist = latestHistoriqueByUnit.get(u.id) ?? null;
+
+      const archiveDate = dateOnly(archive?.date_pep || archive?.created_at);
+      const histDate = dateOnly(hist?.date_effectuee);
+
+      if (archive && (!histDate || (archiveDate && compareDateDesc(archiveDate, histDate) <= 0))) {
+        map.set(u.id, {
+          source: "archive",
+          source_id: archive.id,
+          date_pep: archiveDate,
+          date_prochain: dateOnly(archive.date_prochain) || addDaysIso(archiveDate, 90),
+          num_mecano: archive.num_mecano ?? null,
+          odometre: archive.odometre ?? null,
+          html_complet: archive.html_complet ?? null,
+          created_at: archive.created_at ?? null,
+        });
+        continue;
+      }
+
+      if (hist) {
+        map.set(u.id, {
+          source: "historique",
+          source_id: hist.id,
+          date_pep: histDate,
+          date_prochain: addDaysIso(histDate, 90),
+          num_mecano: null,
+          odometre: hist.km_effectue != null ? String(hist.km_effectue) : null,
+          html_complet: null,
+          created_at: hist.created_at ?? null,
+        });
+        continue;
+      }
+
+      map.set(u.id, {
+        source: "none",
+        source_id: null,
+        date_pep: null,
+        date_prochain: null,
+        num_mecano: null,
+        odometre: null,
+        html_complet: null,
+        created_at: null,
+      });
+    }
+
+    return map;
+  }, [unites, latestArchiveByUnit, latestHistoriqueByUnit]);
+
+  const historyEntriesByUnit = useMemo(() => {
+    const map = new Map<string, HistoryEntry[]>();
+
+    for (const row of archives) {
+      if (!row.unite_id) continue;
+      const entry: HistoryEntry = {
+        id: `archive-${row.id}`,
+        source: "archive",
+        date_pep: dateOnly(row.date_pep || row.created_at),
+        date_prochain: dateOnly(row.date_prochain) || addDaysIso(row.date_pep, 90),
+        num_mecano: row.num_mecano ?? null,
+        odometre: row.odometre ?? null,
+        html_complet: row.html_complet ?? null,
+        created_at: row.created_at ?? null,
+        label: "PEP archivé",
+      };
+      if (!map.has(row.unite_id)) map.set(row.unite_id, []);
+      map.get(row.unite_id)!.push(entry);
+    }
+
+    for (const row of historiques) {
+      if (!row.unite_id) continue;
+      const doneDate = dateOnly(row.date_effectuee);
+      const entry: HistoryEntry = {
+        id: `historique-${row.id}`,
+        source: "historique",
+        date_pep: doneDate,
+        date_prochain: addDaysIso(doneDate, 90),
+        num_mecano: null,
+        odometre: row.km_effectue != null ? String(row.km_effectue) : null,
+        html_complet: null,
+        created_at: row.created_at ?? null,
+        label: row.note || row.nom_snapshot || "Historique manuel",
+      };
+      if (!map.has(row.unite_id)) map.set(row.unite_id, []);
+      map.get(row.unite_id)!.push(entry);
+    }
+
+    for (const [unitId, rows] of map.entries()) {
+      const unique = Array.from(
+        new Map(rows.map((r) => [`${r.source}-${r.date_pep}-${r.odometre}-${r.num_mecano}`, r])).values()
+      );
+      unique.sort((a, b) => compareDateDesc(a.date_pep, b.date_pep));
+      map.set(unitId, unique);
+    }
+
+    return map;
+  }, [archives, historiques]);
 
   const suiviItems = useMemo<PepSuiviItem[]>(() => {
     return unites.map((u) => {
-      const latest = latestArchiveByUnit.get(u.id) ?? null;
+      const latest = latestPepByUnit.get(u.id) ?? null;
       const externe = isUniteExterne(u.mode_comptable);
-      const { status, daysRemaining } = getStatus(latest?.date_prochain ?? null, Boolean(latest));
+      const hasPep = Boolean(latest && latest.source !== "none" && latest.date_pep);
+      const { status, daysRemaining } = getStatus(latest?.date_prochain ?? null, hasPep);
 
       const description = [u.marque, u.modele, u.annee]
         .filter((x) => x !== null && x !== undefined && x !== "")
@@ -425,17 +555,18 @@ export default function PepSuivi() {
         statut_unite: u.statut ?? null,
         mode_comptable: u.mode_comptable ?? null,
         is_externe: externe,
+        source: latest?.source ?? "none",
         date_pep: latest?.date_pep ?? null,
         date_prochain: latest?.date_prochain ?? null,
         num_mecano: latest?.num_mecano ?? null,
         odometre: latest?.odometre ?? null,
         html_complet: latest?.html_complet ?? null,
-        archive_id: latest?.id ?? null,
+        archive_id: latest?.source === "archive" ? latest.source_id : null,
         status,
         daysRemaining,
       };
     });
-  }, [unites, latestArchiveByUnit]);
+  }, [unites, latestPepByUnit]);
 
   const parcFilteredItems = useMemo(() => {
     if (parcFilter === "tous") return suiviItems;
@@ -445,7 +576,16 @@ export default function PepSuivi() {
     return suiviItems.filter((x) => isUniteInterne(x.mode_comptable));
   }, [suiviItems, parcFilter]);
 
-  const filteredItems = useMemo(() => {
+  const counters = useMemo(() => {
+    return {
+      overdue: parcFilteredItems.filter((x) => x.status === "overdue").length,
+      soon: parcFilteredItems.filter((x) => x.status === "soon").length,
+      ok: parcFilteredItems.filter((x) => x.status === "ok").length,
+      missing: parcFilteredItems.filter((x) => x.status === "missing").length,
+    };
+  }, [parcFilteredItems]);
+
+  const visibleMainItems = useMemo(() => {
     const q = normalize(search);
 
     let rows = parcFilteredItems.filter((item) => item.status === activeTab);
@@ -457,7 +597,8 @@ export default function PepSuivi() {
           normalize(item.description).includes(q) ||
           normalize(item.num_mecano).includes(q) ||
           normalize(item.statut_unite).includes(q) ||
-          normalize(item.mode_comptable).includes(q)
+          normalize(item.mode_comptable).includes(q) ||
+          normalize(sourceLabel(item.source)).includes(q)
         );
       });
     }
@@ -471,8 +612,8 @@ export default function PepSuivi() {
         return (a.daysRemaining ?? 9999) - (b.daysRemaining ?? 9999);
       }
 
-      if (a.status === "missing" && b.status === "missing") {
-        return a.no_unite.localeCompare(b.no_unite, "fr", { sensitivity: "base" });
+      if (a.status === "ok" && b.status === "ok") {
+        return compareDateDesc(a.date_prochain, b.date_prochain);
       }
 
       return a.no_unite.localeCompare(b.no_unite, "fr", { sensitivity: "base" });
@@ -481,24 +622,30 @@ export default function PepSuivi() {
     return rows;
   }, [parcFilteredItems, activeTab, search]);
 
-  const counters = useMemo(() => {
-    return {
-      overdue: parcFilteredItems.filter((x) => x.status === "overdue").length,
-      soon: parcFilteredItems.filter((x) => x.status === "soon").length,
-      ok: parcFilteredItems.filter((x) => x.status === "ok").length,
-      missing: parcFilteredItems.filter((x) => x.status === "missing").length,
-    };
-  }, [parcFilteredItems]);
+  const missingItems = useMemo(() => {
+    const q = normalize(search);
 
-  const historyArchives = useMemo(() => {
+    let rows = parcFilteredItems.filter((item) => item.status === "missing");
+
+    if (q) {
+      rows = rows.filter((item) => {
+        return normalize(item.no_unite).includes(q) || normalize(item.description).includes(q);
+      });
+    }
+
+    rows.sort((a, b) => a.no_unite.localeCompare(b.no_unite, "fr", { sensitivity: "base" }));
+    return rows;
+  }, [parcFilteredItems, search]);
+
+  const historyEntries = useMemo(() => {
     if (!historyUnitId) return [];
-    return archivesByUnit.get(historyUnitId) ?? [];
-  }, [archivesByUnit, historyUnitId]);
+    return historyEntriesByUnit.get(historyUnitId) ?? [];
+  }, [historyEntriesByUnit, historyUnitId]);
 
-  const selectedHistoryArchive = useMemo(() => {
-    if (!selectedHistoryArchiveId) return null;
-    return historyArchives.find((x) => x.id === selectedHistoryArchiveId) ?? null;
-  }, [historyArchives, selectedHistoryArchiveId]);
+  const selectedHistoryEntry = useMemo(() => {
+    if (!selectedHistoryId) return null;
+    return historyEntries.find((x) => x.id === selectedHistoryId) ?? null;
+  }, [historyEntries, selectedHistoryId]);
 
   function openViewer(title: string, html: string) {
     if (!html) return;
@@ -511,9 +658,72 @@ export default function PepSuivi() {
     setHistoryUnitId(item.unite_id);
     setHistoryUnitNo(item.no_unite);
 
-    const rows = archivesByUnit.get(item.unite_id) ?? [];
-    setSelectedHistoryArchiveId(rows[0]?.id ?? null);
+    const rows = historyEntriesByUnit.get(item.unite_id) ?? [];
+    setSelectedHistoryId(rows[0]?.id ?? null);
     setHistoryOpen(true);
+  }
+
+  function renderPepTable(items: PepSuiviItem[]) {
+    return (
+      <div style={styles.tableWrap}>
+        <table style={styles.table}>
+          <thead>
+            <tr>
+              <th style={styles.th}>Unité</th>
+              <th style={styles.th}>Description</th>
+              <th style={styles.th}>Dernier PEP</th>
+              <th style={styles.th}>Prochaine inspection</th>
+              <th style={styles.th}>No mécano</th>
+              <th style={styles.th}>Jours restants</th>
+              <th style={styles.thRight}>Action</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {items.map((item) => (
+              <tr key={item.unite_id} style={styles.tr}>
+                <td style={styles.tdStrong}>{item.no_unite}</td>
+                <td style={styles.td}>{item.description}</td>
+                <td style={styles.td}>{formatDate(item.date_pep)}</td>
+                <td style={styles.td}>{formatDate(item.date_prochain)}</td>
+                <td style={styles.td}>{item.num_mecano || "—"}</td>
+                <td
+  style={{
+    ...styles.td,
+    fontWeight: 800,
+    color: "#111827",
+  }}
+>
+  {item.daysRemaining == null
+    ? "—"
+    : `${item.daysRemaining} j`}
+</td>
+                <td style={styles.tdRight}>
+                  <ActionMenu
+                    item={item}
+                    open={openMenuId === item.unite_id}
+                    onToggle={() =>
+                      setOpenMenuId((prev) =>
+                        prev === item.unite_id ? null : item.unite_id
+                      )
+                    }
+                    onClose={() => setOpenMenuId(null)}
+                    onView={() =>
+                      openViewer(`PEP unité ${item.no_unite}`, item.html_complet || "")
+                    }
+                    onPrint={() => {
+                      if (!item.html_complet) return;
+                      printHtmlDocument(item.html_complet);
+                    }}
+                    onHistory={() => openHistory(item)}
+                  />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
   }
 
   return (
@@ -525,195 +735,143 @@ export default function PepSuivi() {
             Vue d’échéance des PEP avec fenêtre d’alerte à {SOON_DAYS} jours.
           </div>
         </div>
+
+        <div style={styles.softFilters}>
+          <button
+            type="button"
+            style={{
+              ...styles.softFilterBtn,
+              ...(parcFilter === "internes" ? styles.softFilterBtnActive : {}),
+            }}
+            onClick={() => setParcFilter("internes")}
+          >
+            Internes
+          </button>
+          <span style={styles.filterDot}>•</span>
+          <button
+            type="button"
+            style={{
+              ...styles.softFilterBtn,
+              ...(parcFilter === "externes" ? styles.softFilterBtnActive : {}),
+            }}
+            onClick={() => setParcFilter("externes")}
+          >
+            Externes
+          </button>
+          <span style={styles.filterDot}>•</span>
+          <button
+            type="button"
+            style={{
+              ...styles.softFilterBtn,
+              ...(parcFilter === "tous" ? styles.softFilterBtnActive : {}),
+            }}
+            onClick={() => setParcFilter("tous")}
+          >
+            Tous
+          </button>
+        </div>
       </div>
 
       {error ? <div style={styles.alertError}>{error}</div> : null}
 
-      <div style={styles.card}>
-        <div style={styles.cardHeaderRow}>
-          <span>Parc</span>
+      <div style={styles.kpiGrid}>
+        <button
+          type="button"
+          style={{
+            ...styles.kpiCard,
+            ...(activeTab === "overdue" ? styles.kpiCardActive : {}),
+          }}
+          onClick={() => setActiveTab("overdue")}
+        >
+          <div style={{ ...styles.kpiAccent, background: "#ef4444" }} />
+          <div style={styles.kpiTitle}>Passés dus</div>
+          <div style={styles.kpiValue}>{counters.overdue}</div>
+        </button>
 
-          <div style={styles.segmentWrap}>
-            <button
-              type="button"
-              style={{
-                ...styles.segmentBtn,
-                ...(parcFilter === "internes" ? styles.segmentBtnActive : {}),
-              }}
-              onClick={() => setParcFilter("internes")}
-            >
-              Internes
-            </button>
+        <button
+          type="button"
+          style={{
+            ...styles.kpiCard,
+            ...(activeTab === "soon" ? styles.kpiCardActive : {}),
+          }}
+          onClick={() => setActiveTab("soon")}
+        >
+          <div style={{ ...styles.kpiAccent, background: "#f59e0b" }} />
+          <div style={styles.kpiTitle}>À venir ({SOON_DAYS} j)</div>
+          <div style={styles.kpiValue}>{counters.soon}</div>
+        </button>
 
-            <button
-              type="button"
-              style={{
-                ...styles.segmentBtn,
-                ...(parcFilter === "externes" ? styles.segmentBtnActive : {}),
-              }}
-              onClick={() => setParcFilter("externes")}
-            >
-              Externes
-            </button>
+        <button
+          type="button"
+          style={{
+            ...styles.kpiCard,
+            ...(activeTab === "ok" ? styles.kpiCardActive : {}),
+          }}
+          onClick={() => setActiveTab("ok")}
+        >
+          <div style={{ ...styles.kpiAccent, background: "#10b981" }} />
+          <div style={styles.kpiTitle}>Conformes</div>
+          <div style={styles.kpiValue}>{counters.ok}</div>
+        </button>
+      </div>
 
-            <button
-              type="button"
-              style={{
-                ...styles.segmentBtn,
-                ...(parcFilter === "tous" ? styles.segmentBtnActive : {}),
-              }}
-              onClick={() => setParcFilter("tous")}
-            >
-              Tous
-            </button>
-          </div>
+      <div style={styles.utilityRow}>
+        <button
+          type="button"
+          style={styles.missingToggle}
+          onClick={() => setShowMissing((v) => !v)}
+        >
+          {showMissing ? "Masquer les unités sans PEP" : `Afficher les unités sans PEP (${counters.missing})`}
+        </button>
+
+        <div style={styles.searchWrap}>
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Rechercher une unité"
+            style={styles.input}
+          />
         </div>
       </div>
 
-      <div style={styles.card}>
-        <div style={styles.cardHeader}>
-          <span>Vue d’ensemble</span>
-        </div>
-
-        <div style={styles.cardBody}>
-          <div style={styles.kpiGrid}>
-            <button
-              type="button"
-              style={{
-                ...styles.kpiCard,
-                ...(activeTab === "overdue" ? styles.kpiCardActive : {}),
-              }}
-              onClick={() => setActiveTab("overdue")}
-            >
-              <div style={styles.kpiTitle}>Passés dus</div>
-              <div style={styles.kpiValue}>{counters.overdue}</div>
-            </button>
-
-            <button
-              type="button"
-              style={{
-                ...styles.kpiCard,
-                ...(activeTab === "soon" ? styles.kpiCardActive : {}),
-              }}
-              onClick={() => setActiveTab("soon")}
-            >
-              <div style={styles.kpiTitle}>À venir ({SOON_DAYS} j)</div>
-              <div style={styles.kpiValue}>{counters.soon}</div>
-            </button>
-
-            <button
-              type="button"
-              style={{
-                ...styles.kpiCard,
-                ...(activeTab === "ok" ? styles.kpiCardActive : {}),
-              }}
-              onClick={() => setActiveTab("ok")}
-            >
-              <div style={styles.kpiTitle}>Conformes</div>
-              <div style={styles.kpiValue}>{counters.ok}</div>
-            </button>
-
-            <button
-              type="button"
-              style={{
-                ...styles.kpiCard,
-                ...(activeTab === "missing" ? styles.kpiCardActive : {}),
-              }}
-              onClick={() => setActiveTab("missing")}
-            >
-              <div style={styles.kpiTitle}>Sans PEP</div>
-              <div style={styles.kpiValue}>{counters.missing}</div>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div style={styles.card}>
-        <div style={styles.cardHeaderRow}>
-          <span>
-            {activeTab === "overdue" && "PEP passés dus"}
-            {activeTab === "soon" && `PEP à venir dans ${SOON_DAYS} jours`}
-            {activeTab === "ok" && "PEP conformes"}
-            {activeTab === "missing" && "Unités sans PEP"}
-          </span>
-
-          <div style={styles.searchWrap}>
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Rechercher une unité"
-              style={styles.input}
-            />
-          </div>
-        </div>
-
-        <div style={styles.cardBody}>
-          {loading ? (
-            <div style={styles.alertInfo}>Chargement du suivi PEP…</div>
-          ) : filteredItems.length === 0 ? (
-            <div style={styles.alertInfo}>Aucun résultat.</div>
-          ) : (
-            <div style={styles.tableWrap}>
-              <table style={styles.table}>
-                <thead>
-                  <tr>
-                    <th style={styles.th}>Unité</th>
-                    <th style={styles.th}>Description</th>
-                    <th style={styles.th}>Mode comptable</th>
-                    <th style={styles.th}>Dernier PEP</th>
-                    <th style={styles.th}>Prochaine inspection</th>
-                    <th style={styles.th}>No mécano</th>
-                    <th style={styles.th}>Statut</th>
-                    <th style={styles.thRight}>Action</th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {filteredItems.map((item) => (
-                    <tr key={item.unite_id}>
-                      <td style={styles.tdStrong}>{item.no_unite}</td>
-                      <td style={styles.td}>{item.description}</td>
-                      <td style={styles.td}>{modeComptableLabel(item.mode_comptable)}</td>
-                      <td style={styles.td}>{formatDate(item.date_pep)}</td>
-                      <td style={styles.td}>{formatDate(item.date_prochain)}</td>
-                      <td style={styles.td}>{item.num_mecano || "—"}</td>
-                      <td style={styles.td}>
-                        <span
-                          style={{
-                            ...styles.badge,
-                            ...statusBadgeStyle(item.status),
-                          }}
-                        >
-                          {statusLabel(item.status, item.daysRemaining)}
-                        </span>
-                      </td>
-                      <td style={styles.tdRight}>
-                        <ActionMenu
-                          item={item}
-                          open={openMenuId === item.unite_id}
-                          onToggle={() =>
-                            setOpenMenuId((prev) => (prev === item.unite_id ? null : item.unite_id))
-                          }
-                          onClose={() => setOpenMenuId(null)}
-                          onView={() =>
-                            openViewer(`PEP unité ${item.no_unite}`, item.html_complet || "")
-                          }
-                          onPrint={() => {
-                            if (!item.html_complet) return;
-                            printHtmlDocument(item.html_complet);
-                          }}
-                          onHistory={() => openHistory(item)}
-                        />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+      <div style={styles.sectionCard}>
+        <div style={styles.sectionHeader}>
+          <div>
+            <div style={styles.sectionTitle}>
+              {activeTab === "overdue" && "PEP passés dus"}
+              {activeTab === "soon" && `PEP à venir dans ${SOON_DAYS} jours`}
+              {activeTab === "ok" && "PEP conformes"}
             </div>
+            <div style={styles.sectionSub}>Suivi opérationnel du parc sélectionné.</div>
+          </div>
+        </div>
+
+        {loading ? (
+          <div style={styles.alertInfo}>Chargement du suivi PEP…</div>
+        ) : visibleMainItems.length === 0 ? (
+          <div style={styles.alertInfo}>Aucun résultat.</div>
+        ) : (
+          renderPepTable(visibleMainItems)
+        )}
+      </div>
+
+      {showMissing && (
+        <div style={styles.sectionCardMuted}>
+          <div style={styles.sectionHeader}>
+            <div>
+              <div style={styles.sectionTitle}>Unités sans PEP</div>
+              <div style={styles.sectionSub}>Liste occasionnelle pour nettoyage ou configuration.</div>
+            </div>
+          </div>
+
+          {missingItems.length === 0 ? (
+            <div style={styles.alertInfo}>Aucune unité sans PEP.</div>
+          ) : (
+            renderPepTable(missingItems)
           )}
         </div>
-      </div>
+      )}
 
       {viewerOpen && (
         <div style={styles.modalBackdrop}>
@@ -766,42 +924,38 @@ export default function PepSuivi() {
 
             <div style={styles.historyLayout}>
               <div style={styles.historySidebar}>
-                {historyArchives.length === 0 ? (
-                  <div style={styles.alertInfo}>Aucune fiche archivée.</div>
+                {historyEntries.length === 0 ? (
+                  <div style={styles.alertInfo}>Aucun historique.</div>
                 ) : (
-                  historyArchives.map((row) => (
+                  historyEntries.map((row) => (
                     <button
                       key={row.id}
                       type="button"
                       style={{
                         ...styles.historyItem,
-                        ...(selectedHistoryArchiveId === row.id
-                          ? styles.historyItemActive
-                          : {}),
+                        ...(selectedHistoryId === row.id ? styles.historyItemActive : {}),
                       }}
-                      onClick={() => setSelectedHistoryArchiveId(row.id)}
+                      onClick={() => setSelectedHistoryId(row.id)}
                     >
                       <div style={styles.historyItemTitle}>
                         PEP du {formatDate(row.date_pep)}
                       </div>
+                      <div style={styles.historyItemSub}>Source: {sourceLabel(row.source)}</div>
                       <div style={styles.historyItemSub}>
                         Prochaine: {formatDate(row.date_prochain)}
                       </div>
-                      <div style={styles.historyItemSub}>
-                        Mécano: {row.num_mecano || "—"}
-                      </div>
-                      <div style={styles.historyItemSub}>
-                        Archivé: {formatDateTime(row.created_at)}
-                      </div>
+                      <div style={styles.historyItemSub}>Mécano: {row.num_mecano || "—"}</div>
+                      <div style={styles.historyItemSub}>KM: {row.odometre || "—"}</div>
+                      <div style={styles.historyItemSub}>Ajouté: {formatDateTime(row.created_at)}</div>
                     </button>
                   ))
                 )}
               </div>
 
               <div style={styles.historyMain}>
-                {!selectedHistoryArchive ? (
+                {!selectedHistoryEntry ? (
                   <div style={styles.alertInfo}>Sélectionne une fiche.</div>
-                ) : (
+                ) : selectedHistoryEntry.html_complet ? (
                   <>
                     <div style={styles.historyActions}>
                       <button
@@ -809,8 +963,8 @@ export default function PepSuivi() {
                         style={styles.btnSecondary}
                         onClick={() =>
                           openViewer(
-                            `PEP unité ${historyUnitNo} • ${formatDate(selectedHistoryArchive.date_pep)}`,
-                            selectedHistoryArchive.html_complet || ""
+                            `PEP unité ${historyUnitNo} • ${formatDate(selectedHistoryEntry.date_pep)}`,
+                            selectedHistoryEntry.html_complet || ""
                           )
                         }
                       >
@@ -820,9 +974,7 @@ export default function PepSuivi() {
                       <button
                         type="button"
                         style={styles.btnSecondary}
-                        onClick={() =>
-                          printHtmlDocument(selectedHistoryArchive.html_complet || "")
-                        }
+                        onClick={() => printHtmlDocument(selectedHistoryEntry.html_complet || "")}
                       >
                         Imprimer
                       </button>
@@ -830,10 +982,20 @@ export default function PepSuivi() {
 
                     <iframe
                       title={`Historique PEP ${historyUnitNo}`}
-                      srcDoc={selectedHistoryArchive.html_complet || ""}
+                      srcDoc={selectedHistoryEntry.html_complet || ""}
                       style={styles.historyPreviewFrame}
                     />
                   </>
+                ) : (
+                  <div style={styles.manualHistoryBox}>
+                    <div style={styles.manualHistoryTitle}>Entrée d’historique manuel</div>
+                    <div style={styles.manualHistoryLine}>Date PEP : {formatDate(selectedHistoryEntry.date_pep)}</div>
+                    <div style={styles.manualHistoryLine}>Prochaine inspection : {formatDate(selectedHistoryEntry.date_prochain)}</div>
+                    <div style={styles.manualHistoryLine}>KM : {selectedHistoryEntry.odometre || "—"}</div>
+                    <div style={styles.manualHistoryNote}>
+                      Cette entrée est considérée dans le suivi PEP, mais elle ne contient pas de PDF généré par le module PEP.
+                    </div>
+                  </div>
                 )}
               </div>
             </div>
@@ -868,85 +1030,89 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 13,
     color: "#6b7280",
   },
-  card: {
-    background: "#ffffff",
-    border: "1px solid #e5e7eb",
-    borderRadius: 14,
-    overflow: "hidden",
-  },
-  cardHeader: {
-    padding: "12px 14px",
-    borderBottom: "1px solid #e5e7eb",
-    background: "#f9fafb",
-    fontWeight: 800,
-    color: "#111827",
-  },
-  cardHeaderRow: {
-    padding: "12px 14px",
-    borderBottom: "1px solid #e5e7eb",
-    background: "#f9fafb",
-    fontWeight: 800,
-    color: "#111827",
+  softFilters: {
     display: "flex",
     alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-    flexWrap: "wrap",
-  },
-  cardBody: {
-    padding: 14,
-    display: "grid",
-    gap: 14,
-  },
-  segmentWrap: {
-    display: "flex",
     gap: 8,
-    flexWrap: "wrap",
-  },
-  segmentBtn: {
-    minHeight: 38,
-    padding: "0 14px",
+    padding: "8px 10px",
     borderRadius: 999,
-    border: "1px solid #d1d5db",
-    background: "#fff",
-    color: "#374151",
-    cursor: "pointer",
-    fontWeight: 700,
-    fontSize: 14,
+    background: "#ffffff",
+    border: "1px solid #e5e7eb",
   },
-  segmentBtnActive: {
-    border: "1px solid #1d4ed8",
-    background: "#eff6ff",
+  softFilterBtn: {
+    border: "none",
+    background: "transparent",
+    color: "#6b7280",
+    cursor: "pointer",
+    fontWeight: 800,
+    fontSize: 13,
+    padding: "4px 6px",
+    borderRadius: 999,
+  },
+  softFilterBtnActive: {
     color: "#1d4ed8",
+    background: "#eff6ff",
+  },
+  filterDot: {
+    color: "#cbd5e1",
+    fontWeight: 900,
   },
   kpiGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+    gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
     gap: 12,
   },
   kpiCard: {
-    border: "1px solid #dbeafe",
-    background: "#eff6ff",
-    borderRadius: 12,
-    padding: 14,
+    position: "relative",
+    overflow: "hidden",
+    border: "1px solid #e5e7eb",
+    background: "#ffffff",
+    borderRadius: 14,
+    padding: "20px 18px 16px",
     textAlign: "left",
     cursor: "pointer",
+    boxShadow: "0 1px 2px rgba(15,23,42,0.04)",
   },
   kpiCardActive: {
-    outline: "2px solid #1d4ed8",
+    outline: "2px solid #2563eb",
     outlineOffset: 0,
+  },
+  kpiAccent: {
+    position: "absolute",
+    left: 16,
+    right: 16,
+    top: 12,
+    height: 5,
+    borderRadius: 999,
   },
   kpiTitle: {
     fontSize: 13,
-    fontWeight: 700,
-    color: "#1e3a8a",
-    marginBottom: 6,
+    fontWeight: 800,
+    color: "#334155",
+    marginTop: 10,
+    marginBottom: 8,
   },
   kpiValue: {
-    fontSize: 28,
-    fontWeight: 800,
+    fontSize: 30,
+    fontWeight: 900,
     color: "#111827",
     lineHeight: 1,
+  },
+  utilityRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+    flexWrap: "wrap",
+  },
+  missingToggle: {
+    border: "none",
+    background: "transparent",
+    color: "#64748b",
+    cursor: "pointer",
+    fontSize: 13,
+    fontWeight: 800,
+    padding: 0,
   },
   searchWrap: {
     width: 320,
@@ -964,56 +1130,164 @@ const styles: Record<string, React.CSSProperties> = {
     outline: "none",
     boxSizing: "border-box",
   },
+  sectionCard: {
+    background: "#ffffff",
+    border: "1px solid #e5e7eb",
+    borderRadius: 14,
+    padding: 14,
+    display: "grid",
+    gap: 14,
+  },
+  sectionCardMuted: {
+    background: "#f8fafc",
+    border: "1px dashed #cbd5e1",
+    borderRadius: 14,
+    padding: 14,
+    display: "grid",
+    gap: 14,
+  },
+  sectionHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 12,
+    flexWrap: "wrap",
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: 900,
+    color: "#111827",
+  },
+  sectionSub: {
+    marginTop: 3,
+    fontSize: 12,
+    color: "#64748b",
+    fontWeight: 600,
+  },
+
   tableWrap: {
     overflowX: "auto",
     border: "1px solid #e5e7eb",
-    borderRadius: 12,
+    borderRadius: 14,
+    background: "#ffffff",
   },
   table: {
     width: "100%",
     borderCollapse: "collapse",
-    minWidth: 1080,
+    background: "#ffffff",
+    minWidth: 900,
   },
   th: {
     textAlign: "left",
-    padding: "10px 12px",
-    fontSize: 12,
-    color: "#6b7280",
-    background: "#f9fafb",
+    padding: "14px 16px",
+    fontSize: 13,
+    fontWeight: 800,
+    color: "#64748b",
     borderBottom: "1px solid #e5e7eb",
+    background: "#f8fafc",
     whiteSpace: "nowrap",
   },
   thRight: {
     textAlign: "right",
-    padding: "10px 12px",
-    fontSize: 12,
-    color: "#6b7280",
-    background: "#f9fafb",
+    padding: "14px 16px",
+    fontSize: 13,
+    fontWeight: 800,
+    color: "#64748b",
     borderBottom: "1px solid #e5e7eb",
+    background: "#f8fafc",
     whiteSpace: "nowrap",
   },
+  tr: {
+    borderBottom: "1px solid #f1f5f9",
+  },
   td: {
-    padding: "10px 12px",
-    borderBottom: "1px solid #f3f4f6",
+    padding: "14px 16px",
     fontSize: 14,
     color: "#111827",
+    fontWeight: 600,
     verticalAlign: "middle",
+    whiteSpace: "nowrap",
   },
   tdStrong: {
-    padding: "10px 12px",
-    borderBottom: "1px solid #f3f4f6",
+    padding: "14px 16px",
+    fontSize: 16,
+    color: "#111827",
+    fontWeight: 900,
+    verticalAlign: "middle",
+    whiteSpace: "nowrap",
+  },
+  tdRight: {
+    padding: "10px 16px",
+    textAlign: "right",
+    verticalAlign: "middle",
+    whiteSpace: "nowrap",
+  },
+  cardGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(290px, 1fr))",
+    gap: 12,
+  },
+  pepCard: {
+    position: "relative",
+    overflow: "visible",
+    background: "#ffffff",
+    border: "1px solid #e5e7eb",
+    borderRadius: 14,
+    padding: "16px 14px 14px",
+    display: "grid",
+    gap: 14,
+    boxShadow: "0 1px 2px rgba(15,23,42,0.04)",
+  },
+  pepCardAccent: {
+    position: "absolute",
+    left: 14,
+    right: 14,
+    top: 10,
+    height: 4,
+    borderRadius: 999,
+  },
+  pepCardTop: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 10,
+    marginTop: 6,
+  },
+  unitNo: {
+    fontSize: 17,
+    fontWeight: 900,
+    color: "#111827",
+  },
+  unitDesc: {
+    marginTop: 2,
+    fontSize: 13,
+    color: "#475569",
+    fontWeight: 600,
+  },
+  cardMetaGrid: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: 10,
+  },
+  metaLabel: {
+    fontSize: 11,
+    color: "#64748b",
+    fontWeight: 800,
+    textTransform: "uppercase",
+    letterSpacing: 0.2,
+  },
+  metaValue: {
+    marginTop: 3,
     fontSize: 14,
     color: "#111827",
     fontWeight: 800,
-    verticalAlign: "middle",
   },
-  tdRight: {
-    padding: "10px 12px",
-    borderBottom: "1px solid #f3f4f6",
-    fontSize: 14,
-    color: "#111827",
-    verticalAlign: "middle",
-    textAlign: "right",
+  pepCardFooter: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    flexWrap: "wrap",
   },
   badge: {
     display: "inline-flex",
@@ -1022,8 +1296,13 @@ const styles: Record<string, React.CSSProperties> = {
     padding: "0 10px",
     borderRadius: 999,
     fontSize: 12,
-    fontWeight: 700,
+    fontWeight: 800,
     whiteSpace: "nowrap",
+  },
+  sourceTag: {
+    fontSize: 12,
+    color: "#64748b",
+    fontWeight: 800,
   },
   alertError: {
     border: "1px solid #fecaca",
@@ -1053,7 +1332,7 @@ const styles: Record<string, React.CSSProperties> = {
     background: "#fff",
     color: "#111827",
     cursor: "pointer",
-    fontWeight: 800,
+    fontWeight: 900,
     fontSize: 18,
   },
   actionMenu: {
@@ -1079,7 +1358,7 @@ const styles: Record<string, React.CSSProperties> = {
     background: "transparent",
     color: "#111827",
     cursor: "pointer",
-    fontWeight: 600,
+    fontWeight: 700,
   },
   actionMenuItemDisabled: {
     opacity: 0.45,
@@ -1129,7 +1408,7 @@ const styles: Record<string, React.CSSProperties> = {
     background: "#f8fafc",
   },
   modalTitle: {
-    fontWeight: 800,
+    fontWeight: 900,
     color: "#111827",
     fontSize: 18,
   },
@@ -1188,12 +1467,13 @@ const styles: Record<string, React.CSSProperties> = {
   },
   historyItemTitle: {
     fontSize: 14,
-    fontWeight: 800,
+    fontWeight: 900,
     color: "#111827",
   },
   historyItemSub: {
     fontSize: 12,
     color: "#6b7280",
+    fontWeight: 600,
   },
   historyActions: {
     display: "flex",
@@ -1209,6 +1489,35 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 12,
     background: "#fff",
   },
+  manualHistoryBox: {
+    alignSelf: "start",
+    border: "1px solid #e5e7eb",
+    background: "#ffffff",
+    borderRadius: 14,
+    padding: 16,
+    display: "grid",
+    gap: 8,
+  },
+  manualHistoryTitle: {
+    fontSize: 18,
+    fontWeight: 900,
+    color: "#111827",
+  },
+  manualHistoryLine: {
+    fontSize: 14,
+    color: "#334155",
+    fontWeight: 700,
+  },
+  manualHistoryNote: {
+    marginTop: 8,
+    border: "1px solid #dbeafe",
+    background: "#eff6ff",
+    color: "#1e3a8a",
+    borderRadius: 12,
+    padding: 12,
+    fontSize: 13,
+    fontWeight: 700,
+  },
   btnSecondary: {
     minHeight: 40,
     padding: "0 14px",
@@ -1217,7 +1526,7 @@ const styles: Record<string, React.CSSProperties> = {
     background: "#ffffff",
     color: "#374151",
     fontSize: 14,
-    fontWeight: 700,
+    fontWeight: 800,
     cursor: "pointer",
   },
 };

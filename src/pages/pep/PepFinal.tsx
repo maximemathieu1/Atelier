@@ -34,6 +34,7 @@ type PepPayload = {
 };
 
 type PepArchiveInsert = {
+  archive_key: string;
   unite_id: string;
   unite: string | null;
   date_pep: string | null;
@@ -62,6 +63,57 @@ type ArchiveContext = {
 };
 
 const PEP_TEMPLATE_ID = "d71006cc-cfd7-4e49-83dd-918ee4201b89";
+const MAX_PDF_RENDER_ATTEMPTS = 4;
+
+type ArchiveChecklistKey = "archive" | "bt" | "entretien" | "pdf" | "upload" | "attach";
+type ArchiveChecklistStatus = "pending" | "active" | "done" | "error";
+type ArchiveChecklistItem = {
+  key: ArchiveChecklistKey;
+  label: string;
+  status: ArchiveChecklistStatus;
+  detail?: string;
+};
+
+const DEFAULT_ARCHIVE_CHECKLIST: ArchiveChecklistItem[] = [
+  { key: "archive", label: "Archivage du PEP", status: "pending" },
+  { key: "bt", label: "Liaison au bon de travail", status: "pending" },
+  { key: "entretien", label: "Entretien périodique PEP", status: "pending" },
+  { key: "pdf", label: "Génération du PDF", status: "pending" },
+  { key: "upload", label: "Envoi dans les documents du BT", status: "pending" },
+  { key: "attach", label: "Attachement au bon de travail", status: "pending" },
+];
+
+function freshArchiveChecklist() {
+  return DEFAULT_ARCHIVE_CHECKLIST.map((x) => ({ ...x }));
+}
+
+function buildPepArchiveKey(payload: PepPayload, datePep: string) {
+  return [
+    String(payload.unite_id || "").trim(),
+    datePep,
+    String(payload.num_mecano || "").trim(),
+    String(payload.odom || "").trim(),
+  ].join("|");
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryablePdfError(error: unknown) {
+  const msg = String((error as any)?.message || error || "").toLowerCase();
+  return (
+    msg.includes("target closed") ||
+    msg.includes("protocol error") ||
+    msg.includes("runtime.callfunctionon") ||
+    msg.includes("timeout") ||
+    msg.includes("timed out") ||
+    msg.includes("browser") ||
+    msg.includes("failed to fetch") ||
+    msg.includes("network") ||
+    msg.includes("abort")
+  );
+}
 
 const EXTRA_STYLE = `
 <style>
@@ -796,12 +848,7 @@ async function syncPepTaskAndHistorique(btRow: any, datePep: string, km: number 
   }
 }
 
-async function attachPepPdfToBt(
-  btId: string,
-  pepArchiveId: string,
-  filename: string,
-  pdfBlob: Blob
-) {
+async function uploadPepPdfToBt(btId: string, pepArchiveId: string, pdfBlob: Blob) {
   const path = `bt/${btId}/pep/${pepArchiveId}.pdf`;
 
   const { error: uploadErr } = await supabase.storage
@@ -812,7 +859,16 @@ async function attachPepPdfToBt(
     });
 
   if (uploadErr) throw uploadErr;
+  return path;
+}
 
+async function upsertPepPdfDocumentRow(
+  btId: string,
+  pepArchiveId: string,
+  filename: string,
+  storagePath: string,
+  pdfBlob: Blob
+) {
   const { data: existingDoc, error: existingDocErr } = await supabase
     .from("bt_documents")
     .select("id")
@@ -828,7 +884,7 @@ async function attachPepPdfToBt(
     pep_id: pepArchiveId,
     type: "pep",
     nom_fichier: filename,
-    storage_path: path,
+    storage_path: storagePath,
     mime_type: "application/pdf",
     taille_bytes: pdfBlob.size,
     source: "auto_pep",
@@ -840,13 +896,76 @@ async function attachPepPdfToBt(
       .update(row)
       .eq("id", existingDoc.id);
     if (error) throw error;
-  } else {
-    const { error } = await supabase.from("bt_documents").insert(row);
-    if (error) throw error;
+    return String(existingDoc.id);
   }
+
+  const { data, error } = await supabase
+    .from("bt_documents")
+    .insert(row)
+    .select("id")
+    .single();
+
+  if (error) throw error;
+  return String((data as any)?.id || "");
 }
 
-async function renderPepPdfBlob(html: string, filename: string) {
+async function findExistingPepPdfDocumentRow(btId: string, pepArchiveId: string) {
+  const { data, error } = await supabase
+    .from("bt_documents")
+    .select("id, storage_path, nom_fichier, taille_bytes")
+    .eq("bt_id", btId)
+    .eq("pep_id", pepArchiveId)
+    .eq("type", "pep")
+    .maybeSingle();
+
+  if (error) throw error;
+  return data as any | null;
+}
+
+async function downloadExistingPepPdfFromStorage(storagePath: string): Promise<Blob | null> {
+  const cleanPath = String(storagePath || "").trim();
+  if (!cleanPath) return null;
+
+  const { data, error } = await supabase.storage
+    .from("bt-documents")
+    .download(cleanPath);
+
+  if (error || !data) return null;
+  return data;
+}
+
+async function resumePepPdfIfAlreadyCompleted(
+  btId: string,
+  pepArchiveId: string
+): Promise<
+  | { status: "attached"; storagePath: string | null }
+  | { status: "uploaded"; storagePath: string; pdfBlob: Blob }
+  | { status: "missing"; storagePath: string }
+> {
+  const existingDoc = await findExistingPepPdfDocumentRow(btId, pepArchiveId);
+
+  if (existingDoc?.id) {
+    return {
+      status: "attached",
+      storagePath: String(existingDoc.storage_path || "") || null,
+    };
+  }
+
+  const expectedStoragePath = `bt/${btId}/pep/${pepArchiveId}.pdf`;
+  const existingBlob = await downloadExistingPepPdfFromStorage(expectedStoragePath);
+
+  if (existingBlob) {
+    return {
+      status: "uploaded",
+      storagePath: expectedStoragePath,
+      pdfBlob: existingBlob,
+    };
+  }
+
+  return { status: "missing", storagePath: expectedStoragePath };
+}
+
+async function renderPepPdfBlob(html: string, filename: string, timeoutMs = 90000) {
   const supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL;
   const anonKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY;
   const renderSecret = (import.meta as any).env?.VITE_PDF_RENDER_SECRET;
@@ -856,27 +975,34 @@ async function renderPepPdfBlob(html: string, filename: string) {
   if (!renderSecret) throw new Error("VITE_PDF_RENDER_SECRET manquant");
 
   const url = `${supabaseUrl}/functions/v1/render-pdf`;
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      apikey: anonKey,
-      authorization: `Bearer ${anonKey}`,
-      "content-type": "application/json",
-      "x-render-secret": renderSecret,
-    },
-    body: JSON.stringify({
-      html,
-      filename,
-    }),
-  });
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        apikey: anonKey,
+        authorization: `Bearer ${anonKey}`,
+        "content-type": "application/json",
+        "x-render-secret": renderSecret,
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        html,
+        filename,
+      }),
+    });
 
-  if (!res.ok) {
-    const txt = await res.text().catch(() => "");
-    throw new Error(txt || "Erreur génération PDF");
+    if (!res.ok) {
+      const txt = await res.text().catch(() => "");
+      throw new Error(txt || "Erreur génération PDF");
+    }
+
+    return await res.blob();
+  } finally {
+    window.clearTimeout(timer);
   }
-
-  return await res.blob();
 }
 
 export default function PepFinal() {
@@ -900,7 +1026,7 @@ export default function PepFinal() {
   const [archivePhase1Done, setArchivePhase1Done] = useState(false);
   const [archivePhase2Done, setArchivePhase2Done] = useState(false);
   const [archiveMessage, setArchiveMessage] = useState("");
-  const [archiveDetails, setArchiveDetails] = useState<string[]>([]);
+  const [archiveChecklist, setArchiveChecklist] = useState<ArchiveChecklistItem[]>(freshArchiveChecklist());
   const [archiveContext, setArchiveContext] = useState<ArchiveContext | null>(null);
 
   const signCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -1081,8 +1207,72 @@ export default function PepFinal() {
     setArchivePhase1Done(false);
     setArchivePhase2Done(false);
     setArchiveMessage("");
-    setArchiveDetails([]);
+    setArchiveChecklist(freshArchiveChecklist());
     setArchiveContext(null);
+  }
+
+  function setChecklistItem(
+    key: ArchiveChecklistKey,
+    status: ArchiveChecklistStatus,
+    detail?: string
+  ) {
+    setArchiveChecklist((prev) =>
+      prev.map((item) =>
+        item.key === key
+          ? { ...item, status, detail }
+          : item
+      )
+    );
+  }
+
+  function markRemainingPendingFrom(key: ArchiveChecklistKey) {
+    const order: ArchiveChecklistKey[] = ["archive", "bt", "entretien", "pdf", "upload", "attach"];
+    const start = order.indexOf(key);
+    if (start < 0) return;
+
+    setArchiveChecklist((prev) =>
+      prev.map((item) =>
+        order.indexOf(item.key) >= start && item.status !== "done"
+          ? { ...item, status: "pending", detail: undefined }
+          : item
+      )
+    );
+  }
+
+  async function renderPdfWithRetry(html: string, filename: string) {
+    let lastError: unknown = null;
+
+    for (let attempt = 1; attempt <= MAX_PDF_RENDER_ATTEMPTS; attempt++) {
+      try {
+        setChecklistItem(
+          "pdf",
+          "active",
+          attempt === 1
+            ? "Génération en cours"
+            : `Nouvelle tentative ${attempt}/${MAX_PDF_RENDER_ATTEMPTS}`
+        );
+        setArchiveMessage(
+          attempt === 1
+            ? "Génération du PDF en cours..."
+            : `Génération du PDF — tentative ${attempt}/${MAX_PDF_RENDER_ATTEMPTS}...`
+        );
+
+        const blob = await renderPepPdfBlob(html, filename);
+        setChecklistItem("pdf", "done", "PDF généré");
+        return blob;
+      } catch (e) {
+        lastError = e;
+
+        if (attempt >= MAX_PDF_RENDER_ATTEMPTS || !isRetryablePdfError(e)) {
+          setChecklistItem("pdf", "error", "Échec génération PDF");
+          throw e;
+        }
+
+        await delay(900 * attempt);
+      }
+    }
+
+    throw lastError ?? new Error("Erreur génération PDF");
   }
 
   function handlePrint() {
@@ -1150,7 +1340,7 @@ export default function PepFinal() {
     }
 
     if (!printHtml) {
-      setArchiveError("Le HTML final n'est pas prêt.");
+      setArchiveError("Le HTML final n'est pas prêt. Attends que l’aperçu soit affiché, puis réessaie.");
       setArchiveDone(false);
       return;
     }
@@ -1163,13 +1353,19 @@ export default function PepFinal() {
     setArchivePhase1Done(false);
     setArchivePhase2Done(false);
     setArchiveMessage("Archivage du PEP en cours...");
-    setArchiveDetails(["Sauvegarde du PEP", "Liaison au bon de travail", "Mise à jour de l’entretien"]);
+    setArchiveChecklist(freshArchiveChecklist());
     setArchiveContext(null);
+
+    let contextForResume: ArchiveContext | null = null;
 
     try {
       const datePep = dateOnlyOrToday(payload.date_pep);
+      const archiveKey = buildPepArchiveKey(payload, datePep);
+
+      setChecklistItem("archive", "active", "Sauvegarde en cours");
 
       const insertPayload: PepArchiveInsert = {
+        archive_key: archiveKey,
         unite_id: payload.unite_id,
         unite: payload.unite ?? null,
         date_pep: datePep,
@@ -1179,12 +1375,12 @@ export default function PepFinal() {
         payload_json: payload,
         signature_data_url: signature || null,
         html_complet: printHtml,
-        pages_html: pages,
+        pages_html: pages.length ? pages : [printHtml],
       };
 
       const { data: insertedArchive, error } = await supabase
         .from("pep_archives")
-        .insert(insertPayload)
+        .upsert(insertPayload, { onConflict: "archive_key" })
         .select("id")
         .single();
 
@@ -1195,12 +1391,16 @@ export default function PepFinal() {
         throw new Error("Impossible de récupérer l'identifiant du PEP archivé.");
       }
 
+      setChecklistItem("archive", "done", "PEP sauvegardé");
+
       const km =
         payload.odom != null &&
         String(payload.odom).trim() !== "" &&
         Number.isFinite(Number(payload.odom))
           ? Number(payload.odom)
           : null;
+
+      setChecklistItem("bt", "active", "Recherche ou création du BT");
 
       const { bt } = await getOrCreatePepBt(
         payload.unite_id,
@@ -1210,35 +1410,90 @@ export default function PepFinal() {
         payload.num_mecano ?? null
       );
 
-      await syncPepTaskAndHistorique(bt, datePep, km);
-
       const pepPdfFilename = `PEP-${payload.unite || "unite"}-${datePep}.pdf`;
       const btNumero = String((bt as any)?.numero || "").trim() || null;
 
-      setArchiveContext({
+      contextForResume = {
         pepArchiveId,
         btId: String(bt.id),
         btNumero,
         pepPdfFilename,
-      });
+      };
+
+      setArchiveContext(contextForResume);
+      setChecklistItem("bt", "done", btNumero ? `BT lié : ${btNumero}` : "BT lié");
+
+      setChecklistItem("entretien", "active", "Mise à jour en cours");
+      await syncPepTaskAndHistorique(bt, datePep, km);
+      setChecklistItem("entretien", "done", "Entretien marqué effectué");
       setArchivePhase1Done(true);
-      setArchivePhase2Done(false);
-      setArchiveStep("ready_pdf");
+
+      setArchiveMessage("Vérification des étapes PDF déjà complétées...");
+      const resumePdfState = await resumePepPdfIfAlreadyCompleted(String(bt.id), pepArchiveId);
+
+      if (resumePdfState.status === "attached") {
+        setChecklistItem("pdf", "done", "PDF déjà généré");
+        setChecklistItem("upload", "done", "PDF déjà envoyé");
+        setChecklistItem("attach", "done", "Document déjà attaché");
+        setArchivePhase2Done(true);
+        setArchiveStep("done");
+        setArchiveDone(true);
+        setArchiveError("");
+        setArchiveMessage("Archivage déjà complété. Aucune étape répétée.");
+        return;
+      }
+
+      if (resumePdfState.status === "uploaded") {
+        setChecklistItem("pdf", "done", "PDF déjà généré");
+        setChecklistItem("upload", "done", "PDF déjà envoyé");
+        setChecklistItem("attach", "active", "Création du lien document");
+        setArchiveMessage("PDF déjà présent. Attachement au BT en cours...");
+
+        await upsertPepPdfDocumentRow(
+          String(bt.id),
+          pepArchiveId,
+          pepPdfFilename,
+          resumePdfState.storagePath,
+          resumePdfState.pdfBlob
+        );
+
+        setChecklistItem("attach", "done", "Document attaché");
+        setArchivePhase2Done(true);
+        setArchiveStep("done");
+        setArchiveDone(true);
+        setArchiveError("");
+        setArchiveMessage("Archivage complété à partir du PDF déjà envoyé.");
+        return;
+      }
+
+      const pdfBlob = await renderPdfWithRetry(printHtml, pepPdfFilename);
+
+      setChecklistItem("upload", "active", "Envoi dans Storage");
+      setArchiveMessage("Envoi du PDF dans les documents du BT...");
+      const storagePath = await uploadPepPdfToBt(String(bt.id), pepArchiveId, pdfBlob);
+      setChecklistItem("upload", "done", "PDF envoyé");
+
+      setChecklistItem("attach", "active", "Création du lien document");
+      setArchiveMessage("Attachement du PDF au bon de travail...");
+      await upsertPepPdfDocumentRow(String(bt.id), pepArchiveId, pepPdfFilename, storagePath, pdfBlob);
+      setChecklistItem("attach", "done", "Document attaché");
+
+      setArchivePhase2Done(true);
+      setArchiveStep("done");
       setArchiveDone(true);
       setArchiveError("");
-      setArchiveMessage("PEP archivé et lié au bon de travail.");
-      setArchiveDetails([
-        "PEP archivé",
-        btNumero ? `Bon de travail lié : ${btNumero}` : "Bon de travail lié",
-        "Entretien PEP marqué effectué",
-      ]);
+      setArchiveMessage("Archivage complété.");
     } catch (e: any) {
       console.error(e);
       setArchiveStep("error");
       setArchiveError(e?.message ?? "Erreur inconnue pendant l'archivage.");
-      setArchiveMessage("Archivage incomplet.");
-      setArchiveDetails(["Le PEP n’a pas été entièrement archivé."]);
+      setArchiveMessage("Archivage incomplet. Les étapes cochées sont conservées.");
       setArchiveDone(false);
+
+      if (contextForResume) {
+        setArchiveContext(contextForResume);
+        setArchivePhase1Done(true);
+      }
     } finally {
       setArchiveBusy(false);
     }
@@ -1248,7 +1503,7 @@ export default function PepFinal() {
     if (!payload) return;
 
     if (!printHtml) {
-      setArchiveError("Le HTML final n'est pas prêt.");
+      setArchiveError("Le HTML final n'est pas prêt. Attends que l’aperçu soit affiché, puis réessaie.");
       setArchiveStep("error");
       setArchiveModalOpen(true);
       return;
@@ -1265,32 +1520,75 @@ export default function PepFinal() {
     setArchiveModalOpen(true);
     setArchiveError("");
     setArchiveStep("pdf");
-    setArchiveMessage("Génération et attachement du PDF en cours...");
-    setArchiveDetails(["Génération du PDF", "Envoi dans les documents du BT", "Attachement au bon de travail"]);
+    setArchiveMessage("Reprise de la génération et de l’attachement du PDF...");
+    markRemainingPendingFrom("pdf");
 
     try {
-      const pdfBlob = await renderPepPdfBlob(printHtml, archiveContext.pepPdfFilename);
+      setArchiveMessage("Vérification des étapes PDF déjà complétées...");
+      const resumePdfState = await resumePepPdfIfAlreadyCompleted(
+        archiveContext.btId,
+        archiveContext.pepArchiveId
+      );
 
-      await attachPepPdfToBt(
+      if (resumePdfState.status === "attached") {
+        setChecklistItem("pdf", "done", "PDF déjà généré");
+        setChecklistItem("upload", "done", "PDF déjà envoyé");
+        setChecklistItem("attach", "done", "Document déjà attaché");
+        setArchivePhase2Done(true);
+        setArchiveStep("done");
+        setArchiveDone(true);
+        setArchiveError("");
+        setArchiveMessage("Progression déjà complétée. Aucune étape répétée.");
+        return;
+      }
+
+      if (resumePdfState.status === "uploaded") {
+        setChecklistItem("pdf", "done", "PDF déjà généré");
+        setChecklistItem("upload", "done", "PDF déjà envoyé");
+        setChecklistItem("attach", "active", "Création du lien document");
+
+        await upsertPepPdfDocumentRow(
+          archiveContext.btId,
+          archiveContext.pepArchiveId,
+          archiveContext.pepPdfFilename,
+          resumePdfState.storagePath,
+          resumePdfState.pdfBlob
+        );
+
+        setChecklistItem("attach", "done", "Document attaché");
+        setArchivePhase2Done(true);
+        setArchiveStep("done");
+        setArchiveDone(true);
+        setArchiveError("");
+        setArchiveMessage("Progression complétée à partir du PDF déjà envoyé.");
+        return;
+      }
+
+      const pdfBlob = await renderPdfWithRetry(printHtml, archiveContext.pepPdfFilename);
+
+      setChecklistItem("upload", "active", "Envoi dans Storage");
+      const storagePath = await uploadPepPdfToBt(
+        archiveContext.btId,
+        archiveContext.pepArchiveId,
+        pdfBlob
+      );
+      setChecklistItem("upload", "done", "PDF envoyé");
+
+      setChecklistItem("attach", "active", "Création du lien document");
+      await upsertPepPdfDocumentRow(
         archiveContext.btId,
         archiveContext.pepArchiveId,
         archiveContext.pepPdfFilename,
+        storagePath,
         pdfBlob
       );
+      setChecklistItem("attach", "done", "Document attaché");
 
       setArchivePhase2Done(true);
       setArchiveStep("done");
       setArchiveDone(true);
       setArchiveError("");
       setArchiveMessage("Progression complétée.");
-      setArchiveDetails([
-        "PEP archivé",
-        archiveContext.btNumero
-          ? `Bon de travail lié : ${archiveContext.btNumero}`
-          : "Bon de travail lié",
-        "PDF généré",
-        "PDF attaché au BT",
-      ]);
     } catch (e: any) {
       console.error(e);
       setArchivePhase2Done(false);
@@ -1299,14 +1597,7 @@ export default function PepFinal() {
         e?.message ??
           "PEP archivé, mais une erreur est survenue pendant la génération ou l'attachement du PDF."
       );
-      setArchiveMessage("PDF non complété.");
-      setArchiveDetails([
-        "PEP déjà archivé",
-        archiveContext.btNumero
-          ? `Bon de travail déjà lié : ${archiveContext.btNumero}`
-          : "Bon de travail déjà lié",
-        "PDF à reprendre seulement",
-      ]);
+      setArchiveMessage("PDF non complété. Tu peux reprendre seulement cette partie.");
       setArchiveDone(false);
     } finally {
       setArchiveBusy(false);
@@ -1425,7 +1716,7 @@ export default function PepFinal() {
             )}
 
             <div style={styles.loadingTitle}>
-              Progression : {archivePhase2Done ? "2 / 2" : archivePhase1Done ? "1 / 2" : "0 / 2"}
+              Progression : {archiveChecklist.filter((x) => x.status === "done").length} / {archiveChecklist.length}
             </div>
 
             <div style={styles.loadingText}>{archiveMessage || "Traitement du PEP en cours..."}</div>
@@ -1434,21 +1725,44 @@ export default function PepFinal() {
               <div
                 style={{
                   ...styles.progressBarFill,
-                  width: archivePhase2Done ? "100%" : archivePhase1Done ? "50%" : "12%",
+                  width: `${Math.max(
+                    8,
+                    Math.round(
+                      (archiveChecklist.filter((x) => x.status === "done").length /
+                        archiveChecklist.length) *
+                        100
+                    )
+                  )}%`,
                 }}
               />
             </div>
 
-            {archiveDetails.length > 0 && (
-              <div style={styles.progressList}>
-                {archiveDetails.map((detail) => (
-                  <div key={detail} style={styles.progressListItem}>
-                    <span style={styles.progressCheck}>✓</span>
-                    <span>{detail}</span>
-                  </div>
-                ))}
-              </div>
-            )}
+            <div style={styles.progressList}>
+              {archiveChecklist.map((item) => (
+                <div key={item.key} style={styles.progressListItem}>
+                  <span
+                    style={{
+                      ...styles.progressCheck,
+                      ...(item.status === "pending" ? styles.progressCheckPending : {}),
+                      ...(item.status === "active" ? styles.progressCheckActive : {}),
+                      ...(item.status === "error" ? styles.progressCheckError : {}),
+                    }}
+                  >
+                    {item.status === "done"
+                      ? "✓"
+                      : item.status === "error"
+                        ? "!"
+                        : item.status === "active"
+                          ? "…"
+                          : ""}
+                  </span>
+                  <span>
+                    {item.label}
+                    {item.detail ? <small style={styles.progressDetail}> — {item.detail}</small> : null}
+                  </span>
+                </div>
+              ))}
+            </div>
 
             {archiveError ? <div style={styles.progressErrorText}>{archiveError}</div> : null}
 
@@ -1812,6 +2126,26 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 13,
     fontWeight: 900,
     flex: "0 0 auto",
+  },
+  progressCheckPending: {
+    background: "#f3f4f6",
+    border: "1px solid #d1d5db",
+    color: "#9ca3af",
+  },
+  progressCheckActive: {
+    background: "#eff6ff",
+    border: "1px solid #bfdbfe",
+    color: "#1d4ed8",
+  },
+  progressCheckError: {
+    background: "#fef2f2",
+    border: "1px solid #fecaca",
+    color: "#b91c1c",
+  },
+  progressDetail: {
+    fontSize: 12,
+    fontWeight: 600,
+    color: "#6b7280",
   },
   progressErrorText: {
     width: "100%",

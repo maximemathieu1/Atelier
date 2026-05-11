@@ -743,26 +743,53 @@ export default function BonTravailPage() {
     }
 
     // 2. Si PEP, supprimer historique + tâche effectuée + archive
-    if (isPep) {
-      await supabase
-        .from("bt_taches_effectuees")
-        .delete()
-        .eq("bt_id", bt.id)
-        .eq("entretien_template_item_id", "d71006cc-cfd7-4e49-83dd-918ee4201b89");
+if (isPep) {
+  const PEP_TEMPLATE_ITEM_ID = "d71006cc-cfd7-4e49-83dd-918ee4201b89";
 
-      await supabase
-        .from("unite_entretien_historique")
-        .delete()
-        .eq("bt_id", bt.id)
-        .eq("template_item_id", "d71006cc-cfd7-4e49-83dd-918ee4201b89");
+  // Supprimer les tâches effectuées liées au PEP
+  const { error: taskErr } = await supabase
+    .from("bt_taches_effectuees")
+    .delete()
+    .eq("bt_id", bt.id)
+    .eq("entretien_template_item_id", PEP_TEMPLATE_ITEM_ID);
 
-      if (pepId) {
-        await supabase
-          .from("pep_archives")
-          .delete()
-          .eq("id", pepId);
-      }
-    }
+  if (taskErr) throw taskErr;
+
+  // Supprimer l'historique entretien lié
+  const { error: histErr } = await supabase
+    .from("unite_entretien_historique")
+    .delete()
+    .eq("bt_id", bt.id)
+    .eq("template_item_id", PEP_TEMPLATE_ITEM_ID);
+
+  if (histErr) throw histErr;
+
+ // Supprimer l'archive PEP
+if (pepId) {
+  const { error: pepErr } = await supabase
+    .from("pep_archives")
+    .delete()
+    .eq("id", pepId);
+
+  if (pepErr) throw pepErr;
+} else {
+  const fileName = String(doc.nom_fichier || "");
+  const match = fileName.match(/^PEP-(.+)-(\d{4}-\d{2}-\d{2})\.pdf$/);
+
+  if (match) {
+    const uniteNo = match[1];
+    const datePep = match[2];
+
+    const { error: pepFallbackErr } = await supabase
+      .from("pep_archives")
+      .delete()
+      .eq("unite", uniteNo)
+      .eq("date_pep", datePep);
+
+    if (pepFallbackErr) throw pepFallbackErr;
+  }
+}
+}
 
     // 3. Supprimer lien document BT
     const { error: docErr } = await supabase
