@@ -63,8 +63,6 @@ type ArchiveContext = {
 };
 
 const PEP_TEMPLATE_ID = "d71006cc-cfd7-4e49-83dd-918ee4201b89";
-const MAX_PDF_RENDER_ATTEMPTS = 4;
-
 type ArchiveChecklistKey = "archive" | "bt" | "entretien" | "pdf" | "upload" | "attach";
 type ArchiveChecklistStatus = "pending" | "active" | "done" | "error";
 type ArchiveChecklistItem = {
@@ -96,24 +94,6 @@ function buildPepArchiveKey(payload: PepPayload, datePep: string) {
   ].join("|");
 }
 
-function delay(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function isRetryablePdfError(error: unknown) {
-  const msg = String((error as any)?.message || error || "").toLowerCase();
-  return (
-    msg.includes("target closed") ||
-    msg.includes("protocol error") ||
-    msg.includes("runtime.callfunctionon") ||
-    msg.includes("timeout") ||
-    msg.includes("timed out") ||
-    msg.includes("browser") ||
-    msg.includes("failed to fetch") ||
-    msg.includes("network") ||
-    msg.includes("abort")
-  );
-}
 
 const EXTRA_STYLE = `
 <style>
@@ -965,43 +945,100 @@ async function resumePepPdfIfAlreadyCompleted(
   return { status: "missing", storagePath: expectedStoragePath };
 }
 
-async function renderPepPdfBlob(html: string, filename: string, timeoutMs = 90000) {
-  const supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL;
-  const anonKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY;
-  const renderSecret = (import.meta as any).env?.VITE_PDF_RENDER_SECRET;
 
-  if (!supabaseUrl) throw new Error("VITE_SUPABASE_URL manquant");
-  if (!anonKey) throw new Error("VITE_SUPABASE_ANON_KEY manquant");
-  if (!renderSecret) throw new Error("VITE_PDF_RENDER_SECRET manquant");
+function waitForIframeLoad(iframe: HTMLIFrameElement) {
+  return new Promise<void>((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error("Chargement du HTML PEP trop long.")), 15000);
 
-  const url = `${supabaseUrl}/functions/v1/render-pdf`;
-  const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+    iframe.onload = () => {
+      window.clearTimeout(timer);
+      resolve();
+    };
+  });
+}
+
+async function waitForFonts(doc: Document) {
+  const fonts = (doc as any).fonts;
+  if (fonts?.ready) {
+    await Promise.race([
+      fonts.ready,
+      new Promise((resolve) => window.setTimeout(resolve, 1500)),
+    ]);
+  }
+}
+
+async function renderPepPdfBlobFromBrowser(html: string, filename: string): Promise<Blob> {
+  if (!html || !html.trim()) {
+    throw new Error("HTML PEP vide. Impossible de générer le PDF.");
+  }
+
+  // @ts-ignore - html2pdf.js n'a pas toujours de types disponibles selon l'installation.
+  const mod = await import("html2pdf.js");
+  const html2pdf = (mod as any).default || mod;
+
+  const iframe = document.createElement("iframe");
+  iframe.style.position = "fixed";
+  iframe.style.left = "-10000px";
+  iframe.style.top = "0";
+  iframe.style.width = "794px";
+  iframe.style.height = "1123px";
+  iframe.style.border = "0";
+  iframe.style.opacity = "0";
+  iframe.setAttribute("aria-hidden", "true");
+
+  document.body.appendChild(iframe);
 
   try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        apikey: anonKey,
-        authorization: `Bearer ${anonKey}`,
-        "content-type": "application/json",
-        "x-render-secret": renderSecret,
+    const loadPromise = waitForIframeLoad(iframe);
+
+    const doc = iframe.contentDocument;
+    if (!doc) throw new Error("Impossible de préparer le document PDF.");
+
+    doc.open();
+    doc.write(html);
+    doc.close();
+
+    await loadPromise;
+    await waitForFonts(doc);
+    await new Promise((resolve) => window.setTimeout(resolve, 250));
+
+    const target = doc.body;
+    if (!target) throw new Error("Contenu PEP introuvable pour le PDF.");
+
+    const options = {
+      margin: 0,
+      filename,
+      image: {
+        type: "jpeg",
+        quality: 0.98,
       },
-      signal: controller.signal,
-      body: JSON.stringify({
-        html,
-        filename,
-      }),
-    });
+      html2canvas: {
+        scale: 2,
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: "#ffffff",
+        logging: false,
+        windowWidth: 794,
+        windowHeight: Math.max(1123, target.scrollHeight || 1123),
+      },
+      jsPDF: {
+        unit: "pt",
+        format: "letter",
+        orientation: "portrait",
+        compress: true,
+      },
+      pagebreak: {
+        mode: ["css", "legacy"],
+        before: ".page:not(:first-child)",
+      },
+    };
 
-    if (!res.ok) {
-      const txt = await res.text().catch(() => "");
-      throw new Error(txt || "Erreur génération PDF");
-    }
-
-    return await res.blob();
+    return await html2pdf()
+      .set(options)
+      .from(target)
+      .outputPdf("blob");
   } finally {
-    window.clearTimeout(timer);
+    iframe.remove();
   }
 }
 
@@ -1240,39 +1277,17 @@ export default function PepFinal() {
   }
 
   async function renderPdfWithRetry(html: string, filename: string) {
-    let lastError: unknown = null;
+    setChecklistItem("pdf", "active", "Génération locale en cours");
+    setArchiveMessage("Génération du PDF localement dans le navigateur...");
 
-    for (let attempt = 1; attempt <= MAX_PDF_RENDER_ATTEMPTS; attempt++) {
-      try {
-        setChecklistItem(
-          "pdf",
-          "active",
-          attempt === 1
-            ? "Génération en cours"
-            : `Nouvelle tentative ${attempt}/${MAX_PDF_RENDER_ATTEMPTS}`
-        );
-        setArchiveMessage(
-          attempt === 1
-            ? "Génération du PDF en cours..."
-            : `Génération du PDF — tentative ${attempt}/${MAX_PDF_RENDER_ATTEMPTS}...`
-        );
-
-        const blob = await renderPepPdfBlob(html, filename);
-        setChecklistItem("pdf", "done", "PDF généré");
-        return blob;
-      } catch (e) {
-        lastError = e;
-
-        if (attempt >= MAX_PDF_RENDER_ATTEMPTS || !isRetryablePdfError(e)) {
-          setChecklistItem("pdf", "error", "Échec génération PDF");
-          throw e;
-        }
-
-        await delay(900 * attempt);
-      }
+    try {
+      const blob = await renderPepPdfBlobFromBrowser(html, filename);
+      setChecklistItem("pdf", "done", "PDF généré localement");
+      return blob;
+    } catch (e) {
+      setChecklistItem("pdf", "error", "Échec génération PDF locale");
+      throw e;
     }
-
-    throw lastError ?? new Error("Erreur génération PDF");
   }
 
   function handlePrint() {
