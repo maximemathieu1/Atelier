@@ -1172,7 +1172,7 @@ export default function PepFinal() {
     const { x, y } = getCanvasPoint(canvas, e);
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 4;
     ctx.strokeStyle = "#111827";
     ctx.beginPath();
     ctx.moveTo(x, y);
