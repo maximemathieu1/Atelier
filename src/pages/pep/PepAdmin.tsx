@@ -940,7 +940,7 @@ if (!payload) return;
     try {
       const { data, error } = await supabase
         .from("pep_regles_so")
-        .insert(payload)
+        .insert(payload as any)
         .select("*")
         .single();
 
@@ -966,7 +966,7 @@ if (!payload) return;
     try {
       const { error } = await supabase
         .from("pep_regles_so")
-        .update(payload)
+        .update(payload as any)
         .eq("id", selectedRegleId);
 
       if (error) throw error;

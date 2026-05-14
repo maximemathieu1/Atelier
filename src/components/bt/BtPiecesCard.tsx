@@ -8,8 +8,8 @@ export type Piece = {
   sku?: string | null;
   unite?: string | null;
   description: string;
-  quantite: number;
-  prix_unitaire: number;
+  quantite: number | string;
+  prix_unitaire: number | string;
   marge_pct_snapshot?: number | null;
   prix_facture_unitaire_snapshot?: number | null;
   total_facture_snapshot?: number | null;
@@ -23,6 +23,11 @@ type InventaireItem = {
   cout_unitaire: number | null;
   quantite: number | null;
   actif?: boolean | null;
+};
+
+type PieceCategorie = {
+  id: string;
+  nom: string;
 };
 
 type ScanLookupRow = {
@@ -78,9 +83,13 @@ function pct(v: number) {
   return `${Number(v || 0)} %`;
 }
 
-function toNum(value: string) {
+function toNum(value: unknown) {
   const n = Number(String(value ?? "").trim().replace(",", "."));
   return Number.isFinite(n) ? n : 0;
+}
+
+function isDecimalInput(value: string) {
+  return /^\d*([,.]\d*)?$/.test(value);
 }
 
 function toNullableText(value: string) {
@@ -88,12 +97,12 @@ function toNullableText(value: string) {
   return cleaned ? cleaned : null;
 }
 
-function toNumberOrZero(value: string) {
+function toNumberOrZero(value: unknown) {
   const n = Number(String(value ?? "").trim().replace(",", "."));
   return Number.isFinite(n) ? n : 0;
 }
 
-function toNullableNumber(value: string) {
+function toNullableNumber(value: unknown) {
   const cleaned = String(value ?? "").trim().replace(",", ".");
   if (!cleaned) return null;
   const n = Number(cleaned);
@@ -112,7 +121,7 @@ function makeQuickCreateForm(searchTerm = ""): QuickCreateForm {
     nom: text,
     categorie: "",
     quantite: "0",
-    unite: "UN",
+    unite: "",
     cout_unitaire: "0",
     seuil_alerte: "0",
     emplacement: "",
@@ -143,6 +152,7 @@ export default function BtPiecesCard({
   const [quickCreateForm, setQuickCreateForm] = useState<QuickCreateForm>(() =>
     makeQuickCreateForm()
   );
+  const [categories, setCategories] = useState<PieceCategorie[]>([]);
 
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const quickNameInputRef = useRef<HTMLInputElement | null>(null);
@@ -165,9 +175,28 @@ export default function BtPiecesCard({
     return () => clearTimeout(t);
   }, [quickCreateOpen]);
 
+  useEffect(() => {
+    async function loadCategories() {
+      try {
+        const { data, error } = await supabase
+          .from("pieces_categories")
+          .select("id, nom")
+          .order("nom", { ascending: true });
+
+        if (error) throw error;
+        setCategories((data || []) as PieceCategorie[]);
+      } catch (e) {
+        console.warn("Catégories de pièces non disponibles:", e);
+        setCategories([]);
+      }
+    }
+
+    void loadCategories();
+  }, []);
+
   function getPieceFactureU(p: Piece) {
     if (isBtOpenPricing) {
-      const coutU = Number(p.prix_unitaire || 0);
+      const coutU = toNum(p.prix_unitaire);
       return coutU * (1 + effectiveMargePiecesPct / 100);
     }
 
@@ -175,7 +204,7 @@ export default function BtPiecesCard({
       return Number(p.prix_facture_unitaire_snapshot || 0);
     }
 
-    const coutU = Number(p.prix_unitaire || 0);
+    const coutU = toNum(p.prix_unitaire);
     const margePct =
       p.marge_pct_snapshot != null
         ? Number(p.marge_pct_snapshot || 0)
@@ -192,14 +221,14 @@ export default function BtPiecesCard({
 
   function getPieceTotalFacture(p: Piece) {
     if (isBtOpenPricing) {
-      return Number(p.quantite || 0) * getPieceFactureU(p);
+      return toNum(p.quantite) * getPieceFactureU(p);
     }
 
     if (p.total_facture_snapshot != null) {
       return Number(p.total_facture_snapshot || 0);
     }
 
-    return Number(p.quantite || 0) * getPieceFactureU(p);
+    return toNum(p.quantite) * getPieceFactureU(p);
   }
 
   async function adjustInventoryStock(itemId: string, delta: number) {
@@ -455,8 +484,8 @@ export default function BtPiecesCard({
 
     const payload = pendingPieces.map((row) => {
       const description = String(row.description || "").trim();
-      const quantite = Number(row.quantite || 0);
-      const prix_unitaire = Number(row.prix_unitaire || 0);
+      const quantite = toNum(row.quantite);
+      const prix_unitaire = toNum(row.prix_unitaire);
 
       if (!description) {
         throw new Error(`Description requise pour ${row.sku || "la pièce manuelle"}.`);
@@ -493,7 +522,7 @@ export default function BtPiecesCard({
       if (error) throw error;
 
       for (const row of pendingPieces) {
-        const quantite = Number(row.quantite || 0);
+        const quantite = toNum(row.quantite);
         if (row.inventaire_item_id && Number.isFinite(quantite) && quantite > 0) {
           await adjustInventoryStock(row.inventaire_item_id, -quantite);
         }
@@ -513,8 +542,8 @@ export default function BtPiecesCard({
     if (!row) return;
 
     const description = String(row.description || "").trim();
-    const quantite = Number(row.quantite || 0);
-    const prix_unitaire = Number(row.prix_unitaire || 0);
+    const quantite = toNum(row.quantite);
+    const prix_unitaire = toNum(row.prix_unitaire);
 
     if (!description) return;
     if (!Number.isFinite(quantite) || quantite <= 0) return;
@@ -541,7 +570,7 @@ export default function BtPiecesCard({
       if (!dbRow) throw new Error("Ligne de pièce introuvable.");
 
       const originalQty = Number((dbRow as any).quantite || 0);
-      const newQty = Number(row.quantite || 0);
+      const newQty = toNum(row.quantite);
       const originalItemId = ((dbRow as any).inventaire_item_id as string | null) ?? null;
       const currentItemId = row.inventaire_item_id ?? null;
 
@@ -597,7 +626,7 @@ export default function BtPiecesCard({
       if (error) throw error;
 
       if (row.inventaire_item_id) {
-        await adjustInventoryStock(row.inventaire_item_id, Number(row.quantite || 0));
+        await adjustInventoryStock(row.inventaire_item_id, toNum(row.quantite));
       }
 
       await onReload(btId);
@@ -612,8 +641,8 @@ export default function BtPiecesCard({
 
   const modalLineTotal = useMemo(() => {
     return pendingPieces.reduce((sum, row) => {
-      const qty = Number(row.quantite || 0);
-      const cost = Number(row.prix_unitaire || 0);
+      const qty = toNum(row.quantite);
+      const cost = toNum(row.prix_unitaire);
       if (!Number.isFinite(qty) || !Number.isFinite(cost)) return sum;
       const factureU = cost * (1 + effectiveMargePiecesPct / 100);
       return sum + qty * factureU;
@@ -1017,11 +1046,17 @@ export default function BtPiecesCard({
                         <input
                           style={{ ...styles.input, minWidth: 110, width: "100%" }}
                           inputMode="decimal"
-                          value={String(p.prix_unitaire ?? 0)}
-                          onChange={(e) =>
-                            updatePieceLocal(p.id, { prix_unitaire: toNum(e.target.value) })
-                          }
-                          onBlur={() => autoSavePieceRow(p.id)}
+                          value={String(p.prix_unitaire ?? "")}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            if (isDecimalInput(value)) {
+                              updatePieceLocal(p.id, { prix_unitaire: value });
+                            }
+                          }}
+                          onBlur={() => {
+                            updatePieceLocal(p.id, { prix_unitaire: toNum(p.prix_unitaire) });
+                            void autoSavePieceRow(p.id);
+                          }}
                           disabled={isReadOnly || !piecesTableAvailable}
                         />
                       </td>
@@ -1161,14 +1196,21 @@ export default function BtPiecesCard({
 
                       <div>
                         <label style={styles.fieldLabel}>Catégorie</label>
-                        <input
+                        <select
                           style={{ ...styles.input, width: "100%", minWidth: 0 }}
                           value={quickCreateForm.categorie}
                           onChange={(e) =>
                             setQuickCreateForm((p) => ({ ...p, categorie: e.target.value }))
                           }
                           disabled={quickCreateSaving}
-                        />
+                        >
+                          <option value="">Sélectionner</option>
+                          {categories.map((cat) => (
+                            <option key={cat.id} value={cat.nom}>
+                              {cat.nom}
+                            </option>
+                          ))}
+                        </select>
                       </div>
 
                       <div>

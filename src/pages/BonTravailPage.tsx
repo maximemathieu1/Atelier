@@ -242,6 +242,51 @@ function parseDecimal(value: unknown) {
   return Number.parseFloat(cleaned);
 }
 
+
+function todayIso() {
+  return new Date().toISOString();
+}
+
+function isBtFromCurrentMonth(dateOuverture: string | null | undefined) {
+  if (!dateOuverture) return true;
+
+  const d = new Date(dateOuverture);
+  const now = new Date();
+
+  if (Number.isNaN(d.getTime())) return true;
+
+  return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+}
+
+function lastDayOfBtMonthIso(dateOuverture: string | null | undefined) {
+  const d = dateOuverture ? new Date(dateOuverture) : new Date();
+  const safe = Number.isNaN(d.getTime()) ? new Date() : d;
+
+  const lastDay = new Date(
+    safe.getFullYear(),
+    safe.getMonth() + 1,
+    0,
+    23,
+    59,
+    0,
+    0
+  );
+
+  return lastDay.toISOString();
+}
+
+function formatDateOnly(value: string | null | undefined) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+
+  return new Intl.DateTimeFormat("fr-CA", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  }).format(d);
+}
+
 export default function BonTravailPage() {
   const { id } = useParams();
   const nav = useNavigate();
@@ -301,6 +346,8 @@ export default function BonTravailPage() {
   const lastSavedHeaderRef = useRef<string>("");
 
   const [confirmTerminerOpen, setConfirmTerminerOpen] = useState(false);
+  const [closeDateModalOpen, setCloseDateModalOpen] = useState(false);
+  const [pendingCloseMode, setPendingCloseMode] = useState<"facturer" | "fermer" | null>(null);
   const [savingTerminer, setSavingTerminer] = useState(false);
 
   const [activeTab, setActiveTab] = useState<"details" | "documents">("details");
@@ -1646,7 +1693,7 @@ if (pepId) {
     await loadAll();
   }
 
-  async function handleTerminerBt(mode: "facturer" | "fermer") {
+  async function handleTerminerBt(mode: "facturer" | "fermer", forcedDateFermeture?: string) {
     if (!bt || !unite) return;
 
     if (Boolean(bt.verrouille) || isFacturedStatut(bt.statut)) {
@@ -1670,7 +1717,9 @@ if (pepId) {
       const noms = Array.from(
         new Set(activePointages.map((p) => String(p.mecano_nom || "Mécano").trim() || "Mécano"))
       ).join(", ");
-      alert(`Impossible de fermer ce bon de travail : mécano encore punché dessus.\n\n${noms}`);
+      alert(`Impossible de fermer ce bon de travail : mécano encore punché dessus.
+
+${noms}`);
       return;
     }
 
@@ -1684,7 +1733,7 @@ if (pepId) {
 
     const bon_commande = poInput.trim() || null;
     const date_ouverture = localToIsoOrNull(dateOuvertureInput);
-    const date_fermeture = localToIsoOrNull(dateFermetureInput) ?? new Date().toISOString();
+    const date_fermeture = forcedDateFermeture || localToIsoOrNull(dateFermetureInput) || todayIso();
     const nouveauStatut = mode === "facturer" ? "a_facturer" : "ferme";
 
     setSavingTerminer(true);
@@ -1730,12 +1779,29 @@ if (pepId) {
       );
 
       setConfirmTerminerOpen(false);
+      setCloseDateModalOpen(false);
+      setPendingCloseMode(null);
       await loadAll();
     } catch (e: any) {
       alert(e?.message || "Erreur fermeture BT");
     } finally {
       setSavingTerminer(false);
     }
+  }
+
+  function requestTerminerBt(mode: "facturer" | "fermer") {
+    if (!bt) return;
+
+    const dateReference = bt.date_ouverture || localToIsoOrNull(dateOuvertureInput);
+
+    if (!isBtFromCurrentMonth(dateReference)) {
+      setPendingCloseMode(mode);
+      setConfirmTerminerOpen(false);
+      setCloseDateModalOpen(true);
+      return;
+    }
+
+    void handleTerminerBt(mode, todayIso());
   }
 
   async function reopenBT() {
@@ -2798,7 +2864,7 @@ clientId={bt?.client_id || unite?.client_id || null}
                 <button
                   type="button"
                   style={styles.btnPrimary}
-                  onClick={() => handleTerminerBt("facturer")}
+                  onClick={() => requestTerminerBt("facturer")}
                   disabled={savingTerminer}
                 >
                   Envoyer à facturer
@@ -2807,7 +2873,7 @@ clientId={bt?.client_id || unite?.client_id || null}
                 <button
                   type="button"
                   style={styles.btn}
-                  onClick={() => handleTerminerBt("fermer")}
+                  onClick={() => requestTerminerBt("fermer")}
                   disabled={savingTerminer}
                 >
                   Fermer seulement
@@ -2817,6 +2883,70 @@ clientId={bt?.client_id || unite?.client_id || null}
                   type="button"
                   style={styles.btnDanger}
                   onClick={() => setConfirmTerminerOpen(false)}
+                  disabled={savingTerminer}
+                >
+                  Annuler
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+
+      {closeDateModalOpen && pendingCloseMode && bt && (
+        <div style={styles.modalBackdrop} onClick={() => setCloseDateModalOpen(false)}>
+          <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <h3 style={styles.modalTitle}>Date de fermeture</h3>
+              <button
+                type="button"
+                style={styles.iconCloseBtn}
+                onClick={() => {
+                  setCloseDateModalOpen(false);
+                  setPendingCloseMode(null);
+                }}
+                disabled={savingTerminer}
+              >
+                ×
+              </button>
+            </div>
+
+            <div style={styles.modalBody}>
+              <p style={{ marginTop: 0 }}>
+                Ce bon de travail appartient à un mois précédent.
+              </p>
+
+              <p style={{ ...styles.muted, marginBottom: 16 }}>
+                Choisis la date à utiliser pour la fermeture et la facturation.
+              </p>
+
+              <div style={{ display: "grid", gap: 10 }}>
+                <button
+                  type="button"
+                  style={styles.btnPrimary}
+                  onClick={() => handleTerminerBt(pendingCloseMode, lastDayOfBtMonthIso(bt.date_ouverture))}
+                  disabled={savingTerminer}
+                >
+                  Fermer au {formatDateOnly(lastDayOfBtMonthIso(bt.date_ouverture))}
+                </button>
+
+                <button
+                  type="button"
+                  style={styles.btn}
+                  onClick={() => handleTerminerBt(pendingCloseMode, todayIso())}
+                  disabled={savingTerminer}
+                >
+                  Fermer à la date actuelle
+                </button>
+
+                <button
+                  type="button"
+                  style={styles.btnDanger}
+                  onClick={() => {
+                    setCloseDateModalOpen(false);
+                    setPendingCloseMode(null);
+                  }}
                   disabled={savingTerminer}
                 >
                   Annuler

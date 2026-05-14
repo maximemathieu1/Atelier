@@ -194,10 +194,6 @@ html, body {
   padding-bottom:72px !important;
 }
 
- {
-  to { transform: rotate(360deg); }
-}
-
 @media print {
   html, body { background:#fff; }
   .page {
@@ -946,16 +942,6 @@ async function resumePepPdfIfAlreadyCompleted(
 }
 
 
-function waitForIframeLoad(iframe: HTMLIFrameElement) {
-  return new Promise<void>((resolve, reject) => {
-    const timer = window.setTimeout(() => reject(new Error("Chargement du HTML PEP trop long.")), 15000);
-
-    iframe.onload = () => {
-      window.clearTimeout(timer);
-      resolve();
-    };
-  });
-}
 
 async function waitForFonts(doc: Document) {
   const fonts = (doc as any).fonts;
@@ -967,21 +953,20 @@ async function waitForFonts(doc: Document) {
   }
 }
 
-async function renderPepPdfBlobFromBrowser(html: string, filename: string): Promise<Blob> {
+async function renderPepPdfBlobFromBrowser(html: string): Promise<Blob> {
   if (!html || !html.trim()) {
     throw new Error("HTML PEP vide. Impossible de générer le PDF.");
   }
 
-  // @ts-ignore - html2pdf.js n'a pas toujours de types disponibles selon l'installation.
-  const mod = await import("html2pdf.js");
-  const html2pdf = (mod as any).default || mod;
+  const { default: html2canvas } = await import("html2canvas");
+  const { jsPDF } = await import("jspdf");
 
   const iframe = document.createElement("iframe");
   iframe.style.position = "fixed";
   iframe.style.left = "-10000px";
   iframe.style.top = "0";
-  iframe.style.width = "794px";
-  iframe.style.height = "1123px";
+  iframe.style.width = "816px";
+  iframe.style.height = "1056px";
   iframe.style.border = "0";
   iframe.style.opacity = "0";
   iframe.setAttribute("aria-hidden", "true");
@@ -989,8 +974,6 @@ async function renderPepPdfBlobFromBrowser(html: string, filename: string): Prom
   document.body.appendChild(iframe);
 
   try {
-    const loadPromise = waitForIframeLoad(iframe);
-
     const doc = iframe.contentDocument;
     if (!doc) throw new Error("Impossible de préparer le document PDF.");
 
@@ -998,45 +981,75 @@ async function renderPepPdfBlobFromBrowser(html: string, filename: string): Prom
     doc.write(html);
     doc.close();
 
-    await loadPromise;
+    await new Promise<void>((resolve) => {
+      iframe.onload = () => resolve();
+      window.setTimeout(resolve, 600);
+    });
+
     await waitForFonts(doc);
     await new Promise((resolve) => window.setTimeout(resolve, 250));
 
-    const target = doc.body;
-    if (!target) throw new Error("Contenu PEP introuvable pour le PDF.");
+    const pepPages = Array.from(doc.querySelectorAll(".page")) as HTMLElement[];
 
-    const options = {
-      margin: 0,
-      filename,
-      image: {
-        type: "jpeg",
-        quality: 0.98,
-      },
-      html2canvas: {
+    if (!pepPages.length) {
+      throw new Error("Aucune page PEP trouvée pour générer le PDF.");
+    }
+
+    pepPages.forEach((page) => {
+      page.style.width = "816px";
+      page.style.height = "1056px";
+      page.style.minHeight = "1056px";
+      page.style.maxHeight = "1056px";
+      page.style.overflow = "hidden";
+      page.style.background = "#ffffff";
+      page.style.boxSizing = "border-box";
+    });
+
+    const pdf = new jsPDF({
+      orientation: "portrait",
+      unit: "pt",
+      format: "letter",
+      compress: true,
+    });
+
+    const pdfWidth = 612;
+    const pdfHeight = 792;
+    const marginX = 18;
+    const marginTop = 22;
+    const marginBottom = 22;
+    const renderWidth = pdfWidth - marginX * 2;
+    const renderHeight = pdfHeight - marginTop - marginBottom;
+
+    for (let i = 0; i < pepPages.length; i++) {
+      const canvas = await html2canvas(pepPages[i], {
         scale: 2,
         useCORS: true,
         allowTaint: true,
         backgroundColor: "#ffffff",
         logging: false,
-        windowWidth: 794,
-        windowHeight: Math.max(1123, target.scrollHeight || 1123),
-      },
-      jsPDF: {
-        unit: "pt",
-        format: "letter",
-        orientation: "portrait",
-        compress: true,
-      },
-      pagebreak: {
-        mode: ["css", "legacy"],
-        before: ".page:not(:first-child)",
-      },
-    };
+        width: 816,
+        height: 1056,
+        windowWidth: 816,
+        windowHeight: 1056,
+      });
 
-    return await html2pdf()
-      .set(options)
-      .from(target)
-      .outputPdf("blob");
+      const imgData = canvas.toDataURL("image/jpeg", 0.98);
+
+      if (i > 0) {
+        pdf.addPage("letter", "portrait");
+      }
+
+      pdf.addImage(
+        imgData,
+        "JPEG",
+        marginX,
+        marginTop,
+        renderWidth,
+        renderHeight
+      );
+    }
+
+    return pdf.output("blob");
   } finally {
     iframe.remove();
   }
@@ -1276,12 +1289,12 @@ export default function PepFinal() {
     );
   }
 
-  async function renderPdfWithRetry(html: string, filename: string) {
+  async function renderPdfWithRetry(html: string) {
     setChecklistItem("pdf", "active", "Génération locale en cours");
     setArchiveMessage("Génération du PDF localement dans le navigateur...");
 
     try {
-      const blob = await renderPepPdfBlobFromBrowser(html, filename);
+      const blob = await renderPepPdfBlobFromBrowser(html);
       setChecklistItem("pdf", "done", "PDF généré localement");
       return blob;
     } catch (e) {
@@ -1481,7 +1494,7 @@ export default function PepFinal() {
         return;
       }
 
-      const pdfBlob = await renderPdfWithRetry(printHtml, pepPdfFilename);
+      const pdfBlob = await renderPdfWithRetry(printHtml);
 
       setChecklistItem("upload", "active", "Envoi dans Storage");
       setArchiveMessage("Envoi du PDF dans les documents du BT...");
@@ -1579,7 +1592,7 @@ export default function PepFinal() {
         return;
       }
 
-      const pdfBlob = await renderPdfWithRetry(printHtml, archiveContext.pepPdfFilename);
+      const pdfBlob = await renderPdfWithRetry(printHtml);
 
       setChecklistItem("upload", "active", "Envoi dans Storage");
       const storagePath = await uploadPepPdfToBt(
