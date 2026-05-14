@@ -26,6 +26,14 @@ type Client = {
   nom: string;
 };
 
+type ClientContact = {
+  id: string;
+  nom: string | null;
+  courriel: string | null;
+  principal?: boolean | null;
+  type_facturation?: boolean | null;
+};
+
 type ClientConfig = {
   id: string;
   client_id: string;
@@ -353,6 +361,15 @@ export default function BonTravailPage() {
   const [activeTab, setActiveTab] = useState<"details" | "documents">("details");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [documents, setDocuments] = useState<any[]>([]);
+  const [clientContacts, setClientContacts] = useState<ClientContact[]>([]);
+  const [selectedClientContactId, setSelectedClientContactId] = useState("");
+  const [sendDocsModalOpen, setSendDocsModalOpen] = useState(false);
+  const [sendingDocuments, setSendingDocuments] = useState(false);
+  const [sendToEmail, setSendToEmail] = useState("");
+  const [sendToName, setSendToName] = useState("");
+  const [sendCommentaire, setSendCommentaire] = useState("");
+  const [includeBtDocument, setIncludeBtDocument] = useState(true);
+  const [includePepDocument, setIncludePepDocument] = useState(false);
   const [documentsLoading, setDocumentsLoading] = useState(false);
   const [uploadingDocuments, setUploadingDocuments] = useState(false);
   const [draggingDocuments, setDraggingDocuments] = useState(false);
@@ -541,6 +558,10 @@ export default function BonTravailPage() {
     return Boolean(bt.verrouille) || isFacturedStatut(bt.statut) || isClosed;
   }, [bt, isClosed]);
 
+  const pepDocuments = useMemo(() => {
+    return documents.filter((d) => d?.type === "pep" || d?.source === "auto_pep");
+  }, [documents]);
+
   const currentHeaderSignature = useMemo(() => {
     const rawKm = kmInput.trim();
     const km = rawKm ? Number(rawKm) : null;
@@ -650,6 +671,30 @@ export default function BonTravailPage() {
     }
   }
 
+
+  async function loadClientContacts(clientId: string | null | undefined) {
+    if (!clientId) {
+      setClientContacts([]);
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from("client_contacts")
+        .select("id, nom, courriel, principal, type_facturation")
+        .eq("client_id", clientId)
+        .order("type_facturation", { ascending: false })
+        .order("principal", { ascending: false })
+        .order("nom", { ascending: true });
+
+      if (error) throw error;
+
+      setClientContacts((data || []) as ClientContact[]);
+    } catch (e) {
+      console.error("Erreur chargement contacts client:", e);
+      setClientContacts([]);
+    }
+  }
 
   async function loadAutorisations(btId: string) {
     try {
@@ -1233,6 +1278,7 @@ if (pepId) {
       }
 
       setClient(liveClient);
+      await loadClientContacts(unitRow.client_id);
       setClientCfg(liveCfg);
       setClientTauxRows(liveTaux);
       setParamEntreprise(liveParams);
@@ -2043,6 +2089,46 @@ ${noms}`);
     setMainOeuvre((rows) => rows.map((r) => (r.id === rowId ? { ...r, ...patch } : r)));
   }
 
+  async function sendDocumentsToClient() {
+    if (!bt) return;
+
+    if (!sendToEmail.trim()) {
+      alert("Adresse courriel requise.");
+      return;
+    }
+
+    if (!includeBtDocument && !includePepDocument) {
+      alert("Sélectionne au moins un document.");
+      return;
+    }
+
+    setSendingDocuments(true);
+
+    try {
+      const { data, error } = await supabase.functions.invoke("send-bt-documents", {
+        body: {
+          bt_id: bt.id,
+          to_email: sendToEmail.trim(),
+          to_name: sendToName.trim(),
+          include_bt: includeBtDocument,
+          include_pep: includePepDocument,
+          commentaire: sendCommentaire.trim(),
+        },
+      });
+
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+
+      alert("Documents envoyés avec succès.");
+      setSendDocsModalOpen(false);
+      setSendCommentaire("");
+    } catch (e: any) {
+      alert(e?.message || "Erreur lors de l'envoi.");
+    } finally {
+      setSendingDocuments(false);
+    }
+  }
+
   function handlePrint() {
     if (!bt || !unite) return;
 
@@ -2422,6 +2508,21 @@ ${noms}`);
                 Imprimer
               </button>
               <button
+                style={styles.btn}
+                onClick={() => {
+                  setSendToEmail("");
+                  setSendToName(snapshotClientNom || "");
+                  setIncludeBtDocument(true);
+                  setIncludePepDocument(pepDocuments.length > 0);
+                  setSendCommentaire("");
+                  setSelectedClientContactId("");
+                  setSendDocsModalOpen(true);
+                }}
+                disabled={loading}
+              >
+                Envoyer
+              </button>
+              <button
                 style={styles.btnPrimary}
                 onClick={() => setConfirmTerminerOpen(true)}
                 disabled={loading || Boolean(bt?.verrouille) || isFacturedStatut(bt?.statut) || !hasKmColumn}
@@ -2433,6 +2534,21 @@ ${noms}`);
             <>
               <button style={styles.btn} onClick={handlePrint} disabled={loading}>
                 Imprimer
+              </button>
+              <button
+                style={styles.btn}
+                onClick={() => {
+                  setSendToEmail("");
+                  setSendToName(snapshotClientNom || "");
+                  setIncludeBtDocument(true);
+                  setIncludePepDocument(pepDocuments.length > 0);
+                  setSendCommentaire("");
+                  setSelectedClientContactId("");
+                  setSendDocsModalOpen(true);
+                }}
+                disabled={loading}
+              >
+                Envoyer
               </button>
               <button
                 style={styles.btnPrimary}
@@ -2673,6 +2789,195 @@ clientId={bt?.client_id || unite?.client_id || null}
             </div>
           )}
         </>
+      )}
+
+      {sendDocsModalOpen && (
+        <div
+          style={styles.modalBackdrop}
+          onClick={() => {
+            if (!sendingDocuments) setSendDocsModalOpen(false);
+          }}
+        >
+          <div style={{ ...styles.modalCard, maxWidth: 700 }} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <h3 style={styles.modalTitle}>Envoyer des documents</h3>
+              <button
+                type="button"
+                style={styles.iconCloseBtn}
+                onClick={() => setSendDocsModalOpen(false)}
+                disabled={sendingDocuments}
+              >
+                ×
+              </button>
+            </div>
+
+            <div style={styles.modalBody}>
+              <div style={{ display: "grid", gap: 12 }}>
+                <div>
+                  <div style={{ fontWeight: 800, marginBottom: 6 }}>Nom du destinataire</div>
+                  <input
+                    style={{ ...styles.input, width: "100%", minWidth: 0 }}
+                    value={sendToName}
+                    onChange={(e) => setSendToName(e.target.value)}
+                    placeholder="Nom"
+                    disabled={sendingDocuments}
+                  />
+                </div>
+
+                <div>
+                  <div style={{ fontWeight: 800, marginBottom: 6 }}>Contact client</div>
+
+                  <select
+                    style={{
+                      ...styles.input,
+                      width: "100%",
+                      minWidth: 0,
+                      marginBottom: 10,
+                    }}
+                    value={selectedClientContactId}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setSelectedClientContactId(value);
+
+                      const found = clientContacts.find((c) => c.id === value);
+
+                      if (found) {
+                        setSendToEmail(String(found.courriel || ""));
+                        setSendToName(String(found.nom || ""));
+                      }
+                    }}
+                    disabled={sendingDocuments || clientContacts.length === 0}
+                  >
+                    <option value="">
+                      {clientContacts.length > 0
+                        ? "Choisir un contact"
+                        : "Aucun contact avec courriel"}
+                    </option>
+
+                    {clientContacts
+                      .filter((contact) => String(contact.courriel || "").trim())
+                      .map((contact) => (
+                        <option key={contact.id} value={contact.id}>
+                          {String(contact.nom || contact.courriel || "Contact")}
+                          {contact.courriel ? ` (${contact.courriel})` : ""}
+                          {contact.type_facturation ? " — Facturation" : contact.principal ? " — Principal" : ""}
+                        </option>
+                      ))}
+                  </select>
+
+                  <div style={{ fontWeight: 800, marginBottom: 6 }}>Courriel manuel</div>
+                  <input
+                    style={{ ...styles.input, width: "100%", minWidth: 0 }}
+                    value={sendToEmail}
+                    onChange={(e) => {
+                      setSendToEmail(e.target.value);
+                      setSelectedClientContactId("");
+                    }}
+                    placeholder="client@exemple.com"
+                    type="email"
+                    autoComplete="off"
+                    name="bt-client-email-manual"
+                    disabled={sendingDocuments}
+                  />
+                </div>
+
+                <div>
+                  <div style={{ fontWeight: 800, marginBottom: 8 }}>Documents à joindre</div>
+
+                  <div
+                    style={{
+                      display: "grid",
+                      gap: 10,
+                      padding: 14,
+                      border: "1px solid rgba(0,0,0,.08)",
+                      borderRadius: 12,
+                      background: "#f8fafc",
+                    }}
+                  >
+                    <label
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                        fontWeight: 700,
+                        cursor: sendingDocuments ? "default" : "pointer",
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={includeBtDocument}
+                        onChange={(e) => setIncludeBtDocument(e.target.checked)}
+                        disabled={sendingDocuments}
+                      />
+                      Bon de travail PDF
+                    </label>
+
+                    {pepDocuments.length > 0 ? (
+                      <label
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 10,
+                          fontWeight: 700,
+                          cursor: sendingDocuments ? "default" : "pointer",
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={includePepDocument}
+                          onChange={(e) => setIncludePepDocument(e.target.checked)}
+                          disabled={sendingDocuments}
+                        />
+                        PEP PDF ({pepDocuments.length})
+                      </label>
+                    ) : (
+                      <div style={{ fontSize: 13, color: "#666" }}>
+                        Aucun PEP disponible pour ce BT.
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <div style={{ fontWeight: 800, marginBottom: 6 }}>Commentaire (optionnel)</div>
+                  <textarea
+                    style={{
+                      ...styles.input,
+                      width: "100%",
+                      minWidth: 0,
+                      minHeight: 110,
+                      resize: "vertical",
+                    }}
+                    value={sendCommentaire}
+                    onChange={(e) => setSendCommentaire(e.target.value)}
+                    placeholder="Message additionnel..."
+                    disabled={sendingDocuments}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div style={styles.modalFooter}>
+              <button
+                type="button"
+                style={styles.btnDanger}
+                onClick={() => setSendDocsModalOpen(false)}
+                disabled={sendingDocuments}
+              >
+                Annuler
+              </button>
+
+              <button
+                type="button"
+                style={styles.btnPrimary}
+                onClick={sendDocumentsToClient}
+                disabled={sendingDocuments}
+              >
+                {sendingDocuments ? "Envoi..." : "Envoyer"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {taskModalOpen && (

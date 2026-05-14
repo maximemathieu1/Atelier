@@ -59,6 +59,7 @@ type BtRow = {
     km_status?: "ok" | "warning" | "anomaly" | string | null;
   } | null;
 };
+
 type Pointage = {
   id: string;
   bt_id: string;
@@ -198,9 +199,7 @@ async function resolveClientSnapshotsForUnite(unite: UniteRow) {
   const typeId = unite.type_unite_id ?? null;
   const specific = taux.find((r) => r.actif && r.type_unite_id === typeId);
 
-  const tauxHoraire = specific
-    ? Number(specific.taux_horaire || 0)
-    : Number(cfg?.taux_horaire || 0);
+  const tauxHoraire = specific ? Number(specific.taux_horaire || 0) : Number(cfg?.taux_horaire || 0);
 
   return {
     client_id: unite.client_id ?? null,
@@ -225,6 +224,7 @@ export default function OperationTempsReelPage() {
   const [kmInput, setKmInput] = useState("");
 
   const [previewUnite, setPreviewUnite] = useState<UniteRow | null>(null);
+  const [previewBt, setPreviewBt] = useState<BtRow | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
 
   const [activePointage, setActivePointage] = useState<Pointage | null>(null);
@@ -299,6 +299,26 @@ export default function OperationTempsReelPage() {
     () => employesActifs.find((e) => e.id === selectedEmployeId) ?? null,
     [employesActifs, selectedEmployeId]
   );
+
+  const unitPreviewText = previewBusy
+    ? "Chargement de l’unité..."
+    : previewUnite
+    ? [previewUnite.marque, previewUnite.modele, previewUnite.plaque ? `• ${previewUnite.plaque}` : null]
+        .filter(Boolean)
+        .join(" ")
+    : uniteInput.trim()
+    ? "Aucune unité trouvée"
+    : "Entrer un numéro d’unité";
+
+  const kmReferenceLabel = previewBt ? "KM actuel" : "Dernier KM";
+
+  const kmReferenceValue = previewBt?.km != null ? previewBt.km : previewUnite?.km_actuel ?? null;
+
+  const btStatusText = previewBt
+    ? `${previewBt.numero || "BT"} • ${statusLabel(previewBt.statut)}`
+    : previewUnite
+    ? "Aucun BT ouvert ce mois-ci"
+    : "—";
 
   async function hydrateBtRows(rows: any[]): Promise<Pointage[]> {
     const btIds = Array.from(new Set((rows || []).map((r) => r.bt_id).filter(Boolean)));
@@ -465,6 +485,7 @@ export default function OperationTempsReelPage() {
 
   useEffect(() => {
     refreshAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function findUniteByNo(noUnite: string) {
@@ -486,6 +507,7 @@ export default function OperationTempsReelPage() {
 
     if (!valeur) {
       setPreviewUnite(null);
+      setPreviewBt(null);
       return;
     }
 
@@ -493,50 +515,55 @@ export default function OperationTempsReelPage() {
     try {
       const unite = await findUniteByNo(valeur);
       setPreviewUnite(unite);
+
+      if (unite?.id) {
+        const btOuvert = await findOpenBtForUnite(unite.id);
+        setPreviewBt(btOuvert);
+      } else {
+        setPreviewBt(null);
+      }
     } catch {
       setPreviewUnite(null);
+      setPreviewBt(null);
     } finally {
       setPreviewBusy(false);
     }
   }
 
   async function findOpenBtForUnite(uniteId: string): Promise<BtRow | null> {
-  const today = new Date();
-  const currentMonth = today.getMonth() + 1;
-  const currentYear = today.getFullYear();
+    const today = new Date();
+    const currentMonth = today.getMonth() + 1;
+    const currentYear = today.getFullYear();
 
-  // 🔥 ON VA CHERCHER PRIORITAIREMENT LE BT DU MOIS
-  const { data, error } = await supabase
-    .from("bons_travail")
-    .select("id,numero,statut,date_ouverture,annee,mois,km,unite_id")
-    .eq("unite_id", uniteId)
-    .in("statut", ["a_faire", "en_cours", "ouvert"])
-    .eq("annee", currentYear)
-    .eq("mois", currentMonth)
-    .order("date_ouverture", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    const { data, error } = await supabase
+      .from("bons_travail")
+      .select("id,numero,statut,date_ouverture,annee,mois,km,unite_id")
+      .eq("unite_id", uniteId)
+      .in("statut", ["a_faire", "en_cours", "ouvert"])
+      .eq("annee", currentYear)
+      .eq("mois", currentMonth)
+      .order("date_ouverture", { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-  if (error) throw error;
+    if (error) throw error;
+    if (!data) return null;
 
-  // 👉 si aucun BT du mois → retourner null directement
-  if (!data) return null;
+    const bt = data as BtRow;
 
-  const bt = data as BtRow;
+    const { data: uniteData, error: uniteError } = await supabase
+      .from("unites")
+      .select("id,no_unite,marque,modele,plaque,km_actuel,km_updated_at,km_status")
+      .eq("id", bt.unite_id)
+      .maybeSingle();
 
-  const { data: uniteData, error: uniteError } = await supabase
-    .from("unites")
-    .select("id,no_unite,marque,modele,plaque,km_actuel,km_updated_at,km_status")
-    .eq("id", bt.unite_id)
-    .maybeSingle();
+    if (uniteError) throw uniteError;
 
-  if (uniteError) throw uniteError;
-
-  return {
-    ...bt,
-    unite: (uniteData as any) ?? null,
-  };
-}
+    return {
+      ...bt,
+      unite: (uniteData as any) ?? null,
+    };
+  }
 
   async function createBtForUnite(unite: UniteRow): Promise<BtRow> {
     const snapshots = await resolveClientSnapshotsForUnite(unite);
@@ -636,118 +663,115 @@ export default function OperationTempsReelPage() {
   }
 
   async function getOrCreateBtForUnite(noUnite: string, km: number | null) {
-  const unite = await findUniteByNo(noUnite);
+    const unite = await findUniteByNo(noUnite);
 
-  if (!unite) {
-    throw new Error("Aucune unité trouvée avec ce numéro.");
+    if (!unite) {
+      throw new Error("Aucune unité trouvée avec ce numéro.");
+    }
+
+    const today = new Date();
+    const currentMonth = today.getMonth() + 1;
+    const currentYear = today.getFullYear();
+
+    const modeComptable = String(unite.mode_comptable || "").trim().toLowerCase();
+
+    const isUniteInterne = modeComptable === "interne" || modeComptable === "interne ta";
+
+    let bt = await findOpenBtForUnite(unite.id);
+
+    if (bt && isUniteInterne) {
+      const isBtCurrentMonth = Number(bt.annee) === currentYear && Number(bt.mois) === currentMonth;
+
+      if (!isBtCurrentMonth) {
+        bt = null;
+      }
+    }
+
+    if (bt) {
+      if (bt.statut === "a_faire" || bt.statut === "ouvert") {
+        const { error: updateStatusErr } = await supabase
+          .from("bons_travail")
+          .update({ statut: "en_cours" })
+          .eq("id", bt.id);
+
+        if (updateStatusErr) throw updateStatusErr;
+        bt = { ...bt, statut: "en_cours" };
+      }
+    } else {
+      bt = await createBtForUnite(unite);
+    }
+
+    if (km != null && !Number.isNaN(km)) {
+      const ok = await enregistrerKmSurBt(bt.id, unite.id, km);
+      if (!ok) {
+        throw new Error("Démarrage annulé.");
+      }
+    }
+
+    return bt;
   }
 
-  const today = new Date();
-  const currentMonth = today.getMonth() + 1;
-  const currentYear = today.getFullYear();
+  async function demarrerPointage() {
+    const uniteNo = uniteInput.trim();
+    const nom = mecanoNom.trim();
+    const km = toNullableKm(kmInput);
 
-  const modeComptable = String(unite.mode_comptable || "").trim().toLowerCase();
+    if (!employeConnecte) {
+      alert("Aucun employé actif n'est lié au user connecté.");
+      return;
+    }
 
-  const isUniteInterne =
-    modeComptable === "interne" ||
-    modeComptable === "interne ta";
+    if (!nom) {
+      alert("Impossible d’identifier l’employé connecté.");
+      return;
+    }
 
-  let bt = await findOpenBtForUnite(unite.id);
+    if (!uniteNo) {
+      alert("Entre un numéro d’unité.");
+      return;
+    }
 
-  if (bt && isUniteInterne) {
-    const isBtCurrentMonth =
-      Number(bt.annee) === currentYear &&
-      Number(bt.mois) === currentMonth;
+    if (Number.isNaN(km)) {
+      alert("Le KM est invalide.");
+      return;
+    }
 
-    if (!isBtCurrentMonth) {
-      bt = null;
+    if (activePointage) {
+      alert("Un pointage est déjà actif pour cet employé.");
+      return;
+    }
+
+    setBusy(true);
+
+    try {
+      const bt = await getOrCreateBtForUnite(uniteNo, km);
+
+      const { error } = await supabase.from("bt_pointages").insert({
+        bt_id: bt.id,
+        employe_id: employeConnecte.id,
+        mecano_nom: nom,
+        started_at: nowIso(),
+        ended_at: null,
+        duration_minutes: null,
+        actif: true,
+        note: null,
+      });
+
+      if (error) throw error;
+
+      setUniteInput("");
+      setKmInput("");
+      setPreviewUnite(null);
+      setPreviewBt(null);
+      setUniteMenuOpen(false);
+
+      await refreshAll();
+    } catch (e: any) {
+      alert(e?.message ?? String(e));
+    } finally {
+      setBusy(false);
     }
   }
-
-  if (bt) {
-    if (bt.statut === "a_faire" || bt.statut === "ouvert") {
-      const { error: updateStatusErr } = await supabase
-        .from("bons_travail")
-        .update({ statut: "en_cours" })
-        .eq("id", bt.id);
-
-      if (updateStatusErr) throw updateStatusErr;
-      bt = { ...bt, statut: "en_cours" };
-    }
-  } else {
-    bt = await createBtForUnite(unite);
-  }
-
-  if (km != null && !Number.isNaN(km)) {
-    const ok = await enregistrerKmSurBt(bt.id, unite.id, km);
-    if (!ok) {
-      throw new Error("Démarrage annulé.");
-    }
-  }
-
-  return bt;
-}
-
-async function demarrerPointage() {
-  const uniteNo = uniteInput.trim();
-  const nom = mecanoNom.trim();
-  const km = toNullableKm(kmInput);
-
-  if (!employeConnecte) {
-    alert("Aucun employé actif n'est lié au user connecté.");
-    return;
-  }
-
-  if (!nom) {
-    alert("Impossible d’identifier l’employé connecté.");
-    return;
-  }
-
-  if (!uniteNo) {
-    alert("Entre un numéro d’unité.");
-    return;
-  }
-
-  if (Number.isNaN(km)) {
-    alert("Le KM est invalide.");
-    return;
-  }
-
-  if (activePointage) {
-    alert("Un pointage est déjà actif pour cet employé.");
-    return;
-  }
-
-  setBusy(true);
-
-  try {
-    const bt = await getOrCreateBtForUnite(uniteNo, km);
-
-    const { error } = await supabase.from("bt_pointages").insert({
-      bt_id: bt.id,
-      employe_id: employeConnecte.id,
-      mecano_nom: nom,
-      started_at: nowIso(),
-      ended_at: null,
-      duration_minutes: null,
-      actif: true,
-      note: null,
-    });
-
-    if (error) throw error;
-
-    setUniteInput("");
-    setKmInput("");
-    setPreviewUnite(null);
-    setUniteMenuOpen(false);
-
-    await refreshAll();
-  } catch (e: any) {
-    alert(e?.message ?? String(e));
-  } finally {
-    setBusy(false);
-  }
-}
 
   async function arreterPointage() {
     if (!activePointage) return;
@@ -906,9 +930,7 @@ async function demarrerPointage() {
 
   async function handleQuickLogout() {
     if (activePointage) {
-      const ok = window.confirm(
-        "Un pointage est encore actif pour cet employé. Veux-tu vraiment te déconnecter ?"
-      );
+      const ok = window.confirm("Un pointage est encore actif pour cet employé. Veux-tu vraiment te déconnecter ?");
       if (!ok) return;
     }
 
@@ -946,7 +968,7 @@ async function demarrerPointage() {
       position: "relative",
     },
     headerWrap: {
-      marginBottom: 18,
+      marginBottom: 16,
     },
     h1: {
       margin: 0,
@@ -958,73 +980,95 @@ async function demarrerPointage() {
       color: "rgba(0,0,0,.6)",
     },
     pageCenter: {
-      minHeight: "calc(100vh - 210px)",
+      display: "flex",
+      alignItems: "flex-start",
+      justifyContent: "center",
+      padding: "8px 0 18px",
+    },
+    operationShell: {
+      width: "100%",
+      background: "#fff",
+      border: "1px solid rgba(15,23,42,.08)",
+      borderRadius: 20,
+      boxShadow: "0 14px 42px rgba(15,23,42,.07)",
+      overflow: "hidden",
+    },
+    operationHeader: {
       display: "flex",
       alignItems: "center",
-      justifyContent: "center",
-      padding: "10px 0 22px",
+      justifyContent: "space-between",
+      gap: 14,
+      padding: "16px 18px",
+      background: "#f8fafc",
+      borderBottom: "1px solid rgba(15,23,42,.08)",
+      flexWrap: "wrap",
     },
-    centerCard: {
-      width: "100%",
-      maxWidth: 860,
-      background: "#fff",
-      border: "1px solid rgba(0,0,0,.08)",
-      borderRadius: 22,
-      boxShadow: "0 22px 60px rgba(0,0,0,.08)",
-      padding: 30,
-    },
-    centerTitle: {
+    operationTitle: {
       margin: 0,
-      textAlign: "center",
-      fontSize: 32,
+      fontSize: 20,
       fontWeight: 950,
-      letterSpacing: -0.5,
+      color: "#0f172a",
+      letterSpacing: -0.2,
     },
-    centerSub: {
-      marginTop: 8,
-      textAlign: "center",
-      color: "rgba(0,0,0,.6)",
-      fontSize: 15,
+    operationSub: {
+      marginTop: 4,
+      color: "rgba(15,23,42,.58)",
+      fontSize: 13,
+      fontWeight: 650,
     },
-    centerMeta: {
-      marginTop: 18,
+    operationHeaderActions: {
       display: "flex",
-      justifyContent: "center",
       gap: 10,
+      alignItems: "center",
       flexWrap: "wrap",
     },
     employePill: {
       display: "inline-flex",
       alignItems: "center",
       justifyContent: "center",
-      minHeight: 44,
-      padding: "10px 16px",
+      minHeight: 38,
+      padding: "8px 13px",
       borderRadius: 999,
       background: "rgba(37,99,235,.08)",
       border: "1px solid rgba(37,99,235,.15)",
       color: "#1d4ed8",
       fontWeight: 900,
-      fontSize: 14,
+      fontSize: 13,
+      whiteSpace: "nowrap",
     },
     switchInlineBtn: {
-  minHeight: 44,
-  padding: "0 18px",
-  borderRadius: 14,
-  border: "1.5px solid #ef4444",
-  background: "#fff",
-  color: "#dc2626",
-  fontWeight: 800,
-  fontSize: 14,
-  cursor: "pointer",
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-},
-    unitFormGrid: {
+      minHeight: 38,
+      padding: "0 14px",
+      borderRadius: 12,
+      border: "1.5px solid rgba(220,38,38,.35)",
+      background: "#fff",
+      color: "#dc2626",
+      fontWeight: 900,
+      fontSize: 13,
+      cursor: "pointer",
+      display: "inline-flex",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    operationBody: {
       display: "grid",
-      gridTemplateColumns: "minmax(0,1fr) 200px",
+      gridTemplateColumns: "minmax(0,1.25fr) minmax(280px,.75fr)",
+      gap: 0,
+    },
+    operationMain: {
+      padding: 18,
+      borderRight: "1px solid rgba(15,23,42,.08)",
+      minWidth: 0,
+    },
+    operationSide: {
+      padding: 18,
+      background: "linear-gradient(180deg,#ffffff 0%,#f8fafc 100%)",
+      minWidth: 0,
+    },
+    formGrid: {
+      display: "grid",
+      gridTemplateColumns: "minmax(0,1fr) 190px",
       gap: 14,
-      marginTop: 26,
       alignItems: "end",
     },
     inputBlock: {
@@ -1032,49 +1076,51 @@ async function demarrerPointage() {
     },
     fieldLabel: {
       fontSize: 12,
-      color: "rgba(0,0,0,.55)",
+      color: "rgba(15,23,42,.58)",
       marginBottom: 6,
-      fontWeight: 800,
+      fontWeight: 900,
       letterSpacing: 0.2,
     },
     unitInputWrap: {
       borderRadius: 16,
-      border: "1px solid rgba(0,0,0,.12)",
+      border: "1.5px solid rgba(15,23,42,.12)",
       background: "#fff",
-      minHeight: 78,
-      padding: "12px 16px",
+      minHeight: 74,
+      padding: "12px 14px",
       display: "flex",
       flexDirection: "column",
       justifyContent: "center",
-      boxShadow: "inset 0 1px 0 rgba(255,255,255,.7)",
+      boxShadow: "inset 0 1px 0 rgba(255,255,255,.85)",
     },
     unitMainInput: {
       width: "100%",
       border: "none",
       outline: "none",
       background: "transparent",
-      fontSize: 24,
+      fontSize: 28,
       fontWeight: 950,
-      letterSpacing: -0.2,
+      letterSpacing: -0.5,
       padding: 0,
       margin: 0,
-      lineHeight: 1.2,
+      lineHeight: 1.08,
+      color: "#0f172a",
     },
     unitSubText: {
-      marginTop: 4,
+      marginTop: 6,
       fontSize: 12,
-      color: "rgba(0,0,0,.58)",
+      color: "rgba(15,23,42,.58)",
       minHeight: 18,
       whiteSpace: "nowrap",
       overflow: "hidden",
       textOverflow: "ellipsis",
+      fontWeight: 700,
     },
     kmInputWrap: {
       borderRadius: 16,
-      border: "1px solid rgba(0,0,0,.12)",
+      border: "1.5px solid rgba(15,23,42,.12)",
       background: "#fff",
-      minHeight: 78,
-      padding: "12px 16px",
+      minHeight: 74,
+      padding: "12px 14px",
       display: "flex",
       flexDirection: "column",
       justifyContent: "center",
@@ -1084,144 +1130,213 @@ async function demarrerPointage() {
       border: "none",
       outline: "none",
       background: "transparent",
-      fontSize: 24,
-      fontWeight: 950,
-      letterSpacing: -0.2,
+      fontSize: 20,
+      fontWeight: 800,
+      letterSpacing: -0.1,
       padding: 0,
       margin: 0,
-      lineHeight: 1.2,
+      lineHeight: 1.1,
+      color: "rgba(15,23,42,.72)",
     },
     kmSubText: {
-      marginTop: 4,
+      marginTop: 6,
       fontSize: 12,
-      color: "rgba(0,0,0,.58)",
+      color: "rgba(15,23,42,.58)",
       minHeight: 18,
+      fontWeight: 700,
+    },
+    vehicleStrip: {
+      marginTop: 14,
+      display: "grid",
+      gridTemplateColumns: "repeat(4, minmax(0,1fr))",
+      gap: 10,
+    },
+    infoTile: {
+      borderRadius: 14,
+      border: "1px solid rgba(15,23,42,.08)",
+      background: "#f8fafc",
+      padding: 12,
+      minHeight: 70,
+    },
+    infoTileLabel: {
+      fontSize: 10,
+      color: "rgba(15,23,42,.52)",
+      fontWeight: 950,
+      textTransform: "uppercase",
+      letterSpacing: 0.4,
+      marginBottom: 5,
+    },
+    infoTileValue: {
+      fontSize: 14,
+      fontWeight: 950,
+      color: "#0f172a",
+      lineHeight: 1.25,
+      wordBreak: "break-word",
+    },
+    actionPanel: {
+      height: "100%",
+      display: "flex",
+      flexDirection: "column",
+      justifyContent: "space-between",
+      gap: 14,
+    },
+    readyBox: {
+      borderRadius: 16,
+      border: "1px solid rgba(37,99,235,.14)",
+      background: "rgba(37,99,235,.06)",
+      padding: 14,
+    },
+    readyLabel: {
+      fontSize: 11,
+      color: "#2563eb",
+      fontWeight: 950,
+      textTransform: "uppercase",
+      letterSpacing: 0.5,
+      marginBottom: 6,
+    },
+    readyUnit: {
+      fontSize: 34,
+      lineHeight: 1,
+      color: "#0f172a",
+      fontWeight: 950,
+      letterSpacing: -0.8,
+      marginBottom: 8,
+    },
+    readyText: {
+      color: "rgba(15,23,42,.64)",
+      fontSize: 13,
+      fontWeight: 750,
+      lineHeight: 1.35,
     },
     startButtonWrap: {
-      marginTop: 20,
       display: "flex",
-      justifyContent: "center",
+      justifyContent: "stretch",
     },
     bigPrimary: {
       width: "100%",
-      maxWidth: 420,
-      minHeight: 64,
+      minHeight: 62,
       borderRadius: 16,
       border: "1px solid #2563eb",
       background: "#2563eb",
       color: "#fff",
       fontWeight: 950,
-      fontSize: 19,
+      fontSize: 18,
       cursor: "pointer",
-      boxShadow: "0 12px 30px rgba(37,99,235,.24)",
+      boxShadow: "0 12px 28px rgba(37,99,235,.22)",
     },
     activeCard: {
       width: "100%",
-      maxWidth: 880,
       background: "#fff",
-      border: "1px solid rgba(0,0,0,.08)",
-      borderRadius: 22,
-      boxShadow: "0 22px 60px rgba(0,0,0,.08)",
-      padding: 30,
+      border: "1px solid rgba(15,23,42,.08)",
+      borderRadius: 20,
+      boxShadow: "0 14px 42px rgba(15,23,42,.07)",
+      overflow: "hidden",
     },
-    activeTopTitle: {
-      textAlign: "center",
-      fontSize: 32,
-      fontWeight: 950,
-      margin: 0,
-    },
-    activeTopSub: {
-      marginTop: 8,
-      textAlign: "center",
-      color: "rgba(0,0,0,.6)",
-      fontSize: 15,
-    },
-    activeMetaRow: {
-      marginTop: 16,
+    activeHeader: {
+      padding: "16px 18px",
+      background: "#f8fafc",
+      borderBottom: "1px solid rgba(15,23,42,.08)",
       display: "flex",
-      justifyContent: "center",
-      gap: 10,
+      justifyContent: "space-between",
+      alignItems: "center",
+      gap: 12,
       flexWrap: "wrap",
     },
+    activeTopTitle: {
+      fontSize: 22,
+      fontWeight: 950,
+      margin: 0,
+      color: "#0f172a",
+    },
+    activeTopSub: {
+      marginTop: 4,
+      color: "rgba(15,23,42,.58)",
+      fontSize: 13,
+      fontWeight: 650,
+    },
+    activeBody: {
+      padding: 18,
+      display: "grid",
+      gridTemplateColumns: "minmax(0,1fr) 340px",
+      gap: 16,
+    },
     activeUnitBox: {
-      marginTop: 24,
-      padding: 22,
+      padding: 20,
       borderRadius: 18,
       background: "rgba(37,99,235,.06)",
       border: "1px solid rgba(37,99,235,.16)",
-      textAlign: "center",
     },
     activeUnitLabel: {
       fontSize: 12,
-      color: "rgba(0,0,0,.55)",
-      marginBottom: 6,
-      fontWeight: 800,
+      color: "#2563eb",
+      marginBottom: 8,
+      fontWeight: 950,
+      textTransform: "uppercase",
+      letterSpacing: 0.5,
     },
     activeUnitValue: {
-      fontSize: 36,
+      fontSize: 44,
       fontWeight: 950,
-      lineHeight: 1.05,
-      letterSpacing: -0.5,
+      lineHeight: 1.02,
+      letterSpacing: -1,
+      color: "#0f172a",
     },
     activeUnitSub: {
-      marginTop: 8,
+      marginTop: 10,
       fontSize: 14,
-      color: "rgba(0,0,0,.68)",
-      fontWeight: 700,
+      color: "rgba(15,23,42,.68)",
+      fontWeight: 800,
     },
     activeStatsRow: {
-      marginTop: 18,
+      marginTop: 14,
       display: "grid",
       gridTemplateColumns: "1fr 1fr",
       gap: 12,
     },
     statCard: {
       borderRadius: 16,
-      border: "1px solid rgba(0,0,0,.08)",
-      background: "#fafafa",
-      padding: 16,
-      textAlign: "center",
+      border: "1px solid rgba(15,23,42,.08)",
+      background: "#fff",
+      padding: 14,
     },
     statLabel: {
-      fontSize: 12,
-      color: "rgba(0,0,0,.55)",
-      fontWeight: 800,
+      fontSize: 11,
+      color: "rgba(15,23,42,.52)",
+      fontWeight: 950,
       marginBottom: 6,
+      textTransform: "uppercase",
     },
     statValue: {
-      fontSize: 20,
+      fontSize: 18,
       fontWeight: 950,
       lineHeight: 1.15,
+      color: "#0f172a",
     },
     centeredActions: {
-      marginTop: 24,
       display: "grid",
-      gridTemplateColumns: "1fr 1fr",
-      gap: 16,
-      maxWidth: 560,
-      marginLeft: "auto",
-      marginRight: "auto",
+      gap: 12,
+      alignContent: "center",
     },
     bigSecondary: {
-      minHeight: 76,
-      borderRadius: 18,
-      border: "1px solid rgba(0,0,0,.14)",
+      minHeight: 58,
+      borderRadius: 16,
+      border: "1px solid rgba(15,23,42,.14)",
       background: "#fff",
       color: "#111827",
       fontWeight: 950,
-      fontSize: 19,
+      fontSize: 16,
       cursor: "pointer",
     },
     bigDanger: {
-      minHeight: 76,
-      borderRadius: 18,
+      minHeight: 58,
+      borderRadius: 16,
       border: "1px solid #dc2626",
       background: "#dc2626",
       color: "#fff",
       fontWeight: 950,
-      fontSize: 19,
+      fontSize: 16,
       cursor: "pointer",
-      boxShadow: "0 12px 28px rgba(220,38,38,.20)",
+      boxShadow: "0 12px 28px rgba(220,38,38,.18)",
     },
     warn: {
       background: "rgba(245,158,11,.10)",
@@ -1468,16 +1583,6 @@ async function demarrerPointage() {
     },
   };
 
-  const unitPreviewText = previewBusy
-    ? "Chargement de l’unité..."
-    : previewUnite
-    ? [previewUnite.marque, previewUnite.modele, previewUnite.plaque ? `• ${previewUnite.plaque}` : null]
-        .filter(Boolean)
-        .join(" ")
-    : uniteInput.trim()
-    ? "Aucune unité trouvée"
-    : "Entrer un numéro d’unité";
-
   return (
     <div style={styles.page}>
       <div style={styles.headerWrap}>
@@ -1493,178 +1598,211 @@ async function demarrerPointage() {
 
       <div style={styles.pageCenter}>
         {!activePointage ? (
-          <div style={styles.centerCard}>
-            <h1 style={styles.centerTitle}>Démarrer une opération</h1>
-            <div style={styles.centerSub}>Choisir une unité puis lancer le pointage</div>
-
-            <div style={styles.centerMeta}>
-              <div style={styles.employePill}>
-                Employé connecté : {employeConnecte?.nom_complet || "Non connecté"}
+          <div style={styles.operationShell}>
+            <div style={styles.operationHeader}>
+              <div>
+                <h2 style={styles.operationTitle}>Démarrer une opération</h2>
+                <div style={styles.operationSub}>Sélectionne l’unité, entre le KM au besoin, puis démarre le pointage.</div>
               </div>
 
-              <button type="button" style={styles.switchInlineBtn} onClick={openSwitchModal}>
-                Déconnexion
-              </button>
+              <div style={styles.operationHeaderActions}>
+                <div style={styles.employePill}>{employeConnecte?.nom_complet || "Non connecté"}</div>
+                <button type="button" style={styles.switchInlineBtn} onClick={openSwitchModal}>
+                  Déconnexion
+                </button>
+              </div>
             </div>
 
-            <div style={styles.unitFormGrid}>
-              <div style={styles.inputBlock}>
-                <div style={styles.fieldLabel}>Unité</div>
+            <div style={styles.operationBody}>
+              <div style={styles.operationMain}>
+                <div style={styles.formGrid}>
+                  <div style={styles.inputBlock}>
+                    <div style={styles.fieldLabel}>Unité</div>
 
-                <div style={{ position: "relative" }} data-unite-combobox="true">
-                  <div style={styles.unitInputWrap}>
-                    <input
-                      style={styles.unitMainInput}
-                      value={uniteInput}
-                      name="atelier-unite-field"
-                      autoComplete="off"
-                      autoCorrect="off"
-                      autoCapitalize="none"
-                      spellCheck={false}
-                      onFocus={() => setUniteMenuOpen(true)}
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        setUniteInput(v);
-                        setUniteMenuOpen(true);
-                        refreshPreviewUnite(v);
-                      }}
-                      placeholder="Choisis un véhicule"
-                      disabled={busy}
-                    />
-                    <div style={styles.unitSubText}>{unitPreviewText}</div>
-                  </div>
+                    <div style={{ position: "relative" }} data-unite-combobox="true">
+                      <div style={styles.unitInputWrap}>
+                        <input
+                          style={styles.unitMainInput}
+                          value={uniteInput}
+                          name="atelier-unite-field"
+                          autoComplete="off"
+                          autoCorrect="off"
+                          autoCapitalize="none"
+                          spellCheck={false}
+                          onFocus={() => setUniteMenuOpen(true)}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setUniteInput(v);
+                            setUniteMenuOpen(true);
+                            refreshPreviewUnite(v);
+                          }}
+                          placeholder="Numéro d’unité"
+                          disabled={busy}
+                        />
+                        <div style={styles.unitSubText}>{unitPreviewText}</div>
+                      </div>
 
-                  {uniteMenuOpen && (
-                    <div style={styles.unitDropdown}>
-                      {filteredUnites.length === 0 ? (
-                        <div style={styles.unitEmpty}>Aucun résultat</div>
-                      ) : (
-                        filteredUnites.map((u) => (
-                          <button
-                            key={u.id}
-                            type="button"
-                            style={styles.unitDropdownBtn}
-                            onClick={() => {
-                              const val = u.no_unite || "";
-                              setUniteInput(val);
-                              setPreviewUnite(u);
-                              setUniteMenuOpen(false);
-                              refreshPreviewUnite(val);
-                            }}
-                          >
-                            <div style={styles.unitDropdownMain}>{u.no_unite || "—"}</div>
-                            <div style={styles.unitDropdownSub}>
-                              {[u.marque, u.modele, u.plaque].filter(Boolean).join(" ")}
-                            </div>
-                          </button>
-                        ))
+                      {uniteMenuOpen && (
+                        <div style={styles.unitDropdown}>
+                          {filteredUnites.length === 0 ? (
+                            <div style={styles.unitEmpty}>Aucun résultat</div>
+                          ) : (
+                            filteredUnites.map((u) => (
+                              <button
+                                key={u.id}
+                                type="button"
+                                style={styles.unitDropdownBtn}
+                                onClick={() => {
+                                  const val = u.no_unite || "";
+                                  setUniteInput(val);
+                                  setPreviewUnite(u);
+                                  setUniteMenuOpen(false);
+                                  refreshPreviewUnite(val);
+                                }}
+                              >
+                                <div style={styles.unitDropdownMain}>{u.no_unite || "—"}</div>
+                                <div style={styles.unitDropdownSub}>{[u.marque, u.modele, u.plaque].filter(Boolean).join(" ")}</div>
+                              </button>
+                            ))
+                          )}
+                        </div>
                       )}
                     </div>
-                  )}
+                  </div>
+
+                  <div style={styles.inputBlock}>
+                    <div style={styles.fieldLabel}>Nouveau KM</div>
+                    <div style={styles.kmInputWrap}>
+                      <input
+                        style={styles.kmInput}
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        name="atelier-km-field"
+                        autoComplete="off"
+                        autoCorrect="off"
+                        autoCapitalize="none"
+                        spellCheck={false}
+                        value={kmInput}
+                        onChange={(e) => setKmInput(e.target.value.replace(/\D/g, ""))}
+                        placeholder="Optionnel"
+                        disabled={busy}
+                      />
+                      <div style={styles.kmSubText}>{kmReferenceLabel} : {previewBusy ? "..." : fmtKm(kmReferenceValue)}</div>
+                    </div>
+                  </div>
                 </div>
+
+                <div style={styles.vehicleStrip}>
+                  <div style={styles.infoTile}>
+                    <div style={styles.infoTileLabel}>Unité</div>
+                    <div style={styles.infoTileValue}>{previewUnite?.no_unite || uniteInput.trim() || "—"}</div>
+                  </div>
+                  <div style={styles.infoTile}>
+                    <div style={styles.infoTileLabel}>Véhicule</div>
+                    <div style={styles.infoTileValue}>{[previewUnite?.marque, previewUnite?.modele].filter(Boolean).join(" ") || "—"}</div>
+                  </div>
+                  <div style={styles.infoTile}>
+                    <div style={styles.infoTileLabel}>Plaque</div>
+                    <div style={styles.infoTileValue}>{previewUnite?.plaque || "—"}</div>
+                  </div>
+                  <div style={styles.infoTile}>
+                    <div style={styles.infoTileLabel}>{kmReferenceLabel}</div>
+                    <div style={styles.infoTileValue}>{fmtKm(kmReferenceValue)}</div>
+                  </div>
+                </div>
+
+                {previewUnite?.km_actuel != null &&
+                  kmInput.trim() !== "" &&
+                  Number.isFinite(Number(kmInput)) &&
+                  Number(kmInput) < Number(previewUnite.km_actuel) && (
+                    <div style={styles.warn}>
+                      Attention : le nouveau KM est inférieur à l’ancien KM enregistré de l’unité. Une confirmation sera demandée au démarrage.
+                    </div>
+                  )}
+
+                {!employeConnecte && !loading && <div style={styles.warn}>Aucun employé actif n'est lié au user connecté.</div>}
               </div>
 
-              <div style={styles.inputBlock}>
-                <div style={styles.fieldLabel}>Nouveau KM</div>
-                <div style={styles.kmInputWrap}>
-                  <input
-                    style={styles.kmInput}
-                    inputMode="numeric"
-                    name="atelier-km-field"
-                    autoComplete="off"
-                    autoCorrect="off"
-                    autoCapitalize="none"
-                    spellCheck={false}
-                    value={kmInput}
-                    onChange={(e) => setKmInput(e.target.value)}
-                    placeholder="Optionnel"
-                    disabled={busy}
-                  />
-                  <div style={styles.kmSubText}>
-                    Ancien KM : {previewBusy ? "..." : fmtKm(previewUnite?.km_actuel)}
+              <div style={styles.operationSide}>
+                <div style={styles.actionPanel}>
+                  <div style={styles.readyBox}>
+                    <div style={styles.readyLabel}>Prêt à démarrer</div>
+                    <div style={styles.readyUnit}>{previewUnite?.no_unite || uniteInput.trim() || "—"}</div>
+                    <div style={styles.readyText}>
+                      {previewBusy
+                        ? "Validation de l’unité en cours..."
+                        : previewUnite
+                        ? previewBt
+                          ? `BT du mois détecté : ${btStatusText}.`
+                          : "Aucun BT ouvert ce mois-ci. Le système créera un nouveau BT au démarrage."
+                        : uniteInput.trim()
+                        ? "Aucune unité ne correspond exactement à cette recherche."
+                        : "Aucune unité sélectionnée."}
+                    </div>
+                  </div>
+
+                  <div style={styles.startButtonWrap}>
+                    <button
+                      style={styles.bigPrimary}
+                      onClick={demarrerPointage}
+                      disabled={busy || !mecanoNom.trim() || !uniteInput.trim() || !employeConnecte}
+                    >
+                      {busy ? "Démarrage..." : "Démarrer"}
+                    </button>
                   </div>
                 </div>
               </div>
-            </div>
-
-            {previewUnite?.km_actuel != null &&
-              kmInput.trim() !== "" &&
-              Number.isFinite(Number(kmInput)) &&
-              Number(kmInput) < Number(previewUnite.km_actuel) && (
-                <div style={styles.warn}>
-                  Attention : le nouveau KM est inférieur à l’ancien KM enregistré de l’unité.
-                  Une confirmation sera demandée au démarrage.
-                </div>
-              )}
-
-            {!employeConnecte && !loading && (
-              <div style={styles.warn}>Aucun employé actif n'est lié au user connecté.</div>
-            )}
-
-            <div style={styles.startButtonWrap}>
-              <button
-                style={styles.bigPrimary}
-                onClick={demarrerPointage}
-                disabled={busy || !mecanoNom.trim() || !uniteInput.trim() || !employeConnecte}
-              >
-                {busy ? "Démarrage..." : "Démarrer"}
-              </button>
             </div>
           </div>
         ) : (
           <div style={styles.activeCard}>
-            <h1 style={styles.activeTopTitle}>Opération en cours</h1>
-            <div style={styles.activeTopSub}>Tu es actuellement pointé</div>
-
-            <div style={styles.activeMetaRow}>
-              <div style={styles.employePill}>
-                Employé connecté : {employeConnecte?.nom_complet || "Non connecté"}
+            <div style={styles.activeHeader}>
+              <div>
+                <h2 style={styles.activeTopTitle}>Opération en cours</h2>
+                <div style={styles.activeTopSub}>Pointage actif pour {employeConnecte?.nom_complet || "l’employé connecté"}</div>
               </div>
-              <button type="button" style={styles.switchInlineBtn} onClick={openSwitchModal}>
-                Changer d’employé
-              </button>
-            </div>
 
-            <div style={styles.activeUnitBox}>
-              <div style={styles.activeUnitLabel}>Unité en cours</div>
-              <div style={styles.activeUnitValue}>
-                {activePointage?.bons_travail?.unite?.no_unite || "—"}
-              </div>
-              <div style={styles.activeUnitSub}>
-                {activePointage?.bons_travail?.numero || "—"}
-                {activePointage?.bons_travail?.statut
-                  ? ` • ${statusLabel(activePointage.bons_travail.statut)}`
-                  : ""}
+              <div style={styles.operationHeaderActions}>
+                <div style={styles.employePill}>{employeConnecte?.nom_complet || "Non connecté"}</div>
+                <button type="button" style={styles.switchInlineBtn} onClick={openSwitchModal}>
+                  Changer d’employé
+                </button>
               </div>
             </div>
 
-            <div style={styles.activeStatsRow}>
-              <div style={styles.statCard}>
-                <div style={styles.statLabel}>Début</div>
-                <div style={styles.statValue}>
-                  {activePointage ? fmtDateTime(activePointage.started_at) : "—"}
+            <div style={styles.activeBody}>
+              <div>
+                <div style={styles.activeUnitBox}>
+                  <div style={styles.activeUnitLabel}>Unité en cours</div>
+                  <div style={styles.activeUnitValue}>{activePointage?.bons_travail?.unite?.no_unite || "—"}</div>
+                  <div style={styles.activeUnitSub}>
+                    {activePointage?.bons_travail?.numero || "—"}
+                    {activePointage?.bons_travail?.statut ? ` • ${statusLabel(activePointage.bons_travail.statut)}` : ""}
+                  </div>
+                </div>
+
+                <div style={styles.activeStatsRow}>
+                  <div style={styles.statCard}>
+                    <div style={styles.statLabel}>Début</div>
+                    <div style={styles.statValue}>{activePointage ? fmtDateTime(activePointage.started_at) : "—"}</div>
+                  </div>
+
+                  <div style={styles.statCard}>
+                    <div style={styles.statLabel}>Temps actif</div>
+                    <div style={styles.statValue}>{activePointage ? fmtDurationMinutes(activeElapsedMinutes) : "—"}</div>
+                  </div>
                 </div>
               </div>
 
-              <div style={styles.statCard}>
-                <div style={styles.statLabel}>Temps actif</div>
-                <div style={styles.statValue}>
-                  {activePointage ? fmtDurationMinutes(activeElapsedMinutes) : "—"}
-                </div>
+              <div style={styles.centeredActions}>
+                <button style={styles.bigSecondary} onClick={() => nav(`/bt-mecano/${activePointage.bt_id}`)}>
+                  Ouvrir le bon de travail
+                </button>
+
+                <button style={styles.bigDanger} onClick={arreterPointage} disabled={busy}>
+                  {busy ? "Arrêt..." : "Terminé"}
+                </button>
               </div>
-            </div>
-
-            <div style={styles.centeredActions}>
-              <button
-                style={styles.bigSecondary}
-                onClick={() => nav(`/bt-mecano/${activePointage.bt_id}`)}
-              >
-                Ouvrir le bon de travail
-              </button>
-
-              <button style={styles.bigDanger} onClick={arreterPointage} disabled={busy}>
-                {busy ? "Arrêt..." : "Arrêter"}
-              </button>
             </div>
           </div>
         )}
@@ -1697,13 +1835,9 @@ async function demarrerPointage() {
               ) : (
                 pointagesJour.map((p) => {
                   const btNumero = p.bons_travail?.numero || "(BT)";
-                  const uniteTxt = p.bons_travail?.unite?.no_unite
-                    ? `Unité ${p.bons_travail.unite.no_unite}`
-                    : "—";
+                  const uniteTxt = p.bons_travail?.unite?.no_unite ? `Unité ${p.bons_travail.unite.no_unite}` : "—";
 
-                  const duration = p.actif
-                    ? fmtDurationMinutes(diffMinutes(p.started_at, null))
-                    : fmtDurationMinutes(Number(p.duration_minutes || 0));
+                  const duration = p.actif ? fmtDurationMinutes(diffMinutes(p.started_at, null)) : fmtDurationMinutes(Number(p.duration_minutes || 0));
 
                   const menuOpen = rowMenuOpenId === p.id;
 
@@ -1716,13 +1850,7 @@ async function demarrerPointage() {
                       <td style={styles.td}>{duration}</td>
                       <td style={styles.td}>
                         <div style={styles.actionsWrap} onClick={(e) => e.stopPropagation()}>
-                          <button
-                            style={styles.btn}
-                            disabled={busy}
-                            onClick={() =>
-                              setRowMenuOpenId((current) => (current === p.id ? null : p.id))
-                            }
-                          >
+                          <button style={styles.btn} disabled={busy} onClick={() => setRowMenuOpenId((current) => (current === p.id ? null : p.id))}>
                             ...
                           </button>
 
@@ -1739,11 +1867,7 @@ async function demarrerPointage() {
                                 Ouvrir
                               </button>
 
-                              <button
-                                style={styles.actionMenuBtn}
-                                type="button"
-                                onClick={() => openEditModal(p)}
-                              >
+                              <button style={styles.actionMenuBtn} type="button" onClick={() => openEditModal(p)}>
                                 Modifier
                               </button>
 
@@ -1774,10 +1898,6 @@ async function demarrerPointage() {
         )}
       </div>
 
-      <button type="button" style={styles.switchFab} onClick={openSwitchModal}>
-        {employeConnecte?.nom_complet ? `Employé · ${employeConnecte.nom_complet}` : "Changer d’employé"}
-      </button>
-
       {editPointage && (
         <div style={styles.overlay} onClick={closeEditModal}>
           <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
@@ -1786,24 +1906,12 @@ async function demarrerPointage() {
             <div style={styles.modalBody}>
               <div>
                 <div style={styles.fieldLabel}>Heure de début</div>
-                <input
-                  type="datetime-local"
-                  style={styles.dateInput}
-                  value={editStartedAt}
-                  onChange={(e) => setEditStartedAt(e.target.value)}
-                  disabled={busy}
-                />
+                <input type="datetime-local" style={styles.dateInput} value={editStartedAt} onChange={(e) => setEditStartedAt(e.target.value)} disabled={busy} />
               </div>
 
               <div>
                 <div style={styles.fieldLabel}>Heure de fin</div>
-                <input
-                  type="datetime-local"
-                  style={styles.dateInput}
-                  value={editEndedAt}
-                  onChange={(e) => setEditEndedAt(e.target.value)}
-                  disabled={busy}
-                />
+                <input type="datetime-local" style={styles.dateInput} value={editEndedAt} onChange={(e) => setEditEndedAt(e.target.value)} disabled={busy} />
               </div>
             </div>
 
@@ -1825,9 +1933,7 @@ async function demarrerPointage() {
             <div style={styles.modalHeader}>
               <div>
                 <div>Changer d’employé</div>
-                <div style={styles.modalHeaderSub}>
-                  Sélection rapide sans revenir à la page de login
-                </div>
+                <div style={styles.modalHeaderSub}>Sélection rapide sans revenir à la page de login</div>
               </div>
             </div>
 
@@ -1837,9 +1943,7 @@ async function demarrerPointage() {
                 <input type="password" name="password" autoComplete="current-password" />
               </div>
 
-              <div style={styles.modalInfoCard}>
-                Employé actif : {employeConnecte?.nom_complet || "Aucun"}
-              </div>
+              <div style={styles.modalInfoCard}>Employé actif : {employeConnecte?.nom_complet || "Aucun"}</div>
 
               <div>
                 <div style={styles.fieldLabel}>Employé</div>
@@ -1882,32 +1986,18 @@ async function demarrerPointage() {
                 />
               </div>
 
-              {selectedEmploye?.email ? (
-                <div style={{ ...styles.muted, fontSize: 12 }}>
-                  Compte utilisé : {selectedEmploye.email}
-                </div>
-              ) : null}
+              {selectedEmploye?.email ? <div style={{ ...styles.muted, fontSize: 12 }}>Compte utilisé : {selectedEmploye.email}</div> : null}
 
               {switchError && <div style={styles.modalError}>{switchError}</div>}
             </div>
 
             <div style={styles.modalFooter}>
-              <button
-                type="button"
-                style={styles.btnDangerGhost}
-                onClick={handleQuickLogout}
-                disabled={switchBusy}
-              >
+              <button type="button" style={styles.btnDangerGhost} onClick={handleQuickLogout} disabled={switchBusy}>
                 Déconnecter
               </button>
 
               <div style={{ display: "flex", gap: 10 }}>
-                <button
-                  type="button"
-                  style={styles.btnBlue}
-                  onClick={handleQuickSwitch}
-                  disabled={switchBusy}
-                >
+                <button type="button" style={styles.btnBlue} onClick={handleQuickSwitch} disabled={switchBusy}>
                   {switchBusy ? "Connexion..." : "Entrer"}
                 </button>
               </div>

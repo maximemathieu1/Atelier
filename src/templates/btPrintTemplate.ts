@@ -6,17 +6,19 @@ const btPrintTemplate = `
 <title>Bon de travail</title>
 
 <style>
-* { box-sizing: border-box; }
+* {
+  box-sizing: border-box;
+  -webkit-print-color-adjust: exact !important;
+  print-color-adjust: exact !important;
+}
+
 @page { size: Letter; margin: 10mm; }
 
 :root{
-  --text:#111111;
-  --muted:#5f5f5f;
-  --line:#c9cdd3;
-  --card:#eceff3;
-  --card-header:#d7dde4;
-  --card-header-2:#cbd2da;
-  --black:#111111;
+  --blue:#1f3a5f;
+  --text:#1d2430;
+  --line:#cfd7e6;
+  --soft:#f7f9fc;
 }
 
 html, body {
@@ -28,28 +30,39 @@ html, body {
 body {
   font-family: Arial, Helvetica, sans-serif;
   color: var(--text);
-  font-size: 12px;
-  background: #ffffff;
+  font-size: 11px;
+  line-height: 1.25;
 }
 
 .page {
   padding: 2mm;
 }
 
+.brandbar{
+  background: var(--blue) !important;
+  color:#fff !important;
+  padding:6px 10px;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  font-size:11px;
+  font-weight:700;
+  margin-bottom: 12px;
+}
+
 .header {
   display: grid;
-  grid-template-columns: 1fr 250px;
-  gap: 24px;
+  grid-template-columns: 1fr 270px;
+  gap: 20px;
   align-items: start;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 
 .company-name {
-  font-size: 26px;
+  font-size: 28px;
   font-weight: 900;
-  color: var(--black);
+  color: var(--text);
   margin-bottom: 8px;
-  letter-spacing: -0.2px;
 }
 
 .company-meta {
@@ -59,22 +72,24 @@ body {
 }
 
 .doc-side {
-  text-align: right;
+  border: 2px solid #000;
+  padding: 10px 12px;
 }
 
 .doc-label {
+  text-align: center;
   font-size: 10px;
   font-weight: 800;
-  letter-spacing: 1.3px;
-  color: var(--muted);
+  letter-spacing: 1px;
   margin-bottom: 4px;
   text-transform: uppercase;
 }
 
 .doc-number {
+  text-align: center;
   font-size: 24px;
   font-weight: 900;
-  color: var(--black);
+  color: var(--text);
   margin-bottom: 10px;
 }
 
@@ -90,54 +105,39 @@ body {
 }
 
 .doc-meta .k {
-  color: var(--muted);
   font-weight: 700;
   text-align: left;
 }
 
 .doc-meta .v {
-  color: var(--black);
   font-weight: 800;
   text-align: right;
 }
 
 .section {
-  border: 1px solid var(--line);
   margin-bottom: 14px;
-  overflow: hidden;
-  background: #fff;
   break-inside: avoid;
   page-break-inside: avoid;
 }
 
 .section-h {
-  background: linear-gradient(180deg, var(--card-header) 0%, var(--card-header-2) 100%);
-  color: #1f1f1f;
-  padding: 9px 12px;
-  font-weight: 900;
-  font-size: 12px;
-  border-bottom: 1px solid var(--line);
+  background: var(--blue) !important;
+  color: #fff !important;
+  padding: 4px 6px;
+  font-weight: 700;
+  font-size: 11px;
 }
 
 .section-b {
-  padding: 10px 12px;
-  background: #ffffff;
-}
-
-.client-block {
-  margin-bottom: 10px;
-}
-
-.client-meta {
-  font-size: 11px;
-  line-height: 1.5;
-  color: #333333;
+  border: 1px solid var(--line);
+  padding: 8px;
+  background: #fff;
 }
 
 .vehicle-grid {
   display: grid;
-  grid-template-columns: 1.1fr 1fr 1.9fr 1fr;
-  gap: 16px;
+  grid-template-columns: 1fr 1fr 1.6fr 1fr;
+  gap: 8px;
   align-items: start;
 }
 
@@ -147,44 +147,48 @@ body {
 
 .vehicle-label {
   font-size: 10px;
+  font-weight: 700;
+  color: #555;
+  margin-bottom: 3px;
   text-transform: uppercase;
-  font-weight: 800;
-  color: var(--muted);
-  margin-bottom: 4px;
-  letter-spacing: .2px;
 }
 
 .vehicle-value {
-  font-size: 13px;
-  font-weight: 800;
-  color: var(--black);
+  font-size: 12px;
+  font-weight: 900;
+  color: var(--text);
+  border-bottom: 1px solid #000;
+  padding-bottom: 2px;
   word-break: break-word;
-  line-height: 1.25;
+  min-height: 18px;
 }
 
 .tbl {
   width: 100%;
   border-collapse: collapse;
+  table-layout: fixed;
 }
 
 .tbl th {
   text-align: left;
-  padding: 9px 11px;
-  background: linear-gradient(180deg, var(--card-header) 0%, var(--card-header-2) 100%);
-  color: #1f1f1f;
-  font-weight: 900;
-  font-size: 11px;
+  padding: 4px 6px;
+  background: #e9eef6 !important;
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-weight: 700;
+  font-size: 10px;
 }
 
 .tbl td {
-  padding: 10px 11px;
-  border-bottom: 1px solid var(--line);
-  color: var(--black);
+  padding: 5px 6px;
+  border: 1px solid var(--line);
+  color: var(--text);
   vertical-align: top;
+  font-size: 10.5px;
 }
 
-.tbl tr:last-child td {
-  border-bottom: none;
+.tbl tbody tr:nth-child(even) td {
+  background: var(--soft) !important;
 }
 
 .tbl td.amount,
@@ -197,45 +201,68 @@ body {
   text-align: center;
 }
 
-.totals-inline {
-  margin-top: 14px;
-  margin-left: auto;
-  width: 340px;
+.totals-wrap {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+.totals-box {
+  width: 320px;
   max-width: 100%;
 }
 
-.totals-inline table {
-  width: 100%;
-  border-collapse: collapse;
+.total-row {
+  display: grid;
+  grid-template-columns: 1fr 120px;
+  gap: 12px;
+  padding: 4px 0;
+  border-bottom: 1px solid #000;
+  font-size: 11px;
 }
 
-.totals-inline td {
-  padding: 7px 0;
-  border-bottom: 1px solid var(--line);
-  font-size: 12px;
+.total-row .label {
+  font-weight: 700;
 }
 
-.totals-inline td:last-child {
+.total-row .value {
   text-align: right;
   font-weight: 800;
 }
 
-.totals-inline tr:last-child td {
-  border-bottom: none;
+.total-final .label,
+.total-final .value {
+  font-size: 13px;
+  font-weight: 900;
 }
 
 .footer-note {
   margin-top: 18px;
-  padding-top: 8px;
-  border-top: 1px solid var(--line);
   font-size: 10px;
-  color: var(--muted);
-  text-align: center;
-  line-height: 1.5;
+  text-align: left;
+  color: #444;
 }
 
 @media print {
-  .page { padding: 0; }
+  html, body {
+    width: 216mm;
+    min-height: 279mm;
+    background: #ffffff !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .page {
+    padding: 0;
+  }
+
+  .brandbar,
+  .section-h,
+  .tbl th,
+  .tbl tbody tr:nth-child(even) td {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
 }
 </style>
 </head>
@@ -243,47 +270,41 @@ body {
 <body>
 <div class="page">
 
+  <div class="brandbar">
+    <div>GROUPE BRETON</div>
+    <div>BON DE TRAVAIL</div>
+  </div>
+
   <div class="header">
-  <div>
-    <div class="company-name">{{entreprise_nom_affiche}}</div>
-    <div class="company-meta">
-      <div>{{entreprise_adresse_l1}}</div>
-      <div>{{entreprise_ville}} {{entreprise_province}} {{entreprise_code_postal}}</div>
+    <div>
+      <div class="company-name">{{entreprise_nom_affiche}}</div>
+      <div class="company-meta">
+        <div>{{entreprise_adresse_l1}}</div>
+        <div>{{entreprise_ville}} {{entreprise_province}} {{entreprise_code_postal}}</div>
+      </div>
+    </div>
+
+    <div class="doc-side">
+      <div class="doc-label">Bon de travail</div>
+      <div class="doc-number">{{bt_numero}}</div>
+
+      <table class="doc-meta">
+        <tr>
+          <td class="k">Ouverture</td>
+          <td class="v">{{date_ouverture}}</td>
+        </tr>
+        <tr>
+          <td class="k">Fermeture</td>
+          <td class="v">{{date_fermeture}}</td>
+        </tr>
+        {{bon_commande_row}}
+      </table>
     </div>
   </div>
-
-  <div class="doc-side">
-    <div class="doc-number">{{bt_numero}}</div>
-
-    <table class="doc-meta">
-      <tr>
-        <td class="k">Ouverture</td>
-        <td class="v">{{date_ouverture}}</td>
-      </tr>
-      <tr>
-        <td class="k">Fermeture</td>
-        <td class="v">{{date_fermeture}}</td>
-      </tr>
-      <tr>
-        <td class="k">Statut</td>
-        <td class="v">{{bt_statut}}</td>
-      </tr>
-      {{bon_commande_row}}
-    </table>
-  </div>
-</div>
 
   <div class="section">
     <div class="section-h">{{client_nom}}</div>
     <div class="section-b">
-      <div class="client-block">
-        <div class="client-meta">
-          <div>{{client_adresse_l1}}</div>
-          <div>{{client_ville}}</div>
-          <div>{{client_telephone}}</div>
-        </div>
-      </div>
-
       <div class="vehicle-grid">
         <div class="vehicle-item">
           <div class="vehicle-label">Unité</div>
@@ -315,7 +336,7 @@ body {
         <thead>
           <tr>
             <th>Description</th>
-            <th class="center" style="width:160px;">Date</th>
+            <th class="center" style="width:150px;">Date</th>
           </tr>
         </thead>
         <tbody>
@@ -333,12 +354,12 @@ body {
       <table class="tbl">
         <thead>
           <tr>
-            <th style="width:120px;">SKU</th>
+            <th style="width:110px;">SKU</th>
             <th>Description</th>
-            <th class="center" style="width:70px;">Qté</th>
-            <th style="width:90px;">Unité</th>
-            <th class="amount" style="width:130px;">Prix</th>
-            <th class="amount" style="width:140px;">Total</th>
+            <th class="center" style="width:60px;">Qté</th>
+            <th style="width:80px;">Unité</th>
+            <th class="amount" style="width:110px;">Prix</th>
+            <th class="amount" style="width:120px;">Total</th>
           </tr>
         </thead>
         <tbody>
@@ -348,28 +369,28 @@ body {
     </div>
   </div>
 
-  <div style="margin-top: 14px;">
-  <div class="totals-inline">
-    <table>
-      <tr>
-        <td>Pièces</td>
-        <td>{{total_pieces}}</td>
-      </tr>
-      <tr>
-        <td>Main-d’œuvre ({{total_heures}} h)</td>
-        <td>{{total_main_oeuvre}}</td>
-      </tr>
-      <tr>
-        <td>Frais atelier</td>
-        <td>{{total_frais_atelier}}</td>
-      </tr>
-      <tr>
-        <td>Sous-total</td>
-        <td>{{total_general}}</td>
-      </tr>
-    </table>
-  </div>
-</div>
+  <div class="totals-wrap">
+    <div class="totals-box">
+      <div class="total-row">
+        <div class="label">Pièces</div>
+        <div class="value">{{total_pieces}}</div>
+      </div>
+
+      <div class="total-row">
+        <div class="label">Main-d’œuvre ({{total_heures}} h)</div>
+        <div class="value">{{total_main_oeuvre}}</div>
+      </div>
+
+      <div class="total-row">
+        <div class="label">Frais atelier</div>
+        <div class="value">{{total_frais_atelier}}</div>
+      </div>
+
+      <div class="total-row total-final">
+        <div class="label">Sous-total</div>
+        <div class="value">{{total_general}}</div>
+      </div>
+    </div>
   </div>
 
   <div class="footer-note">
