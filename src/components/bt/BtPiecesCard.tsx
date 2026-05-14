@@ -23,6 +23,8 @@ type InventaireItem = {
   cout_unitaire: number | null;
   quantite: number | null;
   actif?: boolean | null;
+  matched_by?: "sku" | "supersed" | null;
+  supersed_code?: string | null;
 };
 
 type PieceCategorie = {
@@ -269,7 +271,7 @@ export default function BtPiecesCard({
     setInventoryLoading(true);
 
     try {
-      const { data, error } = await supabase
+      const { data: directData, error: directError } = await supabase
         .from("inventaire_items")
         .select("id, sku, nom, unite, cout_unitaire, quantite, actif")
         .eq("actif", true)
@@ -277,8 +279,89 @@ export default function BtPiecesCard({
         .order("nom", { ascending: true })
         .limit(12);
 
-      if (error) throw error;
-      setInventoryResults((data || []) as InventaireItem[]);
+      if (directError) throw directError;
+
+      const directRows: InventaireItem[] = ((directData || []) as InventaireItem[]).map((row) => ({
+        ...row,
+        matched_by: "sku",
+        supersed_code: null,
+      }));
+
+      const { data: supersedData, error: supersedError } = await supabase
+        .from("inventaire_supersedes")
+        .select("item_id, sku_remplacement, nom_remplacement, note, actif")
+        .eq("actif", true)
+        .or(`sku_remplacement.ilike.%${q}%,nom_remplacement.ilike.%${q}%,note.ilike.%${q}%`)
+        .limit(12);
+
+      if (supersedError) throw supersedError;
+
+      const supersedRows = (supersedData || []) as Array<{
+        item_id: string;
+        sku_remplacement: string | null;
+        nom_remplacement: string | null;
+        note: string | null;
+        actif: boolean | null;
+      }>;
+
+      let supersedItems: InventaireItem[] = [];
+
+      if (supersedRows.length > 0) {
+        const itemIds = Array.from(
+          new Set(
+            supersedRows
+              .map((row) => row.item_id)
+              .filter(Boolean)
+          )
+        );
+
+        const { data: itemData, error: itemError } = await supabase
+          .from("inventaire_items")
+          .select("id, sku, nom, unite, cout_unitaire, quantite, actif")
+          .eq("actif", true)
+          .in("id", itemIds);
+
+        if (itemError) throw itemError;
+
+        const supersedByItemId = new Map(
+          supersedRows.map((row) => [
+            row.item_id,
+            row.sku_remplacement || row.nom_remplacement || row.note || "supersed",
+          ])
+        );
+
+        supersedItems = ((itemData || []) as InventaireItem[]).map((row) => ({
+          ...row,
+          matched_by: "supersed" as const,
+          supersed_code: supersedByItemId.get(row.id) || null,
+        }));
+      }
+
+      const merged: InventaireItem[] = [...directRows];
+
+      for (const item of supersedItems) {
+        const existingIndex = merged.findIndex((row) => row.id === item.id);
+
+        if (existingIndex >= 0) {
+          if (merged[existingIndex].matched_by !== "supersed") {
+            merged[existingIndex] = {
+              ...merged[existingIndex],
+              matched_by: "supersed",
+              supersed_code: item.supersed_code ?? null,
+            };
+          }
+
+          continue;
+        }
+
+        merged.push(item);
+      }
+
+      setInventoryResults(merged.slice(0, 12));
+
+      if (supersedItems.length > 0) {
+        setScanHint("Supersed détecté — la pièce courante est affichée dans les résultats.");
+      }
     } catch (e: any) {
       console.error("Erreur recherche inventaire:", e);
       alert(e?.message || "Erreur recherche inventaire");
@@ -1319,7 +1402,12 @@ export default function BtPiecesCard({
                         key={item.id}
                         type="button"
                         style={styles.resultBtn}
-                        onClick={() => chooseInventoryItem(item)}
+                        onClick={() =>
+                          chooseInventoryItem(
+                            item,
+                            item.matched_by === "supersed" ? "supersed" : null
+                          )
+                        }
                         disabled={isReadOnly || !piecesTableAvailable}
                       >
                         <div>
@@ -1329,6 +1417,13 @@ export default function BtPiecesCard({
                           Coût: {money(Number(item.cout_unitaire || 0))} • Stock:{" "}
                           {Number(item.quantite || 0)}
                         </div>
+
+                        {item.matched_by === "supersed" && (
+                          <div style={styles.badgeSupersed}>
+                            Supersed détecté
+                            {item.supersed_code ? ` : ${item.supersed_code}` : ""}
+                          </div>
+                        )}
                       </button>
                     ))}
                   </div>

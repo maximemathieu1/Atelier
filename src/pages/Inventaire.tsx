@@ -58,6 +58,8 @@ type SupersedRow = {
   created_at: string | null;
 };
 
+type SupersedSearchMap = Record<string, string>;
+
 type FormState = {
   id: string | null;
   sku: string;
@@ -165,6 +167,11 @@ function isMissingRelation(error: unknown) {
 export default function Inventaire() {
   const { openPrintBarcode } = useBarcodeLabels();
 
+  const [barcodeModalOpen, setBarcodeModalOpen] = useState(false);
+  const [barcodeItem, setBarcodeItem] = useState<InventaireItem | null>(null);
+  const [barcodeFormat, setBarcodeFormat] = useState("17x54");
+  const [barcodeQty, setBarcodeQty] = useState(1);
+
   const [items, setItems] = useState<InventaireItem[]>([]);
   const [categoriesOptions, setCategoriesOptions] = useState<PieceCategorieRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -195,6 +202,12 @@ export default function Inventaire() {
 
   const [supersedRows, setSupersedRows] = useState<SupersedRow[]>([]);
   const [supersedLoading, setSupersedLoading] = useState(false);
+  const [supersedSearchMap, setSupersedSearchMap] = useState<SupersedSearchMap>({});
+  const [supersedFormOpen, setSupersedFormOpen] = useState(false);
+  const [supersedSaving, setSupersedSaving] = useState(false);
+  const [supersedSku, setSupersedSku] = useState("");
+  const [supersedNom, setSupersedNom] = useState("");
+  const [supersedNote, setSupersedNote] = useState("");
 
   const [menuOpen, setMenuOpen] = useState<MenuState | null>(null);
 
@@ -318,9 +331,52 @@ export default function Inventaire() {
     setSupersedLoading(false);
   }
 
+  async function loadSupersedSearchMap() {
+    const { data, error } = await supabase
+      .from("inventaire_supersedes")
+      .select("item_id,sku_remplacement,nom_remplacement,note,actif")
+      .eq("actif", true);
+
+    if (error) {
+      console.error(error);
+
+      if (!isMissingRelation(error)) {
+        alert("Erreur lors du chargement des supersed pour la recherche.");
+      }
+
+      setSupersedSearchMap({});
+      return;
+    }
+
+    const next: SupersedSearchMap = {};
+
+    for (const row of (data ?? []) as Array<{
+      item_id: string;
+      sku_remplacement: string | null;
+      nom_remplacement: string | null;
+      note: string | null;
+      actif: boolean | null;
+    }>) {
+      const parts = [
+        row.sku_remplacement ?? "",
+        row.nom_remplacement ?? "",
+        row.note ?? "",
+      ]
+        .join(" ")
+        .trim();
+
+      if (!parts) continue;
+
+      next[row.item_id] = [next[row.item_id] ?? "", parts].join(" ").trim();
+    }
+
+    setSupersedSearchMap(next);
+  }
+
   useEffect(() => {
     loadItems();
     loadCategories();
+    loadSupersedSearchMap();
   }, []);
 
   useEffect(() => {
@@ -371,13 +427,14 @@ export default function Inventaire() {
         item.unite ?? "",
         item.emplacement ?? "",
         item.note ?? "",
+        supersedSearchMap[item.id] ?? "",
       ]
         .join(" ")
         .toLowerCase();
 
       return haystack.includes(q);
     });
-  }, [items, search, showLowStockOnly, statusFilter]);
+  }, [items, search, showLowStockOnly, statusFilter, supersedSearchMap]);
 
   function handleSort(key: SortKey) {
     if (sortKey === key) {
@@ -512,6 +569,10 @@ export default function Inventaire() {
     setDetailsTab("infos");
     setDetailsOpen(true);
     setMenuOpen(null);
+    setSupersedFormOpen(false);
+    setSupersedSku("");
+    setSupersedNom("");
+    setSupersedNote("");
 
     await Promise.all([
       loadHistory(item.id),
@@ -660,6 +721,85 @@ export default function Inventaire() {
     }
   }
 
+  function openSupersedForm() {
+    setSupersedSku("");
+    setSupersedNom("");
+    setSupersedNote("");
+    setSupersedFormOpen(true);
+  }
+
+  async function saveSupersed() {
+    if (!selectedItem) return;
+
+    const sku = supersedSku.trim();
+    const nom = supersedNom.trim();
+    const note = supersedNote.trim();
+
+    if (!sku && !nom) {
+      alert("Inscris au moins un SKU ou un nom de remplacement.");
+      return;
+    }
+
+    setSupersedSaving(true);
+
+    const { error } = await supabase.from("inventaire_supersedes").insert({
+      item_id: selectedItem.id,
+      sku_remplacement: sku || null,
+      nom_remplacement: nom || null,
+      note: note || null,
+      actif: true,
+    });
+
+    if (error) {
+      console.error(error);
+      alert("Erreur lors de l’ajout du supersed.");
+      setSupersedSaving(false);
+      return;
+    }
+
+    setSupersedSaving(false);
+    setSupersedFormOpen(false);
+    setSupersedSku("");
+    setSupersedNom("");
+    setSupersedNote("");
+
+    await loadSupersed(selectedItem.id);
+  }
+
+  async function deleteSupersed(row: SupersedRow) {
+    if (!selectedItem) return;
+
+    const label =
+      row.sku_remplacement ||
+      row.nom_remplacement ||
+      "ce supersed";
+
+    const ok = window.confirm(
+      `Supprimer ${label} des supersed de cette pièce?`
+    );
+
+    if (!ok) return;
+
+    const { error } = await supabase
+      .from("inventaire_supersedes")
+      .delete()
+      .eq("id", row.id);
+
+    if (error) {
+      console.error(error);
+      alert("Erreur lors de la suppression du supersed.");
+      return;
+    }
+
+    await loadSupersed(selectedItem.id);
+    await loadSupersedSearchMap();
+  }
+
+  function openBtInNewTab(btId: string | null | undefined) {
+    if (!btId) return;
+    window.open(`/bt/${btId}`, "_blank", "noopener,noreferrer");
+  }
+
   function renderSortArrow(key: SortKey) {
     if (sortKey !== key) return <span style={{ opacity: 0.35 }}>↕</span>;
     return <span>{sortDir === "asc" ? "↑" : "↓"}</span>;
@@ -779,9 +919,6 @@ export default function Inventaire() {
                     >
                       <span style={sortHeadInner}>Emplacement {renderSortArrow("emplacement")}</span>
                     </th>
-                    <th style={{ ...th, cursor: "pointer", userSelect: "none" }} onClick={() => handleSort("statut")}>
-                      <span style={sortHeadInner}>Statut {renderSortArrow("statut")}</span>
-                    </th>
                     <th style={thActions}>Actions</th>
                   </tr>
                 </thead>
@@ -797,23 +934,39 @@ const isLow = seuil > 0 && quantite <= seuil;
                     const bg = isLow ? "#fff8e1" : rowBg;
 
                     return (
-                      <tr key={item.id} style={{ background: bg }}>
-                        <td style={{ ...td, background: bg }}>{item.sku || "—"}</td>
-                        <td style={{ ...td, background: bg }}>{item.nom}</td>
+                      <tr
+                        key={item.id}
+                        style={{ background: bg }}
+                      >
+                        <td
+                          style={{
+                            ...td,
+                            background: bg,
+                            cursor: "pointer",
+                            fontWeight: 700,
+                          }}
+                          onDoubleClick={() => openDetails(item)}
+                        >
+                          {item.sku || "—"}
+                        </td>
+
+                        <td
+                          style={{
+                            ...td,
+                            background: bg,
+                            cursor: "pointer",
+                            fontWeight: 700,
+                          }}
+                          onDoubleClick={() => openDetails(item)}
+                        >
+                          {item.nom}
+                        </td>
                         <td style={{ ...td, background: bg }}>{item.categorie || "—"}</td>
                         <td style={{ ...tdRight, background: bg }}>{fmtQty(item.quantite)}</td>
                         <td style={{ ...td, background: bg }}>{item.unite || "—"}</td>
                         <td style={{ ...tdRight, background: bg }}>{fmtMoney(item.cout_unitaire)}</td>
                         <td style={{ ...tdRight, background: bg }}>{fmtQty(item.seuil_alerte)}</td>
                         <td style={{ ...td, background: bg }}>{item.emplacement || "—"}</td>
-
-                        <td style={{ ...td, background: bg }}>
-                          <span style={item.actif ? badgeActive : badgeInactive}>
-                            {item.actif ? "Actif" : "Inactif"}
-                          </span>
-                          {isLow && <span style={badgeLow}>Stock bas</span>}
-                        </td>
-
                         <td style={{ ...td, background: bg }}>
                           <div style={actionMenuWrap}>
                             <button
@@ -917,7 +1070,10 @@ const isLow = seuil > 0 && quantite <= seuil;
               type="button"
               style={dropdownItem}
               onClick={() => {
-                openPrintBarcode(menuItem);
+                setBarcodeItem(menuItem);
+                setBarcodeFormat("17x54");
+                setBarcodeQty(1);
+                setBarcodeModalOpen(true);
                 setMenuOpen(null);
               }}
             >
@@ -933,6 +1089,109 @@ const isLow = seuil > 0 && quantite <= seuil;
             </button>
           </div>
         </>
+      )}
+
+      {barcodeModalOpen && barcodeItem && (
+        <div style={modalBackdrop}>
+          <div
+            style={{
+              ...modalCard,
+              width: 420,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={modalHeader}>
+              <div>
+                <div style={{ fontSize: 20, fontWeight: 800 }}>
+                  Impression étiquette
+                </div>
+
+                <div
+                  style={{
+                    opacity: 0.65,
+                    marginTop: 4,
+                    fontSize: 13,
+                  }}
+                >
+                  {barcodeItem.nom}
+                </div>
+              </div>
+
+              <button
+                type="button"
+                style={btnClose}
+                onClick={() => setBarcodeModalOpen(false)}
+              >
+                ×
+              </button>
+            </div>
+
+            <div
+              style={{
+                padding: 18,
+                display: "grid",
+                gap: 14,
+              }}
+            >
+              <div>
+                <label style={label}>Format</label>
+
+                <select
+                  style={inputClassic}
+                  value={barcodeFormat}
+                  onChange={(e) => setBarcodeFormat(e.target.value)}
+                >
+                  <option value="17x54">17 x 54,3 mm</option>
+                  <option value="62x29">62 x 29 mm</option>
+                  <option value="62x38">62 x 38 mm</option>
+                  <option value="62x100">62 x 100 mm</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={label}>Quantité</label>
+
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  style={inputClassic}
+                  value={barcodeQty}
+                  onChange={(e) =>
+                    setBarcodeQty(
+                      Math.max(1, Math.min(100, Number(e.target.value) || 1))
+                    )
+                  }
+                />
+              </div>
+            </div>
+
+            <div style={modalFooter}>
+              <button
+                type="button"
+                style={btnDanger}
+                onClick={() => setBarcodeModalOpen(false)}
+              >
+                Annuler
+              </button>
+
+              <button
+                type="button"
+                style={btnPrimary}
+                onClick={() => {
+                  openPrintBarcode(barcodeItem, {
+                    format: barcodeFormat,
+                    qty: barcodeQty,
+                  });
+
+                  setBarcodeModalOpen(false);
+                }}
+              >
+                Imprimer
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {detailsOpen && selectedItem && (
@@ -1098,7 +1357,19 @@ const isLow = seuil > 0 && quantite <= seuil;
                               <tr key={row.id} style={{ background: rowBg }}>
                                 <td style={{ ...td, background: rowBg }}>{fmtDateTime(row.installed_at)}</td>
                                 <td style={{ ...td, background: rowBg }}>{row.unite || "—"}</td>
-                                <td style={{ ...td, background: rowBg }}>{row.bt_numero || "—"}</td>
+                                <td
+                                  style={{
+                                    ...td,
+                                    background: rowBg,
+                                    cursor: row.bt_id ? "pointer" : "default",
+                                    fontWeight: row.bt_id ? 700 : 400,
+                                    color: row.bt_id ? "#1d4ed8" : "#0f172a",
+                                  }}
+                                  title={row.bt_id ? "Double-cliquer pour ouvrir le BT" : undefined}
+                                  onDoubleClick={() => openBtInNewTab(row.bt_id)}
+                                >
+                                  {row.bt_numero || "—"}
+                                </td>
                                 <td style={{ ...tdRight, background: rowBg }}>{fmtQty(row.quantite)}</td>
                               </tr>
                             );
@@ -1112,9 +1383,99 @@ const isLow = seuil > 0 && quantite <= seuil;
 
               {detailsTab === "supersed" && (
                 <>
-                  <div style={tabIntroText}>
-                    Remplacements / numéros remplacés pour cette pièce.
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 12,
+                      marginBottom: 12,
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <div style={{ ...tabIntroText, marginBottom: 0 }}>
+                      Remplacements / numéros remplacés pour cette pièce.
+                    </div>
+
+                    {!supersedFormOpen && (
+                      <button
+                        type="button"
+                        style={btnPrimary}
+                        onClick={openSupersedForm}
+                      >
+                        + Ajouter
+                      </button>
+                    )}
                   </div>
+
+                  {supersedFormOpen && (
+                    <div style={supersedFormCard}>
+                      <div style={formGrid}>
+                        <div>
+                          <label style={label}>SKU remplacement</label>
+                          <input
+                            style={inputClassic}
+                            value={supersedSku}
+                            onChange={(e) => setSupersedSku(e.target.value)}
+                            autoComplete="off"
+                            spellCheck={false}
+                            placeholder="Ex.: 9006, ABS-955342..."
+                          />
+                        </div>
+
+                        <div>
+                          <label style={label}>Nom remplacement</label>
+                          <input
+                            style={inputClassic}
+                            value={supersedNom}
+                            onChange={(e) => setSupersedNom(e.target.value)}
+                            autoComplete="off"
+                            spellCheck={false}
+                            placeholder="Description optionnelle"
+                          />
+                        </div>
+
+                        <div style={{ gridColumn: "1 / -1" }}>
+                          <label style={label}>Note</label>
+                          <textarea
+                            style={{
+                              ...inputClassic,
+                              minHeight: 72,
+                              resize: "vertical",
+                            }}
+                            value={supersedNote}
+                            onChange={(e) => setSupersedNote(e.target.value)}
+                            placeholder="Note optionnelle"
+                          />
+                        </div>
+                      </div>
+
+                      <div style={supersedFormFooter}>
+                        <button
+                          type="button"
+                          style={btnDanger}
+                          disabled={supersedSaving}
+                          onClick={() => {
+                            setSupersedFormOpen(false);
+                            setSupersedSku("");
+                            setSupersedNom("");
+                            setSupersedNote("");
+                          }}
+                        >
+                          Annuler
+                        </button>
+
+                        <button
+                          type="button"
+                          style={btnPrimary}
+                          disabled={supersedSaving}
+                          onClick={saveSupersed}
+                        >
+                          {supersedSaving ? "Enregistrement..." : "Enregistrer"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
                   {supersedLoading ? (
                     <div style={emptyBox}>Chargement des supersed...</div>
@@ -1130,6 +1491,7 @@ const isLow = seuil > 0 && quantite <= seuil;
                             <th style={th}>Statut</th>
                             <th style={th}>Note</th>
                             <th style={th}>Ajouté le</th>
+                            <th style={thActions}>Actions</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -1146,6 +1508,17 @@ const isLow = seuil > 0 && quantite <= seuil;
                                 </td>
                                 <td style={{ ...td, background: rowBg }}>{row.note || "—"}</td>
                                 <td style={{ ...td, background: rowBg }}>{fmtDateTime(row.created_at)}</td>
+                                <td style={{ ...td, background: rowBg }}>
+                                  <div style={actionMenuWrap}>
+                                    <button
+                                      type="button"
+                                      style={btnMiniDanger}
+                                      onClick={() => deleteSupersed(row)}
+                                    >
+                                      Supprimer
+                                    </button>
+                                  </div>
+                                </td>
                               </tr>
                             );
                           })}
@@ -1511,11 +1884,6 @@ const badgeInactive: React.CSSProperties = {
   color: "#374151",
 };
 
-const badgeLow: React.CSSProperties = {
-  ...badgeBase,
-  background: "#fef3c7",
-  color: "#92400e",
-};
 
 const actionMenuWrap: React.CSSProperties = {
   display: "flex",
@@ -1639,6 +2007,17 @@ const btnDanger: React.CSSProperties = {
   ...btnBase,
   background: "#dc2626",
   color: "#fff",
+};
+
+const btnMiniDanger: React.CSSProperties = {
+  border: "1px solid #fecaca",
+  background: "#fff1f2",
+  color: "#991b1b",
+  borderRadius: 10,
+  padding: "7px 10px",
+  fontSize: 12,
+  fontWeight: 800,
+  cursor: "pointer",
 };
 
 const resultsText: React.CSSProperties = {
@@ -1789,6 +2168,21 @@ const formGrid: React.CSSProperties = {
   gridTemplateColumns: "1fr 1fr",
   gap: 14,
   padding: 18,
+};
+
+const supersedFormCard: React.CSSProperties = {
+  border: "1px solid #e2e8f0",
+  borderRadius: 14,
+  background: "#f8fafc",
+  marginBottom: 14,
+  overflow: "hidden",
+};
+
+const supersedFormFooter: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "flex-end",
+  gap: 10,
+  padding: "0 18px 18px 18px",
 };
 
 const modalFooter: React.CSSProperties = {
