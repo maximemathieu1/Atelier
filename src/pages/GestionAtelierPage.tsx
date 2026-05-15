@@ -121,6 +121,11 @@ type DurabiliteRow = {
   kmMoyen: number | null;
   kmMin: number | null;
   kmMax: number | null;
+  monthValues: number[];
+  moisMoyen: number | null;
+  moisMin: number | null;
+  moisMax: number | null;
+  anneesMoyennes: number | null;
   couts: number[];
   coutMoyen: number | null;
   scoreQualitePrix: number | null;
@@ -152,6 +157,11 @@ type ConfigCompareRow = {
   kmMoyen: number | null;
   kmMin: number | null;
   kmMax: number | null;
+  monthValues: number[];
+  moisMoyen: number | null;
+  moisMin: number | null;
+  moisMax: number | null;
+  anneesMoyennes: number | null;
 };
 
 function periodStart(period: PeriodKey) {
@@ -187,6 +197,32 @@ function fmtNumber(v: number | null | undefined) {
 function fmtKm(v: number | null | undefined) {
   if (v == null || !Number.isFinite(Number(v))) return "—";
   return `${fmtNumber(v)} km`;
+}
+
+function fmtMonths(v: number | null | undefined) {
+  if (v == null || !Number.isFinite(Number(v))) return "—";
+  const n = Math.round(Number(v));
+  return `${fmtNumber(n)} mois`;
+}
+
+function fmtYears(v: number | null | undefined) {
+  if (v == null || !Number.isFinite(Number(v))) return "—";
+  return `${Number(v).toLocaleString("fr-CA", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  })} an${Number(v) >= 2 ? "s" : ""}`;
+}
+
+function diffMonthsBetween(start: string | null | undefined, end: string | null | undefined) {
+  if (!start || !end) return null;
+  const a = new Date(start);
+  const b = new Date(end);
+  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return null;
+  if (b.getTime() < a.getTime()) return null;
+
+  const diffMs = b.getTime() - a.getTime();
+  const avgMonthMs = 1000 * 60 * 60 * 24 * 30.4375;
+  return Math.max(0, Math.round(diffMs / avgMonthMs));
 }
 
 function fmtDate(v: string | null | undefined) {
@@ -619,6 +655,11 @@ export default function GestionAtelierPage() {
           kmMoyen: null,
           kmMin: null,
           kmMax: null,
+          monthValues: [],
+          moisMoyen: null,
+          moisMin: null,
+          moisMax: null,
+          anneesMoyennes: null,
           couts: [],
           coutMoyen: null,
           scoreQualitePrix: null,
@@ -661,6 +702,9 @@ export default function GestionAtelierPage() {
           if (Number.isFinite(delta) && delta >= 0) stat.kmValues.push(delta);
         }
 
+        const mois = old ? diffMonthsBetween(eventDate(old), eventDate(ev)) : null;
+        if (mois != null && Number.isFinite(mois) && mois >= 0) stat.monthValues.push(mois);
+
         stat.installs += 1;
         installedByPosition.set(positionKey(ev), ev);
       }
@@ -673,6 +717,9 @@ export default function GestionAtelierPage() {
           const delta = Number(ev.km) - Number(old.km);
           if (Number.isFinite(delta) && delta >= 0) stat.kmValues.push(delta);
         }
+
+        const mois = old ? diffMonthsBetween(eventDate(old), eventDate(ev)) : null;
+        if (mois != null && Number.isFinite(mois) && mois >= 0) stat.monthValues.push(mois);
         installedByPosition.delete(positionKey(ev));
       }
     }
@@ -682,6 +729,11 @@ export default function GestionAtelierPage() {
       const kmMoyen = r.kmValues.length
         ? Math.round(kmSum / r.kmValues.length)
         : null;
+      const monthSum = r.monthValues.reduce((a, b) => a + b, 0);
+      const moisMoyen = r.monthValues.length
+        ? Math.round(monthSum / r.monthValues.length)
+        : null;
+      const anneesMoyennes = moisMoyen != null ? moisMoyen / 12 : null;
       const coutMoyen = r.couts.length
         ? r.couts.reduce((a, b) => a + b, 0) / r.couts.length
         : null;
@@ -700,6 +752,10 @@ export default function GestionAtelierPage() {
         kmMoyen,
         kmMin: r.kmValues.length ? Math.min(...r.kmValues) : null,
         kmMax: r.kmValues.length ? Math.max(...r.kmValues) : null,
+        moisMoyen,
+        moisMin: r.monthValues.length ? Math.min(...r.monthValues) : null,
+        moisMax: r.monthValues.length ? Math.max(...r.monthValues) : null,
+        anneesMoyennes,
         coutMoyen,
         scoreQualitePrix,
         coutPar10000Km,
@@ -768,6 +824,11 @@ export default function GestionAtelierPage() {
           kmMoyen: null,
           kmMin: null,
           kmMax: null,
+          monthValues: [],
+          moisMoyen: null,
+          moisMin: null,
+          moisMax: null,
+          anneesMoyennes: null,
         });
       }
       return grouped.get(label)!;
@@ -795,6 +856,9 @@ export default function GestionAtelierPage() {
           const delta = Number(ev.km) - Number(old.km);
           if (Number.isFinite(delta) && delta >= 0) row.kmValues.push(delta);
         }
+
+        const mois = old ? diffMonthsBetween(eventDate(old), eventDate(ev)) : null;
+        if (mois != null && Number.isFinite(mois) && mois >= 0) row.monthValues.push(mois);
         row.installs += 1;
         installedByPosition.set(positionKey(ev), ev);
       }
@@ -807,6 +871,9 @@ export default function GestionAtelierPage() {
           const delta = Number(ev.km) - Number(old.km);
           if (Number.isFinite(delta) && delta >= 0) row.kmValues.push(delta);
         }
+
+        const mois = old ? diffMonthsBetween(eventDate(old), eventDate(ev)) : null;
+        if (mois != null && Number.isFinite(mois) && mois >= 0) row.monthValues.push(mois);
         installedByPosition.delete(positionKey(ev));
       }
     }
@@ -814,6 +881,10 @@ export default function GestionAtelierPage() {
     return Array.from(grouped.values())
       .map((r) => {
         const kmSum = r.kmValues.reduce((a, b) => a + b, 0);
+        const monthSum = r.monthValues.reduce((a, b) => a + b, 0);
+        const moisMoyen = r.monthValues.length
+          ? Math.round(monthSum / r.monthValues.length)
+          : null;
         return {
           ...r,
           kmMoyen: r.kmValues.length
@@ -821,6 +892,10 @@ export default function GestionAtelierPage() {
             : null,
           kmMin: r.kmValues.length ? Math.min(...r.kmValues) : null,
           kmMax: r.kmValues.length ? Math.max(...r.kmValues) : null,
+          moisMoyen,
+          moisMin: r.monthValues.length ? Math.min(...r.monthValues) : null,
+          moisMax: r.monthValues.length ? Math.max(...r.monthValues) : null,
+          anneesMoyennes: moisMoyen != null ? moisMoyen / 12 : null,
         };
       })
       .sort((a, b) => Number(b.kmMoyen || 0) - Number(a.kmMoyen || 0));
@@ -1027,7 +1102,7 @@ export default function GestionAtelierPage() {
     },
     miniGrid: {
       display: "grid",
-      gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
+      gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
       gap: 10,
       marginTop: 10,
     },
@@ -1250,8 +1325,8 @@ export default function GestionAtelierPage() {
 
             <div style={styles.info}>
               Le rapport qualité/prix est calculé avec le KM moyen divisé par le
-              coût moyen de la pièce. Plus le score KM/$ est élevé, meilleur est
-              le rendement.
+              coût moyen de la pièce. La durée est calculée en mois et en années entre
+              l’installation et le remplacement/retrait.
             </div>
           </div>
 
@@ -1264,7 +1339,9 @@ export default function GestionAtelierPage() {
                 <th style={styles.th}>Install.</th>
                 <th style={styles.th}>Rempl.</th>
                 <th style={styles.th}>KM moyen</th>
-                <th style={styles.th}>Min / Max</th>
+                <th style={styles.th}>Durée moyenne</th>
+                <th style={styles.th}>Min / Max temps</th>
+                <th style={styles.th}>Min / Max KM</th>
                 <th style={styles.th}>Coût moyen</th>
                 <th style={styles.th}>KM / $</th>
                 <th style={styles.th}>Coût / 10k km</th>
@@ -1275,7 +1352,7 @@ export default function GestionAtelierPage() {
             <tbody>
               {durabiliteRows.length === 0 ? (
                 <tr>
-                  <td style={styles.td} colSpan={12}>
+                  <td style={styles.td} colSpan={14}>
                     <span style={styles.muted}>
                       Aucune donnée de durabilité pour la période.
                     </span>
@@ -1311,6 +1388,13 @@ export default function GestionAtelierPage() {
                     <td style={styles.td}>{fmtNumber(r.replacements)}</td>
                     <td style={styles.td}>
                       <b>{fmtKm(r.kmMoyen)}</b>
+                    </td>
+                    <td style={styles.td}>
+                      <b>{fmtMonths(r.moisMoyen)}</b>
+                      <div style={{ ...styles.muted, marginTop: 4 }}>{fmtYears(r.anneesMoyennes)}</div>
+                    </td>
+                    <td style={styles.td}>
+                      {fmtMonths(r.moisMin)} / {fmtMonths(r.moisMax)}
                     </td>
                     <td style={styles.td}>
                       {fmtKm(r.kmMin)} / {fmtKm(r.kmMax)}
@@ -1635,6 +1719,19 @@ export default function GestionAtelierPage() {
                 </div>
               </div>
               <div style={styles.kpi}>
+                <div style={styles.kpiLabel}>Durée moyenne</div>
+                <div style={styles.kpiValue}>
+                  {fmtMonths(selectedPiece.moisMoyen)}
+                </div>
+                <div style={styles.kpiSub}>{fmtYears(selectedPiece.anneesMoyennes)}</div>
+              </div>
+              <div style={styles.kpi}>
+                <div style={styles.kpiLabel}>Min / Max temps</div>
+                <div style={{ fontSize: 16, fontWeight: 950, marginTop: 6, color: "#0f172a" }}>
+                  {fmtMonths(selectedPiece.moisMin)} / {fmtMonths(selectedPiece.moisMax)}
+                </div>
+              </div>
+              <div style={styles.kpi}>
                 <div style={styles.kpiLabel}>Meilleur</div>
                 <div style={styles.kpiValue}>{fmtKm(selectedPiece.kmMax)}</div>
               </div>
@@ -1687,13 +1784,15 @@ export default function GestionAtelierPage() {
                     <th style={styles.th}>Installations</th>
                     <th style={styles.th}>Remplacements</th>
                     <th style={styles.th}>KM moyen</th>
-                    <th style={styles.th}>Min / Max</th>
+                    <th style={styles.th}>Durée moyenne</th>
+                    <th style={styles.th}>Min / Max temps</th>
+                    <th style={styles.th}>Min / Max KM</th>
                   </tr>
                 </thead>
                 <tbody>
                   {compareRows.length === 0 ? (
                     <tr>
-                      <td style={styles.td} colSpan={5}>
+                      <td style={styles.td} colSpan={7}>
                         <span style={styles.muted}>
                           Pas assez de données pour comparer.
                         </span>
@@ -1709,6 +1808,13 @@ export default function GestionAtelierPage() {
                         <td style={styles.td}>{fmtNumber(r.replacements)}</td>
                         <td style={styles.td}>
                           <b>{fmtKm(r.kmMoyen)}</b>
+                        </td>
+                        <td style={styles.td}>
+                          <b>{fmtMonths(r.moisMoyen)}</b>
+                          <div style={{ ...styles.muted, marginTop: 4 }}>{fmtYears(r.anneesMoyennes)}</div>
+                        </td>
+                        <td style={styles.td}>
+                          {fmtMonths(r.moisMin)} / {fmtMonths(r.moisMax)}
                         </td>
                         <td style={styles.td}>
                           {fmtKm(r.kmMin)} / {fmtKm(r.kmMax)}

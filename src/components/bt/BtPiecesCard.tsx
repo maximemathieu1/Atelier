@@ -109,6 +109,7 @@ type BtPiecesCardProps = {
   btId: string;
   uniteId?: string | null;
   btKm?: number | string | null;
+  btDateOuverture?: string | null;
   pieces: Piece[];
   setPieces: React.Dispatch<React.SetStateAction<Piece[]>>;
   isReadOnly: boolean;
@@ -220,6 +221,7 @@ export default function BtPiecesCard({
   btId,
   uniteId,
   btKm,
+  btDateOuverture,
   pieces,
   setPieces,
   isReadOnly,
@@ -240,6 +242,14 @@ export default function BtPiecesCard({
   const [suiviActifs, setSuiviActifs] = useState<PieceSuiviEvenement[]>([]);
   const [suiviLoading, setSuiviLoading] = useState(false);
   const [suiviError, setSuiviError] = useState<string | null>(null);
+  const [suiviInstallationMode, setSuiviInstallationMode] = useState(false);
+  const [localBtKm, setLocalBtKm] = useState<number | string | null>(
+    btKm ?? null,
+  );
+  const [kmInput, setKmInput] = useState("");
+  const [localBtDateOuverture, setLocalBtDateOuverture] = useState<
+    string | null
+  >(btDateOuverture ?? null);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [inventoryResults, setInventoryResults] = useState<InventaireItem[]>(
@@ -295,6 +305,46 @@ export default function BtPiecesCard({
 
     void loadCategories();
   }, []);
+
+  useEffect(() => {
+    setLocalBtKm(btKm ?? null);
+  }, [btKm]);
+
+  useEffect(() => {
+    if (btDateOuverture) {
+      setLocalBtDateOuverture(btDateOuverture);
+      return;
+    }
+
+    if (!btId) return;
+
+    let alive = true;
+
+    async function loadBtDateOuverture() {
+      try {
+        const { data, error } = await supabase
+          .from("bons_travail")
+          .select("date_ouverture")
+          .eq("id", btId)
+          .single();
+
+        if (error) throw error;
+        if (!alive) return;
+
+        setLocalBtDateOuverture(
+          String((data as any)?.date_ouverture || "") || null,
+        );
+      } catch {
+        if (alive) setLocalBtDateOuverture(null);
+      }
+    }
+
+    void loadBtDateOuverture();
+
+    return () => {
+      alive = false;
+    };
+  }, [btDateOuverture, btId]);
 
   useEffect(() => {
     if (!suiviModalOpen || !suiviItem) return;
@@ -582,6 +632,7 @@ export default function BtPiecesCard({
     setSuiviPendingKey(pendingKey);
     setSuiviAction("installation");
     setSuiviLocalisation("ignore");
+    setSuiviInstallationMode(false);
     setSuiviModalOpen(true);
     void loadSuivisActifsForItem(item);
   }
@@ -815,6 +866,46 @@ export default function BtPiecesCard({
     setSuiviPendingKey(null);
     setSuiviActifs([]);
     setSuiviError(null);
+    setSuiviInstallationMode(false);
+  }
+
+  function getEffectiveBtKm() {
+    return toNullableNumber(localBtKm ?? btKm ?? null);
+  }
+
+ 
+
+  function hasValidSuiviKm() {
+    const current = getEffectiveBtKm();
+    return current != null && current > 0;
+  }
+
+  function chooseExistingSuiviAction(
+    ev: PieceSuiviEvenement,
+    action: "remplacement" | "retrait" | "ignorer",
+  ) {
+    if (!suiviPendingKey) {
+      closeSuiviModal();
+      return;
+    }
+
+    if (action !== "ignorer" && !hasValidSuiviKm()) return;
+
+    updatePendingPiece(suiviPendingKey, {
+      suivi_action: action,
+      suivi_localisation:
+        action === "ignorer" ? "ignore" : ev.localisation || "ignore",
+      suivi_remplace_evenement_id:
+        action === "remplacement" || action === "retrait" ? ev.id : null,
+    });
+
+    closeSuiviModal();
+  }
+
+  function startNewInstallation() {
+    setSuiviAction("installation");
+    setSuiviInstallationMode(true);
+    setSuiviLocalisation("avant");
   }
 
   function confirmSuiviModal() {
@@ -822,6 +913,8 @@ export default function BtPiecesCard({
       closeSuiviModal();
       return;
     }
+
+    if (suiviAction !== "ignorer" && !hasValidSuiviKm()) return;
 
     const existing = activeEventForLocalisation(suiviLocalisation);
     const resolvedAction =
@@ -862,12 +955,10 @@ export default function BtPiecesCard({
       return;
     }
 
-    const kmValue = toNullableNumber(btKm ?? null);
+    const kmValue = getEffectiveBtKm();
 
     if (kmValue == null || kmValue <= 0) {
-      throw new Error(
-        "Impossible d’ajouter une pièce suivie sans KM au BT.",
-      );
+      throw new Error("Impossible d’ajouter une pièce suivie sans KM au BT.");
     }
 
     for (const row of rows) {
@@ -927,7 +1018,8 @@ export default function BtPiecesCard({
         sous_categorie_piece_id: row.sous_categorie_piece_id || null,
         localisation,
         action,
-        date_evenement: new Date().toISOString(),
+        date_evenement:
+          localBtDateOuverture || btDateOuverture || new Date().toISOString(),
         km: kmValue,
         actif: action !== "retrait",
         remplace_evenement_id: remplaceId,
@@ -1194,6 +1286,15 @@ export default function BtPiecesCard({
       color: "#fff",
       fontWeight: 900,
       cursor: "pointer",
+    },
+    btnDisabled: {
+      padding: "9px 12px",
+      borderRadius: 10,
+      border: "1px solid rgba(0,0,0,.10)",
+      background: "#e5e7eb",
+      color: "#9ca3af",
+      fontWeight: 900,
+      cursor: "not-allowed",
     },
     btnPlus: {
       width: 40,
@@ -2166,8 +2267,78 @@ export default function BtPiecesCard({
                 <div style={{ marginTop: 4 }}>
                   Type : {suiviItem.suivi_type || "—"}
                 </div>
-                <div style={{ marginTop: 4 }}>KM BT : {formatKm(btKm)}</div>
+                <div style={{ marginTop: 4 }}>
+                  KM BT : {formatKm(getEffectiveBtKm())}
+                </div>
               </div>
+
+              {!hasValidSuiviKm() && (
+  <div style={styles.warn}>
+    <div style={{ fontWeight: 950 }}>
+      KM du BT requis pour remplacer, retirer ou installer une pièce suivie.
+    </div>
+
+    <div style={{ ...styles.tiny, marginTop: 6, marginBottom: 10 }}>
+      Entre le KM dans le bon de travail pour activer les actions de suivi.
+    </div>
+
+    <div
+      style={{
+        display: "flex",
+        gap: 10,
+        alignItems: "center",
+        flexWrap: "wrap",
+      }}
+    >
+      <input
+        style={{
+          ...styles.input,
+          minWidth: 180,
+          flex: 1,
+          background: "#fff",
+        }}
+        inputMode="numeric"
+        placeholder="Entrer le KM"
+        value={kmInput}
+        onChange={(e) => {
+          setKmInput(e.target.value.replace(/\D/g, ""));
+        }}
+      />
+
+      <button
+        type="button"
+        style={styles.btnPrimary}
+        disabled={!kmInput}
+        onClick={async () => {
+          try {
+            const km = Number(kmInput || 0);
+
+            if (!km || km <= 0) {
+              alert("KM invalide.");
+              return;
+            }
+
+            const { error } = await supabase
+              .from("bons_travail")
+              .update({ km })
+              .eq("id", btId);
+
+            if (error) throw error;
+
+            setLocalBtKm(km);
+            setKmInput("");
+
+            await onReload(btId);
+          } catch (e: any) {
+            alert(e?.message || "Erreur enregistrement KM");
+          }
+        }}
+      >
+        Enregistrer le KM
+      </button>
+    </div>
+  </div>
+)}
 
               <div style={styles.suiviExistingBox}>
                 <div style={{ fontWeight: 950 }}>
@@ -2204,63 +2375,106 @@ export default function BtPiecesCard({
                         {formatDate(ev.date_evenement || ev.created_at)} •{" "}
                         {formatKm(ev.km)}
                       </div>
+
+                      <div style={{ ...styles.row, marginTop: 12 }}>
+                        <button
+                          type="button"
+                          style={hasValidSuiviKm() ? styles.btnPrimary : styles.btnDisabled}
+                          onClick={() => chooseExistingSuiviAction(ev, "remplacement")}
+                          disabled={!hasValidSuiviKm()}
+                        >
+                          Remplacer
+                        </button>
+                        <button
+                          type="button"
+                          style={hasValidSuiviKm() ? styles.btnDanger : styles.btnDisabled}
+                          onClick={() => chooseExistingSuiviAction(ev, "retrait")}
+                          disabled={!hasValidSuiviKm()}
+                        >
+                          Retirer
+                        </button>
+                        <button
+                          type="button"
+                          style={hasValidSuiviKm() ? styles.btn : styles.btnDisabled}
+                          onClick={() => chooseExistingSuiviAction(ev, "ignorer")}
+                          disabled={!hasValidSuiviKm()}
+                        >
+                          Ignorer cette fois
+                        </button>
+                      </div>
                     </div>
                   ))
                 )}
               </div>
 
-              {suiviLocalisation !== "ignore" &&
-              activeEventForLocalisation(suiviLocalisation) ? (
-                <div style={styles.warn}>
-                  Une pièce est déjà suivie à cette position. L’action sera
-                  traitée comme un remplacement.
-                </div>
-              ) : null}
-
-              <div>
-                <label style={styles.fieldLabel}>Action</label>
-                <select
-                  style={{ ...styles.input, width: "100%", minWidth: 0 }}
-                  value={suiviAction}
-                  onChange={(e) =>
-                    setSuiviAction(e.target.value as typeof suiviAction)
-                  }
-                >
-                  <option value="installation">Nouvelle installation</option>
-                  <option value="remplacement">Remplacement</option>
-                  <option value="retrait">Retrait</option>
-                  <option value="ignorer">Ignorer le suivi cette fois</option>
-                </select>
-              </div>
-
-              <div>
-                <label style={styles.fieldLabel}>Localisation</label>
-                <select
-                  style={{ ...styles.input, width: "100%", minWidth: 0 }}
-                  value={suiviLocalisation}
-                  onChange={(e) => setSuiviLocalisation(e.target.value)}
-                >
-                  {LOCALISATIONS_SUIVI.map((loc) => (
-                    <option key={loc.value} value={loc.value}>
-                      {loc.label}
-                      {activeEventForLocalisation(loc.value)
-                        ? " — déjà suivie"
-                        : ""}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div style={styles.modalFooter}>
-              <button
-                type="button"
-                style={styles.btn}
-                onClick={confirmSuiviModal}
+              <div
+                style={{
+                  borderTop: "1px solid rgba(0,0,0,.08)",
+                  paddingTop: 12,
+                }}
               >
-                Confirmer
-              </button>
+                {!suiviInstallationMode ? (
+                  <button
+                    type="button"
+                    style={hasValidSuiviKm() ? styles.btnPrimary : styles.btnDisabled}
+                    onClick={startNewInstallation}
+                    disabled={!hasValidSuiviKm()}
+                  >
+                    Nouvelle installation
+                  </button>
+                ) : (
+                  <div>
+                    <label style={styles.fieldLabel}>
+                      Localisation de la nouvelle installation
+                    </label>
+                    <select
+                      style={{ ...styles.input, width: "100%", minWidth: 0 }}
+                      value={suiviLocalisation}
+                      onChange={(e) => setSuiviLocalisation(e.target.value)}
+                    >
+                      {LOCALISATIONS_SUIVI.filter(
+                        (loc) => loc.value !== "ignore",
+                      ).map((loc) => (
+                        <option key={loc.value} value={loc.value}>
+                          {loc.label}
+                          {activeEventForLocalisation(loc.value)
+                            ? " — déjà suivie"
+                            : ""}
+                        </option>
+                      ))}
+                    </select>
+
+                    {suiviLocalisation !== "ignore" &&
+                    activeEventForLocalisation(suiviLocalisation) ? (
+                      <div style={styles.warn}>
+                        Une pièce est déjà suivie à cette position. L’action
+                        sera traitée comme un remplacement.
+                      </div>
+                    ) : null}
+                  </div>
+                )}
+              </div>
             </div>
+
+            {suiviInstallationMode ? (
+              <div style={styles.modalFooter}>
+                <button
+                  type="button"
+                  style={styles.btn}
+                  onClick={closeSuiviModal}
+                >
+                  Annuler
+                </button>
+                <button
+                  type="button"
+                  style={hasValidSuiviKm() ? styles.btnPrimary : styles.btnDisabled}
+                  onClick={confirmSuiviModal}
+                  disabled={!hasValidSuiviKm()}
+                >
+                  Confirmer
+                </button>
+              </div>
+            ) : null}
           </div>
         </div>
       )}
