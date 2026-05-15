@@ -11,6 +11,7 @@ type UniteRow = {
   modele: string | null;
   plaque: string | null;
   client_id: string | null;
+  client?: { nom: string | null } | { nom: string | null }[] | null;
   type_unite_id?: string | null;
   mode_comptable?: string | null;
   km_actuel?: number | null;
@@ -22,6 +23,12 @@ type ClientRow = {
   id: string;
   nom: string;
 };
+
+function getClientNom(unite: UniteRow | null | undefined) {
+  const client = unite?.client;
+  if (Array.isArray(client)) return client[0]?.nom || "";
+  return client?.nom || "";
+}
 
 type ClientConfigRow = {
   id: string;
@@ -285,12 +292,18 @@ export default function OperationTempsReelPage() {
 
     return unites
       .filter((u) => {
-        const no = String(u.no_unite || "").toLowerCase();
-        const marque = String(u.marque || "").toLowerCase();
-        const modele = String(u.modele || "").toLowerCase();
-        const plaque = String(u.plaque || "").toLowerCase();
+        const haystack = [
+          u.no_unite,
+          u.marque,
+          u.modele,
+          u.plaque,
+          getClientNom(u),
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
 
-        return no.includes(q) || marque.includes(q) || modele.includes(q) || plaque.includes(q);
+        return haystack.includes(q);
       })
       .slice(0, 25);
   }, [unites, uniteInput]);
@@ -455,7 +468,7 @@ export default function OperationTempsReelPage() {
   async function loadUnites() {
     const { data, error } = await supabase
       .from("unites")
-      .select("id,no_unite,marque,modele,plaque,client_id,type_unite_id,mode_comptable,km_actuel,km_updated_at,km_status")
+      .select("id,no_unite,marque,modele,plaque,client_id,type_unite_id,mode_comptable,km_actuel,km_updated_at,km_status,client:clients!unites_client_id_fkey(nom)")
       .order("no_unite", { ascending: true });
 
     if (error) throw error;
@@ -494,7 +507,7 @@ export default function OperationTempsReelPage() {
 
     const { data, error } = await supabase
       .from("unites")
-      .select("id,no_unite,marque,modele,plaque,client_id,type_unite_id,mode_comptable,km_actuel,km_updated_at,km_status")
+      .select("id,no_unite,marque,modele,plaque,client_id,type_unite_id,mode_comptable,km_actuel,km_updated_at,km_status,client:clients!unites_client_id_fkey(nom)")
       .eq("no_unite", valeur)
       .maybeSingle();
 
@@ -991,7 +1004,9 @@ export default function OperationTempsReelPage() {
       border: "1px solid rgba(15,23,42,.08)",
       borderRadius: 20,
       boxShadow: "0 14px 42px rgba(15,23,42,.07)",
-      overflow: "hidden",
+      overflow: "visible",
+      position: "relative",
+      zIndex: 1,
     },
     operationHeader: {
       display: "flex",
@@ -1054,11 +1069,17 @@ export default function OperationTempsReelPage() {
       display: "grid",
       gridTemplateColumns: "minmax(0,1.25fr) minmax(280px,.75fr)",
       gap: 0,
+      overflow: "visible",
+      position: "relative",
+      zIndex: 5,
     },
     operationMain: {
       padding: 18,
       borderRight: "1px solid rgba(15,23,42,.08)",
       minWidth: 0,
+      overflow: "visible",
+      position: "relative",
+      zIndex: 20,
     },
     operationSide: {
       padding: 18,
@@ -1070,9 +1091,12 @@ export default function OperationTempsReelPage() {
       gridTemplateColumns: "minmax(0,1fr) 190px",
       gap: 14,
       alignItems: "end",
+      overflow: "visible",
     },
     inputBlock: {
       minWidth: 0,
+      position: "relative",
+      zIndex: 60,
     },
     fieldLabel: {
       fontSize: 12,
@@ -1355,15 +1379,16 @@ export default function OperationTempsReelPage() {
       padding: 14,
       marginBottom: 14,
     },
-    tableCard: {
-      background: "#fff",
-      border: "1px solid rgba(0,0,0,.08)",
-      borderRadius: 18,
-      padding: 18,
-      boxShadow: "0 12px 34px rgba(0,0,0,.06)",
-      marginTop: 12,
-      overflowX: "auto",
-    },
+   tableCard: {
+  background: "#fff",
+  border: "1px solid rgba(0,0,0,.08)",
+  borderRadius: 18,
+  padding: 18,
+  boxShadow: "0 12px 34px rgba(0,0,0,.06)",
+  marginTop: 12,
+  overflow: "visible",
+  position: "relative",
+},
     tableTitle: {
       fontSize: 16,
       fontWeight: 950,
@@ -1403,21 +1428,21 @@ export default function OperationTempsReelPage() {
       cursor: "pointer",
     },
     actionsWrap: {
-      position: "relative",
-      display: "inline-block",
-    },
+  position: "relative",
+  display: "inline-block",
+},
     actionMenu: {
-      position: "absolute",
-      top: "calc(100% + 6px)",
-      right: 0,
-      minWidth: 170,
-      background: "#fff",
-      border: "1px solid rgba(0,0,0,.12)",
-      borderRadius: 12,
-      boxShadow: "0 14px 30px rgba(0,0,0,.14)",
-      padding: 6,
-      zIndex: 50,
-    },
+  position: "absolute",
+  top: "calc(100% + 6px)",
+  right: 0,
+  minWidth: 170,
+  background: "#fff",
+  border: "1px solid rgba(0,0,0,.12)",
+  borderRadius: 12,
+  boxShadow: "0 14px 30px rgba(0,0,0,.14)",
+  padding: 6,
+  zIndex: 99999,
+},
     actionMenuBtn: {
       width: "100%",
       textAlign: "left",
@@ -1485,16 +1510,16 @@ export default function OperationTempsReelPage() {
     },
     unitDropdown: {
       position: "absolute",
-      top: "calc(100% + 6px)",
+      top: "calc(100% + 8px)",
       left: 0,
       right: 0,
       background: "#fff",
-      border: "1px solid rgba(0,0,0,.12)",
-      borderRadius: 14,
-      boxShadow: "0 16px 40px rgba(0,0,0,.12)",
-      maxHeight: 260,
+      border: "1px solid rgba(15,23,42,.12)",
+      borderRadius: 16,
+      boxShadow: "0 22px 46px rgba(15,23,42,.20)",
+      maxHeight: 330,
       overflowY: "auto",
-      zIndex: 100,
+      zIndex: 900,
     },
     unitDropdownBtn: {
       width: "100%",
@@ -1512,6 +1537,12 @@ export default function OperationTempsReelPage() {
       fontSize: 12,
       color: "rgba(0,0,0,.6)",
       marginTop: 4,
+    },
+    unitDropdownClient: {
+      fontSize: 12,
+      color: "#2563eb",
+      marginTop: 4,
+      fontWeight: 850,
     },
     unitEmpty: {
       padding: "14px 16px",
@@ -1619,7 +1650,7 @@ export default function OperationTempsReelPage() {
                   <div style={styles.inputBlock}>
                     <div style={styles.fieldLabel}>Unité</div>
 
-                    <div style={{ position: "relative" }} data-unite-combobox="true">
+                    <div style={{ position: "relative", zIndex: 9999 }} data-unite-combobox="true">
                       <div style={styles.unitInputWrap}>
                         <input
                           style={styles.unitMainInput}
@@ -1662,6 +1693,7 @@ export default function OperationTempsReelPage() {
                               >
                                 <div style={styles.unitDropdownMain}>{u.no_unite || "—"}</div>
                                 <div style={styles.unitDropdownSub}>{[u.marque, u.modele, u.plaque].filter(Boolean).join(" ")}</div>
+                                {getClientNom(u) && <div style={styles.unitDropdownClient}>Client : {getClientNom(u)}</div>}
                               </button>
                             ))
                           )}

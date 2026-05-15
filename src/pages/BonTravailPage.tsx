@@ -1,11 +1,17 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type SetStateAction } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type SetStateAction,
+} from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import { type Piece } from "../components/bt/BtPiecesCard";
 import BonTravailHeaderCard from "../components/bt/BonTravailHeaderCard";
 import BonTravailOperations from "../components/bt/BonTravailOperations";
 import btPrintTemplate from "../templates/btPrintTemplate";
-
 
 type Unite = {
   id: string;
@@ -250,7 +256,6 @@ function parseDecimal(value: unknown) {
   return Number.parseFloat(cleaned);
 }
 
-
 function todayIso() {
   return new Date().toISOString();
 }
@@ -263,7 +268,9 @@ function isBtFromCurrentMonth(dateOuverture: string | null | undefined) {
 
   if (Number.isNaN(d.getTime())) return true;
 
-  return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+  return (
+    d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth()
+  );
 }
 
 function lastDayOfBtMonthIso(dateOuverture: string | null | undefined) {
@@ -277,7 +284,7 @@ function lastDayOfBtMonthIso(dateOuverture: string | null | undefined) {
     23,
     59,
     0,
-    0
+    0,
   );
 
   return lastDay.toISOString();
@@ -305,11 +312,16 @@ export default function BonTravailPage() {
   const [client, setClient] = useState<Client | null>(null);
   const [clientCfg, setClientCfg] = useState<ClientConfig | null>(null);
   const [clientTauxRows, setClientTauxRows] = useState<ClientTauxMO[]>([]);
-  const [paramEntreprise, setParamEntreprise] = useState<ParametresEntreprise | null>(null);
+  const [paramEntreprise, setParamEntreprise] =
+    useState<ParametresEntreprise | null>(null);
 
   const [notes, setNotes] = useState<NoteMeca[]>([]);
-  const [autorisationMap, setAutorisationMap] = useState<Record<string, AutorisationInfo>>({});
-  const [tachesEffectuees, setTachesEffectuees] = useState<TacheEffectuee[]>([]);
+  const [autorisationMap, setAutorisationMap] = useState<
+    Record<string, AutorisationInfo>
+  >({});
+  const [tachesEffectuees, setTachesEffectuees] = useState<TacheEffectuee[]>(
+    [],
+  );
   const [pieces, setPieces] = useState<Piece[]>([]);
   const [mainOeuvre, setMainOeuvre] = useState<MainOeuvreRow[]>([]);
   const [pointages, setPointages] = useState<BtPointage[]>([]);
@@ -324,26 +336,36 @@ export default function BonTravailPage() {
   const [dateFermetureInput, setDateFermetureInput] = useState<string>("");
 
   const [piecesTableAvailable, setPiecesTableAvailable] = useState(true);
-  const [mainOeuvreTableAvailable, setMainOeuvreTableAvailable] = useState(true);
+  const [mainOeuvreTableAvailable, setMainOeuvreTableAvailable] =
+    useState(true);
 
   const [newMoMecano, setNewMoMecano] = useState("");
   const [newMoDesc, setNewMoDesc] = useState("");
   const [newMoHeures, setNewMoHeures] = useState("");
   const [newMoTaux, setNewMoTaux] = useState("");
 
-  const [pointageMenuOpenId, setPointageMenuOpenId] = useState<string | null>(null);
-  const [editingPointageId, setEditingPointageId] = useState<string | null>(null);
+  const [pointageMenuOpenId, setPointageMenuOpenId] = useState<string | null>(
+    null,
+  );
+  const [editingPointageId, setEditingPointageId] = useState<string | null>(
+    null,
+  );
   const [editingPointageStart, setEditingPointageStart] = useState("");
   const [editingPointageEnd, setEditingPointageEnd] = useState("");
 
-  const [mainOeuvreMenuOpenId, setMainOeuvreMenuOpenId] = useState<string | null>(null);
-  const [editingMainOeuvreId, setEditingMainOeuvreId] = useState<string | null>(null);
+  const [mainOeuvreMenuOpenId, setMainOeuvreMenuOpenId] = useState<
+    string | null
+  >(null);
+  const [editingMainOeuvreId, setEditingMainOeuvreId] = useState<string | null>(
+    null,
+  );
 
   const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [taskModalValue, setTaskModalValue] = useState("");
   const [pendingTasks, setPendingTasks] = useState<string[]>([]);
 
-  const [autorisationModalTask, setAutorisationModalTask] = useState<NoteMeca | null>(null);
+  const [autorisationModalTask, setAutorisationModalTask] =
+    useState<NoteMeca | null>(null);
   const [autorisationModalNote, setAutorisationModalNote] = useState("");
   const [savingAutorisationModal, setSavingAutorisationModal] = useState(false);
 
@@ -355,10 +377,14 @@ export default function BonTravailPage() {
 
   const [confirmTerminerOpen, setConfirmTerminerOpen] = useState(false);
   const [closeDateModalOpen, setCloseDateModalOpen] = useState(false);
-  const [pendingCloseMode, setPendingCloseMode] = useState<"facturer" | "fermer" | null>(null);
+  const [pendingCloseMode, setPendingCloseMode] = useState<
+    "facturer" | "fermer" | null
+  >(null);
   const [savingTerminer, setSavingTerminer] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<"details" | "documents">("details");
+  const [activeTab, setActiveTab] = useState<"details" | "documents">(
+    "details",
+  );
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [documents, setDocuments] = useState<any[]>([]);
   const [clientContacts, setClientContacts] = useState<ClientContact[]>([]);
@@ -375,20 +401,30 @@ export default function BonTravailPage() {
   const [draggingDocuments, setDraggingDocuments] = useState(false);
 
   const selectedIds = useMemo(() => {
-  return selectedOrder.filter((id) => selected[id]);
-}, [selected, selectedOrder]);
+    return selectedOrder.filter((id) => selected[id]);
+  }, [selected, selectedOrder]);
 
-  function setSelectedInClickOrder(value: SetStateAction<Record<string, boolean>>) {
+  function setSelectedInClickOrder(
+    value: SetStateAction<Record<string, boolean>>,
+  ) {
     setSelected((prev) => {
       const next = typeof value === "function" ? value(prev) : value;
 
       setSelectedOrder((prevOrder) => {
-        const stillSelected = prevOrder.filter((selectedId) => next[selectedId]);
+        const stillSelected = prevOrder.filter(
+          (selectedId) => next[selectedId],
+        );
         const newlySelected = Object.keys(next).filter(
-          (selectedId) => next[selectedId] && !prev[selectedId] && !stillSelected.includes(selectedId)
+          (selectedId) =>
+            next[selectedId] &&
+            !prev[selectedId] &&
+            !stillSelected.includes(selectedId),
         );
         const missingSelected = Object.keys(next).filter(
-          (selectedId) => next[selectedId] && !stillSelected.includes(selectedId) && !newlySelected.includes(selectedId)
+          (selectedId) =>
+            next[selectedId] &&
+            !stillSelected.includes(selectedId) &&
+            !newlySelected.includes(selectedId),
         );
         return [...stillSelected, ...newlySelected, ...missingSelected];
       });
@@ -397,12 +433,17 @@ export default function BonTravailPage() {
     });
   }
 
-  const snapshotClientNom = useMemo(() => bt?.client_nom?.trim() || client?.nom || "—", [bt, client]);
+  const snapshotClientNom = useMemo(
+    () => bt?.client_nom?.trim() || client?.nom || "—",
+    [bt, client],
+  );
 
   const dynamicTauxHoraire = useMemo(() => {
     if (!unite || !clientCfg) return Number(clientCfg?.taux_horaire || 0);
     const typeId = unite.type_unite_id ?? null;
-    const specific = clientTauxRows.find((r) => r.actif && r.type_unite_id === typeId);
+    const specific = clientTauxRows.find(
+      (r) => r.actif && r.type_unite_id === typeId,
+    );
     if (specific) return Number(specific.taux_horaire || 0);
     return Number(clientCfg.taux_horaire || 0);
   }, [unite, clientCfg, clientTauxRows]);
@@ -417,19 +458,23 @@ export default function BonTravailPage() {
 
   const effectiveMargePiecesPct = useMemo(() => {
     if (isBtOpenPricing) return Number(clientCfg?.marge_pieces || 0);
-    if (bt?.marge_pieces_snapshot != null) return Number(bt.marge_pieces_snapshot || 0);
+    if (bt?.marge_pieces_snapshot != null)
+      return Number(bt.marge_pieces_snapshot || 0);
     return Number(clientCfg?.marge_pieces || 0);
   }, [isBtOpenPricing, bt, clientCfg]);
 
   const effectiveFraisAtelierPct = useMemo(() => {
-    if (isBtOpenPricing) return Number(clientCfg?.frais_atelier_pourcentage || 0);
-    if (bt?.frais_atelier_pct_snapshot != null) return Number(bt.frais_atelier_pct_snapshot || 0);
+    if (isBtOpenPricing)
+      return Number(clientCfg?.frais_atelier_pourcentage || 0);
+    if (bt?.frais_atelier_pct_snapshot != null)
+      return Number(bt.frais_atelier_pct_snapshot || 0);
     return Number(clientCfg?.frais_atelier_pourcentage || 0);
   }, [isBtOpenPricing, bt, clientCfg]);
 
   const effectiveTauxHoraire = useMemo(() => {
     if (isBtOpenPricing) return dynamicTauxHoraire;
-    if (bt?.taux_horaire_snapshot != null) return Number(bt.taux_horaire_snapshot || 0);
+    if (bt?.taux_horaire_snapshot != null)
+      return Number(bt.taux_horaire_snapshot || 0);
     return dynamicTauxHoraire;
   }, [isBtOpenPricing, bt, dynamicTauxHoraire]);
 
@@ -464,8 +509,12 @@ export default function BonTravailPage() {
   }, [pointages]);
 
   const totalPointagesMainOeuvre = useMemo(
-    () => pointagesResume.reduce((sum, r) => sum + r.heures * effectiveTauxHoraire, 0),
-    [pointagesResume, effectiveTauxHoraire]
+    () =>
+      pointagesResume.reduce(
+        (sum, r) => sum + r.heures * effectiveTauxHoraire,
+        0,
+      ),
+    [pointagesResume, effectiveTauxHoraire],
   );
 
   function getPieceFactureU(p: Piece) {
@@ -506,42 +555,53 @@ export default function BonTravailPage() {
         const pu = Number((p as any).prix_unitaire || 0);
         return sum + q * pu;
       }, 0),
-    [pieces]
+    [pieces],
   );
 
   const totalPiecesFacture = useMemo(
     () => pieces.reduce((sum, p) => sum + getPieceTotalFacture(p), 0),
-    [pieces, effectiveMargePiecesPct, isBtOpenPricing]
+    [pieces, effectiveMargePiecesPct, isBtOpenPricing],
   );
 
   const totalMainOeuvreManuelle = useMemo(
     () =>
       mainOeuvre.reduce((sum, row) => {
         const h = Number(row.heures || 0);
-        const t = isBtOpenPricing ? effectiveTauxHoraire : Number(row.taux_horaire || 0);
+        const t = isBtOpenPricing
+          ? effectiveTauxHoraire
+          : Number(row.taux_horaire || 0);
         return sum + h * t;
       }, 0),
-    [mainOeuvre, isBtOpenPricing, effectiveTauxHoraire]
+    [mainOeuvre, isBtOpenPricing, effectiveTauxHoraire],
   );
 
   const totalMainOeuvre = useMemo(
     () => totalPointagesMainOeuvre + totalMainOeuvreManuelle,
-    [totalPointagesMainOeuvre, totalMainOeuvreManuelle]
+    [totalPointagesMainOeuvre, totalMainOeuvreManuelle],
   );
 
   const totalFraisAtelier = useMemo(
     () => totalMainOeuvre * (effectiveFraisAtelierPct / 100),
-    [totalMainOeuvre, effectiveFraisAtelierPct]
+    [totalMainOeuvre, effectiveFraisAtelierPct],
   );
 
   const totalGeneral = useMemo(
     () => totalPiecesFacture + totalMainOeuvre + totalFraisAtelier,
-    [totalPiecesFacture, totalMainOeuvre, totalFraisAtelier]
+    [totalPiecesFacture, totalMainOeuvre, totalFraisAtelier],
   );
 
-  const totalTPS = useMemo(() => round2(totalGeneral * effectiveTpsRate), [totalGeneral, effectiveTpsRate]);
-  const totalTVQ = useMemo(() => round2(totalGeneral * effectiveTvqRate), [totalGeneral, effectiveTvqRate]);
-  const totalFinal = useMemo(() => round2(totalGeneral + totalTPS + totalTVQ), [totalGeneral, totalTPS, totalTVQ]);
+  const totalTPS = useMemo(
+    () => round2(totalGeneral * effectiveTpsRate),
+    [totalGeneral, effectiveTpsRate],
+  );
+  const totalTVQ = useMemo(
+    () => round2(totalGeneral * effectiveTvqRate),
+    [totalGeneral, effectiveTvqRate],
+  );
+  const totalFinal = useMemo(
+    () => round2(totalGeneral + totalTPS + totalTVQ),
+    [totalGeneral, totalTPS, totalTVQ],
+  );
 
   const hasKmColumn = useMemo(() => {
     if (!bt) return false;
@@ -559,7 +619,9 @@ export default function BonTravailPage() {
   }, [bt, isClosed]);
 
   const pepDocuments = useMemo(() => {
-    return documents.filter((d) => d?.type === "pep" || d?.source === "auto_pep");
+    return documents.filter(
+      (d) => d?.type === "pep" || d?.source === "auto_pep",
+    );
   }, [documents]);
 
   const currentHeaderSignature = useMemo(() => {
@@ -671,7 +733,6 @@ export default function BonTravailPage() {
     }
   }
 
-
   async function loadClientContacts(clientId: string | null | undefined) {
     if (!clientId) {
       setClientContacts([]);
@@ -717,7 +778,9 @@ export default function BonTravailPage() {
         map[noteId] = {
           autorisation_tache_id: String((row as any).id || ""),
           decision:
-            decision === "autorise" || decision === "refuse" || decision === "a_discuter"
+            decision === "autorise" ||
+            decision === "refuse" ||
+            decision === "a_discuter"
               ? decision
               : "attente",
           note_client: (row as any).note_client ?? null,
@@ -789,15 +852,17 @@ export default function BonTravailPage() {
         const mimeType = (file as any).type || null;
         const size = Number((file as any).size || 0) || null;
 
-        const { error: insertError } = await supabase.from("bt_documents").insert({
-          bt_id: bt.id,
-          type: mimeType?.startsWith("image/") ? "photo" : "autre",
-          nom_fichier: file.name,
-          storage_path: path,
-          mime_type: mimeType,
-          taille_bytes: size,
-          source: "manuel",
-        });
+        const { error: insertError } = await supabase
+          .from("bt_documents")
+          .insert({
+            bt_id: bt.id,
+            type: mimeType?.startsWith("image/") ? "photo" : "autre",
+            nom_fichier: file.name,
+            storage_path: path,
+            mime_type: mimeType,
+            taille_bytes: size,
+            source: "manuel",
+          });
 
         if (insertError) throw insertError;
       }
@@ -813,97 +878,97 @@ export default function BonTravailPage() {
   }
 
   async function deleteDocument(doc: any) {
-  if (!bt?.id) return;
+    if (!bt?.id) return;
 
-  const isPep = doc.type === "pep";
+    const isPep = doc.type === "pep";
 
-  const ok = window.confirm(
-    isPep
-      ? "Supprimer complètement ce PEP ? Le PDF, l’archive, la tâche effectuée et l’historique d’entretien seront supprimés."
-      : "Supprimer ce document ?"
-  );
+    const ok = window.confirm(
+      isPep
+        ? "Supprimer complètement ce PEP ? Le PDF, l’archive, la tâche effectuée et l’historique d’entretien seront supprimés."
+        : "Supprimer ce document ?",
+    );
 
-  if (!ok) return;
+    if (!ok) return;
 
-  const storagePath = String(doc.storage_path || "");
-  const pepId = String(doc.pep_id || "");
+    const storagePath = String(doc.storage_path || "");
+    const pepId = String(doc.pep_id || "");
 
-  try {
-    // 1. Supprimer fichier storage si vrai fichier
-    if (storagePath && !storagePath.startsWith("pep_archive:")) {
-      await supabase.storage.from("bt-documents").remove([storagePath]);
+    try {
+      // 1. Supprimer fichier storage si vrai fichier
+      if (storagePath && !storagePath.startsWith("pep_archive:")) {
+        await supabase.storage.from("bt-documents").remove([storagePath]);
+      }
+
+      // 2. Si PEP, supprimer historique + tâche effectuée + archive
+      if (isPep) {
+        const PEP_TEMPLATE_ITEM_ID = "d71006cc-cfd7-4e49-83dd-918ee4201b89";
+
+        // Supprimer les tâches effectuées liées au PEP
+        const { error: taskErr } = await supabase
+          .from("bt_taches_effectuees")
+          .delete()
+          .eq("bt_id", bt.id)
+          .eq("entretien_template_item_id", PEP_TEMPLATE_ITEM_ID);
+
+        if (taskErr) throw taskErr;
+
+        // Supprimer l'historique entretien lié
+        const { error: histErr } = await supabase
+          .from("unite_entretien_historique")
+          .delete()
+          .eq("bt_id", bt.id)
+          .eq("template_item_id", PEP_TEMPLATE_ITEM_ID);
+
+        if (histErr) throw histErr;
+
+        // Supprimer l'archive PEP
+        if (pepId) {
+          const { error: pepErr } = await supabase
+            .from("pep_archives")
+            .delete()
+            .eq("id", pepId);
+
+          if (pepErr) throw pepErr;
+        } else {
+          const fileName = String(doc.nom_fichier || "");
+          const match = fileName.match(/^PEP-(.+)-(\d{4}-\d{2}-\d{2})\.pdf$/);
+
+          if (match) {
+            const uniteNo = match[1];
+            const datePep = match[2];
+
+            const { error: pepFallbackErr } = await supabase
+              .from("pep_archives")
+              .delete()
+              .eq("unite", uniteNo)
+              .eq("date_pep", datePep);
+
+            if (pepFallbackErr) throw pepFallbackErr;
+          }
+        }
+      }
+
+      // 3. Supprimer lien document BT
+      const { error: docErr } = await supabase
+        .from("bt_documents")
+        .delete()
+        .eq("id", doc.id);
+
+      if (docErr) throw docErr;
+
+      // 4. Recalculer les entretiens à venir
+      if (isPep) {
+        await supabase.rpc("sync_entretien_due_tasks", {
+          p_unite_id: bt.unite_id,
+          p_bt_id: bt.id,
+        });
+      }
+
+      await loadDocuments(bt.id);
+    } catch (e: any) {
+      alert(e?.message || "Erreur pendant la suppression du document.");
     }
-
-    // 2. Si PEP, supprimer historique + tâche effectuée + archive
-if (isPep) {
-  const PEP_TEMPLATE_ITEM_ID = "d71006cc-cfd7-4e49-83dd-918ee4201b89";
-
-  // Supprimer les tâches effectuées liées au PEP
-  const { error: taskErr } = await supabase
-    .from("bt_taches_effectuees")
-    .delete()
-    .eq("bt_id", bt.id)
-    .eq("entretien_template_item_id", PEP_TEMPLATE_ITEM_ID);
-
-  if (taskErr) throw taskErr;
-
-  // Supprimer l'historique entretien lié
-  const { error: histErr } = await supabase
-    .from("unite_entretien_historique")
-    .delete()
-    .eq("bt_id", bt.id)
-    .eq("template_item_id", PEP_TEMPLATE_ITEM_ID);
-
-  if (histErr) throw histErr;
-
- // Supprimer l'archive PEP
-if (pepId) {
-  const { error: pepErr } = await supabase
-    .from("pep_archives")
-    .delete()
-    .eq("id", pepId);
-
-  if (pepErr) throw pepErr;
-} else {
-  const fileName = String(doc.nom_fichier || "");
-  const match = fileName.match(/^PEP-(.+)-(\d{4}-\d{2}-\d{2})\.pdf$/);
-
-  if (match) {
-    const uniteNo = match[1];
-    const datePep = match[2];
-
-    const { error: pepFallbackErr } = await supabase
-      .from("pep_archives")
-      .delete()
-      .eq("unite", uniteNo)
-      .eq("date_pep", datePep);
-
-    if (pepFallbackErr) throw pepFallbackErr;
   }
-}
-}
-
-    // 3. Supprimer lien document BT
-    const { error: docErr } = await supabase
-      .from("bt_documents")
-      .delete()
-      .eq("id", doc.id);
-
-    if (docErr) throw docErr;
-
-    // 4. Recalculer les entretiens à venir
-    if (isPep) {
-      await supabase.rpc("sync_entretien_due_tasks", {
-        p_unite_id: bt.unite_id,
-        p_bt_id: bt.id,
-      });
-    }
-
-    await loadDocuments(bt.id);
-  } catch (e: any) {
-    alert(e?.message || "Erreur pendant la suppression du document.");
-  }
-}
 
   function onDocumentsDrop(e: React.DragEvent<HTMLDivElement>) {
     e.preventDefault();
@@ -957,7 +1022,9 @@ if (pepId) {
       const [cfgRes, tauxRes, paramsRes] = await Promise.all([
         supabase
           .from("client_configuration")
-          .select("id,client_id,taux_horaire,marge_pieces,frais_atelier_pourcentage,actif,note_facturation")
+          .select(
+            "id,client_id,taux_horaire,marge_pieces,frais_atelier_pourcentage,actif,note_facturation",
+          )
           .eq("client_id", unitRow.client_id)
           .maybeSingle(),
         supabase
@@ -987,7 +1054,9 @@ if (pepId) {
     }
 
     const typeId = unitRow.type_unite_id ?? null;
-    const specificRate = liveTaux.find((r) => r.actif && r.type_unite_id === typeId);
+    const specificRate = liveTaux.find(
+      (r) => r.actif && r.type_unite_id === typeId,
+    );
 
     const dynamicRate = specificRate
       ? Number(specificRate.taux_horaire || 0)
@@ -1004,14 +1073,22 @@ if (pepId) {
 
     const recalcFraisAtelierPct = btIsOpenPricing
       ? Number(liveCfg?.frais_atelier_pourcentage || 0)
-      : Number(btRow.frais_atelier_pct_snapshot ?? liveCfg?.frais_atelier_pourcentage ?? 0);
+      : Number(
+          btRow.frais_atelier_pct_snapshot ??
+            liveCfg?.frais_atelier_pourcentage ??
+            0,
+        );
 
     const recalcTauxHoraire = btIsOpenPricing
       ? Number(dynamicRate || 0)
       : Number(btRow.taux_horaire_snapshot ?? dynamicRate ?? 0);
 
-    const recalcTpsRate = btIsOpenPricing ? liveTps : Number(btRow.tps_rate_snapshot ?? liveTps ?? 0);
-    const recalcTvqRate = btIsOpenPricing ? liveTvq : Number(btRow.tvq_rate_snapshot ?? liveTvq ?? 0);
+    const recalcTpsRate = btIsOpenPricing
+      ? liveTps
+      : Number(btRow.tps_rate_snapshot ?? liveTps ?? 0);
+    const recalcTvqRate = btIsOpenPricing
+      ? liveTvq
+      : Number(btRow.tvq_rate_snapshot ?? liveTvq ?? 0);
 
     const [
       { data: piecesRaw, error: ePieces },
@@ -1071,23 +1148,29 @@ if (pepId) {
       minutesByMecano.set(nom, (minutesByMecano.get(nom) || 0) + mins);
     }
 
-    const recalcTotalPointagesMainOeuvre = Array.from(minutesByMecano.values()).reduce(
-      (sum, minutes) => sum + (minutes / 60) * recalcTauxHoraire,
-      0
-    );
+    const recalcTotalPointagesMainOeuvre = Array.from(
+      minutesByMecano.values(),
+    ).reduce((sum, minutes) => sum + (minutes / 60) * recalcTauxHoraire, 0);
 
     const recalcTotalMainOeuvreManuelle = moRows.reduce((sum, row) => {
       const h = Number(row.heures || 0);
-      const t = btIsOpenPricing ? recalcTauxHoraire : Number(row.taux_horaire || 0);
+      const t = btIsOpenPricing
+        ? recalcTauxHoraire
+        : Number(row.taux_horaire || 0);
       return sum + h * t;
     }, 0);
 
-    const recalcTotalMainOeuvre = recalcTotalPointagesMainOeuvre + recalcTotalMainOeuvreManuelle;
-    const recalcTotalFraisAtelier = recalcTotalMainOeuvre * (recalcFraisAtelierPct / 100);
-    const recalcTotalGeneral = recalcTotalPieces + recalcTotalMainOeuvre + recalcTotalFraisAtelier;
+    const recalcTotalMainOeuvre =
+      recalcTotalPointagesMainOeuvre + recalcTotalMainOeuvreManuelle;
+    const recalcTotalFraisAtelier =
+      recalcTotalMainOeuvre * (recalcFraisAtelierPct / 100);
+    const recalcTotalGeneral =
+      recalcTotalPieces + recalcTotalMainOeuvre + recalcTotalFraisAtelier;
     const recalcTotalTps = round2(recalcTotalGeneral * recalcTpsRate);
     const recalcTotalTvq = round2(recalcTotalGeneral * recalcTvqRate);
-    const recalcTotalFinal = round2(recalcTotalGeneral + recalcTotalTps + recalcTotalTvq);
+    const recalcTotalFinal = round2(
+      recalcTotalGeneral + recalcTotalTps + recalcTotalTvq,
+    );
 
     const payload = {
       taux_horaire_snapshot: Number(recalcTauxHoraire.toFixed(2)),
@@ -1104,7 +1187,10 @@ if (pepId) {
       total_final: Number(recalcTotalFinal.toFixed(2)),
     };
 
-    const { error: eUpdate } = await supabase.from("bons_travail").update(payload).eq("id", btId);
+    const { error: eUpdate } = await supabase
+      .from("bons_travail")
+      .update(payload)
+      .eq("id", btId);
     if (eUpdate) throw eUpdate;
 
     return payload;
@@ -1121,19 +1207,24 @@ if (pepId) {
     if (!bt) return { ok: false as const, message: "BT introuvable." };
 
     const isEntretienTask =
-      !!t.entretien_template_item_id || !!t.entretien_unite_item_id || !!t.entretien_auto;
+      !!t.entretien_template_item_id ||
+      !!t.entretien_unite_item_id ||
+      !!t.entretien_auto;
 
     if (!isEntretienTask) return { ok: true as const };
 
     if (bt.km == null || !Number.isFinite(Number(bt.km))) {
       return {
         ok: false as const,
-        message: "Impossible de compléter un entretien périodique sans kilométrage au BT.",
+        message:
+          "Impossible de compléter un entretien périodique sans kilométrage au BT.",
       };
     }
 
     const nomEntretien =
-      String(t.titre || "").replace(/^Entretien périodique\s*-\s*/i, "").trim() || t.titre;
+      String(t.titre || "")
+        .replace(/^Entretien périodique\s*-\s*/i, "")
+        .trim() || t.titre;
 
     let existingQuery = supabase
       .from("unite_entretien_historique")
@@ -1142,18 +1233,25 @@ if (pepId) {
       .eq("bt_id", bt.id);
 
     if (t.entretien_template_item_id) {
-      existingQuery = existingQuery.eq("template_item_id", t.entretien_template_item_id);
+      existingQuery = existingQuery.eq(
+        "template_item_id",
+        t.entretien_template_item_id,
+      );
     } else {
       existingQuery = existingQuery.is("template_item_id", null);
     }
 
     if (t.entretien_unite_item_id) {
-      existingQuery = existingQuery.eq("unite_item_id", t.entretien_unite_item_id);
+      existingQuery = existingQuery.eq(
+        "unite_item_id",
+        t.entretien_unite_item_id,
+      );
     } else {
       existingQuery = existingQuery.is("unite_item_id", null);
     }
 
-    const { data: existing, error: existingErr } = await existingQuery.maybeSingle();
+    const { data: existing, error: existingErr } =
+      await existingQuery.maybeSingle();
     if (existingErr) {
       return { ok: false as const, message: existingErr.message };
     }
@@ -1172,18 +1270,20 @@ if (pepId) {
         return { ok: false as const, message: updErr.message };
       }
     } else {
-      const { error: histErr } = await supabase.from("unite_entretien_historique").insert({
-        unite_id: bt.unite_id,
-        template_item_id: t.entretien_template_item_id ?? null,
-        unite_item_id: t.entretien_unite_item_id ?? null,
-        bt_id: bt.id,
-        nom_snapshot: nomEntretien,
-        frequence_km_snapshot: null,
-        frequence_jours_snapshot: null,
-        date_effectuee: new Date().toISOString().slice(0, 10),
-        km_effectue: bt.km,
-        note: null,
-      });
+      const { error: histErr } = await supabase
+        .from("unite_entretien_historique")
+        .insert({
+          unite_id: bt.unite_id,
+          template_item_id: t.entretien_template_item_id ?? null,
+          unite_item_id: t.entretien_unite_item_id ?? null,
+          bt_id: bt.id,
+          nom_snapshot: nomEntretien,
+          frequence_km_snapshot: null,
+          frequence_jours_snapshot: null,
+          date_effectuee: new Date().toISOString().slice(0, 10),
+          km_effectue: bt.km,
+          note: null,
+        });
 
       if (histErr) {
         return { ok: false as const, message: histErr.message };
@@ -1210,7 +1310,8 @@ if (pepId) {
       const btRow = btData as BonTravail;
 
       const kmVal = (btRow as any).km ?? (btRow as any).kilometrage ?? null;
-      const nextKmInput = kmVal === null || kmVal === undefined ? "" : String(kmVal);
+      const nextKmInput =
+        kmVal === null || kmVal === undefined ? "" : String(kmVal);
       const nextPoInput = String(btRow.bon_commande ?? "");
       const nextDateOuvertureInput = isoToDateTimeLocal(btRow.date_ouverture);
       const nextDateFermetureInput = isoToDateTimeLocal(btRow.date_fermeture);
@@ -1260,10 +1361,16 @@ if (pepId) {
 
       if (unitRow.client_id) {
         const [clientRes, cfgRes, tauxRes] = await Promise.all([
-          supabase.from("clients").select("id,nom").eq("id", unitRow.client_id).maybeSingle(),
+          supabase
+            .from("clients")
+            .select("id,nom")
+            .eq("id", unitRow.client_id)
+            .maybeSingle(),
           supabase
             .from("client_configuration")
-            .select("id,client_id,taux_horaire,marge_pieces,frais_atelier_pourcentage,actif,note_facturation")
+            .select(
+              "id,client_id,taux_horaire,marge_pieces,frais_atelier_pourcentage,actif,note_facturation",
+            )
             .eq("client_id", unitRow.client_id)
             .maybeSingle(),
           supabase
@@ -1272,9 +1379,11 @@ if (pepId) {
             .eq("client_id", unitRow.client_id),
         ]);
 
-        if (!clientRes.error && clientRes.data) liveClient = clientRes.data as Client;
+        if (!clientRes.error && clientRes.data)
+          liveClient = clientRes.data as Client;
         if (!cfgRes.error && cfgRes.data) liveCfg = cfgRes.data as ClientConfig;
-        if (!tauxRes.error && tauxRes.data) liveTaux = (tauxRes.data || []) as ClientTauxMO[];
+        if (!tauxRes.error && tauxRes.data)
+          liveTaux = (tauxRes.data || []) as ClientTauxMO[];
       }
 
       setClient(liveClient);
@@ -1286,7 +1395,9 @@ if (pepId) {
       const resolvedDynamicRate = (() => {
         if (!unitRow || !liveCfg) return Number(liveCfg?.taux_horaire || 0);
         const typeId = unitRow.type_unite_id ?? null;
-        const specific = liveTaux.find((r) => r.actif && r.type_unite_id === typeId);
+        const specific = liveTaux.find(
+          (r) => r.actif && r.type_unite_id === typeId,
+        );
         if (specific) return Number(specific.taux_horaire || 0);
         return Number(liveCfg.taux_horaire || 0);
       })();
@@ -1309,15 +1420,26 @@ if (pepId) {
           client_id: btRow.client_id ?? unitRow.client_id ?? null,
           client_nom: btRow.client_nom?.trim() || liveClient?.nom || null,
           taux_horaire_snapshot:
-            btRow.taux_horaire_snapshot ?? (Number.isFinite(resolvedDynamicRate) ? resolvedDynamicRate : null),
-          marge_pieces_snapshot: btRow.marge_pieces_snapshot ?? liveCfg?.marge_pieces ?? null,
+            btRow.taux_horaire_snapshot ??
+            (Number.isFinite(resolvedDynamicRate) ? resolvedDynamicRate : null),
+          marge_pieces_snapshot:
+            btRow.marge_pieces_snapshot ?? liveCfg?.marge_pieces ?? null,
           frais_atelier_pct_snapshot:
-            btRow.frais_atelier_pct_snapshot ?? liveCfg?.frais_atelier_pourcentage ?? null,
-          tps_rate_snapshot: btRow.tps_rate_snapshot ?? (Number.isFinite(resolvedTpsRate) ? resolvedTpsRate : null),
-          tvq_rate_snapshot: btRow.tvq_rate_snapshot ?? (Number.isFinite(resolvedTvqRate) ? resolvedTvqRate : null),
+            btRow.frais_atelier_pct_snapshot ??
+            liveCfg?.frais_atelier_pourcentage ??
+            null,
+          tps_rate_snapshot:
+            btRow.tps_rate_snapshot ??
+            (Number.isFinite(resolvedTpsRate) ? resolvedTpsRate : null),
+          tvq_rate_snapshot:
+            btRow.tvq_rate_snapshot ??
+            (Number.isFinite(resolvedTvqRate) ? resolvedTvqRate : null),
         };
 
-        const { error: snapErr } = await supabase.from("bons_travail").update(btPayload).eq("id", btRow.id);
+        const { error: snapErr } = await supabase
+          .from("bons_travail")
+          .update(btPayload)
+          .eq("id", btRow.id);
         if (snapErr) throw snapErr;
 
         nextBtRow = {
@@ -1329,7 +1451,7 @@ if (pepId) {
       const { data: nData, error: eN } = await supabase
         .from("unite_notes")
         .select(
-          "id,unite_id,titre,details,created_at,entretien_template_item_id,entretien_unite_item_id,entretien_auto"
+          "id,unite_id,titre,details,created_at,entretien_template_item_id,entretien_unite_item_id,entretien_auto",
         )
         .eq("unite_id", btRow.unite_id)
         .order("created_at", { ascending: true });
@@ -1404,7 +1526,11 @@ if (pepId) {
       });
 
       lastSavedHeaderRef.current = savedSignature;
-      setBt((prev) => (prev ? { ...prev, km, bon_commande, date_ouverture, date_fermeture } : prev));
+      setBt((prev) =>
+        prev
+          ? { ...prev, km, bon_commande, date_ouverture, date_fermeture }
+          : prev,
+      );
       setErr(null);
       return true;
     } catch (e: any) {
@@ -1476,7 +1602,10 @@ if (pepId) {
     await loadAll();
   }
 
-  async function completeTaskIds(taskIds: string[], opts?: { skipConfirm?: boolean; forceAuthorize?: boolean }) {
+  async function completeTaskIds(
+    taskIds: string[],
+    opts?: { skipConfirm?: boolean; forceAuthorize?: boolean },
+  ) {
     if (!bt || !taskIds.length) return;
     if (isReadOnly) {
       alert("BT fermé / verrouillé / facturé : impossible de modifier.");
@@ -1489,51 +1618,59 @@ if (pepId) {
     if (!selectedTasks.length) return;
 
     for (const task of selectedTasks) {
-  const decision = autorisationMap[task.id]?.decision;
+      const decision = autorisationMap[task.id]?.decision;
 
-  if (decision === "refuse") {
-    const ok = window.confirm(
-      `ATTENTION\n\nCette tâche a été REFUSÉE par le client.\n\n${task.titre}\n\nVoulez-vous continuer ?`
-    );
-    if (!ok) return;
-  }
+      if (decision === "refuse") {
+        const ok = window.confirm(
+          `ATTENTION\n\nCette tâche a été REFUSÉE par le client.\n\n${task.titre}\n\nVoulez-vous continuer ?`,
+        );
+        if (!ok) return;
+      }
 
-  if (decision === "a_discuter") {
-    const ok = window.confirm(
-      `Cette tâche est À DISCUTER avec le client.\n\n${task.titre}\n\nVoulez-vous continuer ?`
-    );
-    if (!ok) return;
-  }
+      if (decision === "a_discuter") {
+        const ok = window.confirm(
+          `Cette tâche est À DISCUTER avec le client.\n\n${task.titre}\n\nVoulez-vous continuer ?`,
+        );
+        if (!ok) return;
+      }
 
-  if (decision === "attente") {
-    const ok = window.confirm(
-      `Cette tâche est EN ATTENTE d’autorisation.\n\n${task.titre}\n\nVoulez-vous continuer ?`
-    );
-    if (!ok) return;
-  }
-}
+      if (decision === "attente") {
+        const ok = window.confirm(
+          `Cette tâche est EN ATTENTE d’autorisation.\n\n${task.titre}\n\nVoulez-vous continuer ?`,
+        );
+        if (!ok) return;
+      }
+    }
 
-    if (!opts?.skipConfirm && !confirm(`Marquer ${selectedTasks.length} tâche(s) comme effectuée(s) ?`)) return;
+    if (
+      !opts?.skipConfirm &&
+      !confirm(`Marquer ${selectedTasks.length} tâche(s) comme effectuée(s) ?`)
+    )
+      return;
 
     if (opts?.forceAuthorize) {
-  const tasksToAuthorize = selectedTasks.filter((t) => {
-    const decision = autorisationMap[t.id]?.decision;
-    return decision === "attente" || decision === "refuse" || decision === "a_discuter";
-  });
+      const tasksToAuthorize = selectedTasks.filter((t) => {
+        const decision = autorisationMap[t.id]?.decision;
+        return (
+          decision === "attente" ||
+          decision === "refuse" ||
+          decision === "a_discuter"
+        );
+      });
 
-  for (const task of tasksToAuthorize) {
-    const { error } = await supabase
-      .from("bt_autorisation_taches")
-      .update({ decision: "autorise" })
-      .eq("bt_id", bt.id)
-      .eq("unite_note_id", task.id);
+      for (const task of tasksToAuthorize) {
+        const { error } = await supabase
+          .from("bt_autorisation_taches")
+          .update({ decision: "autorise" })
+          .eq("bt_id", bt.id)
+          .eq("unite_note_id", task.id);
 
-    if (error) {
-      alert(error.message);
-      return;
+        if (error) {
+          alert(error.message);
+          return;
+        }
+      }
     }
-  }
-}
 
     for (const task of selectedTasks) {
       const res = await upsertEntretienHistoriqueForTask(task);
@@ -1564,13 +1701,18 @@ if (pepId) {
       };
     });
 
-    const { error: insertErr } = await supabase.from("bt_taches_effectuees").insert(insertRows);
+    const { error: insertErr } = await supabase
+      .from("bt_taches_effectuees")
+      .insert(insertRows);
     if (insertErr) {
       alert(insertErr.message);
       return;
     }
 
-    const { error: deleteErr } = await supabase.from("unite_notes").delete().in("id", taskIds);
+    const { error: deleteErr } = await supabase
+      .from("unite_notes")
+      .delete()
+      .in("id", taskIds);
     if (deleteErr) {
       alert(deleteErr.message);
       return;
@@ -1645,7 +1787,9 @@ if (pepId) {
   }
 
   async function completeSingleTaskFromAutorisation(t: NoteMeca) {
-    const ok = confirm(`Autoriser manuellement et marquer cette tâche comme effectuée ?\n\n${t.titre}`);
+    const ok = confirm(
+      `Autoriser manuellement et marquer cette tâche comme effectuée ?\n\n${t.titre}`,
+    );
     if (!ok) return;
     await completeTaskIds([t.id], { skipConfirm: true, forceAuthorize: true });
   }
@@ -1658,7 +1802,10 @@ if (pepId) {
     }
     if (!confirm(`Supprimer ${selectedIds.length} tâche(s) ?`)) return;
 
-    const { error } = await supabase.from("unite_notes").delete().in("id", selectedIds);
+    const { error } = await supabase
+      .from("unite_notes")
+      .delete()
+      .in("id", selectedIds);
     if (error) {
       alert(error.message);
       return;
@@ -1681,7 +1828,9 @@ if (pepId) {
     }
 
     const isEntretienTask =
-      !!t.entretien_template_item_id || !!t.entretien_unite_item_id || !!t.entretien_auto;
+      !!t.entretien_template_item_id ||
+      !!t.entretien_unite_item_id ||
+      !!t.entretien_auto;
 
     if (isEntretienTask && bt) {
       let histQuery = supabase
@@ -1691,7 +1840,10 @@ if (pepId) {
         .eq("bt_id", bt.id);
 
       if (t.entretien_template_item_id) {
-        histQuery = histQuery.eq("template_item_id", t.entretien_template_item_id);
+        histQuery = histQuery.eq(
+          "template_item_id",
+          t.entretien_template_item_id,
+        );
       } else {
         histQuery = histQuery.is("template_item_id", null);
       }
@@ -1723,7 +1875,10 @@ if (pepId) {
       return;
     }
 
-    const { error: delErr } = await supabase.from("bt_taches_effectuees").delete().eq("id", t.id);
+    const { error: delErr } = await supabase
+      .from("bt_taches_effectuees")
+      .delete()
+      .eq("id", t.id);
     if (delErr) {
       alert(delErr.message);
       return;
@@ -1739,7 +1894,10 @@ if (pepId) {
     await loadAll();
   }
 
-  async function handleTerminerBt(mode: "facturer" | "fermer", forcedDateFermeture?: string) {
+  async function handleTerminerBt(
+    mode: "facturer" | "fermer",
+    forcedDateFermeture?: string,
+  ) {
     if (!bt || !unite) return;
 
     if (Boolean(bt.verrouille) || isFacturedStatut(bt.statut)) {
@@ -1748,20 +1906,30 @@ if (pepId) {
     }
 
     if (!hasKmColumn) {
-      alert("La colonne 'km' n'existe pas dans la DB. Ajoute-la via la migration SQL.");
+      alert(
+        "La colonne 'km' n'existe pas dans la DB. Ajoute-la via la migration SQL.",
+      );
       return;
     }
 
     const resolvedClientId = bt.client_id || unite.client_id || null;
     if (!resolvedClientId) {
-      alert("Impossible de fermer ce bon de travail : aucun client n'est assigné à l'unité / au BT.");
+      alert(
+        "Impossible de fermer ce bon de travail : aucun client n'est assigné à l'unité / au BT.",
+      );
       return;
     }
 
-    const activePointages = pointages.filter((p) => Boolean(p.actif) || !p.ended_at);
+    const activePointages = pointages.filter(
+      (p) => Boolean(p.actif) || !p.ended_at,
+    );
     if (activePointages.length > 0) {
       const noms = Array.from(
-        new Set(activePointages.map((p) => String(p.mecano_nom || "Mécano").trim() || "Mécano"))
+        new Set(
+          activePointages.map(
+            (p) => String(p.mecano_nom || "Mécano").trim() || "Mécano",
+          ),
+        ),
       ).join(", ");
       alert(`Impossible de fermer ce bon de travail : mécano encore punché dessus.
 
@@ -1779,7 +1947,8 @@ ${noms}`);
 
     const bon_commande = poInput.trim() || null;
     const date_ouverture = localToIsoOrNull(dateOuvertureInput);
-    const date_fermeture = forcedDateFermeture || localToIsoOrNull(dateFermetureInput) || todayIso();
+    const date_fermeture =
+      forcedDateFermeture || localToIsoOrNull(dateFermetureInput) || todayIso();
     const nouveauStatut = mode === "facturer" ? "a_facturer" : "ferme";
 
     setSavingTerminer(true);
@@ -1800,7 +1969,10 @@ ${noms}`);
 
       if (km !== null) {
         const nextKm = Math.max(unite.km_actuel ?? 0, km);
-        const { error: eU } = await supabase.from("unites").update({ km_actuel: nextKm }).eq("id", unite.id);
+        const { error: eU } = await supabase
+          .from("unites")
+          .update({ km_actuel: nextKm })
+          .eq("id", unite.id);
 
         if (eU) {
           alert(`BT fermé, mais mise à jour km unité a échoué: ${eU.message}`);
@@ -1821,7 +1993,7 @@ ${noms}`);
               date_fermeture,
               ...totals,
             }
-          : prev
+          : prev,
       );
 
       setConfirmTerminerOpen(false);
@@ -1838,7 +2010,8 @@ ${noms}`);
   function requestTerminerBt(mode: "facturer" | "fermer") {
     if (!bt) return;
 
-    const dateReference = bt.date_ouverture || localToIsoOrNull(dateOuvertureInput);
+    const dateReference =
+      bt.date_ouverture || localToIsoOrNull(dateOuvertureInput);
 
     if (!isBtFromCurrentMonth(dateReference)) {
       setPendingCloseMode(mode);
@@ -1869,7 +2042,11 @@ ${noms}`);
 
     setDateFermetureInput("");
     const totals = await recalcAndPersistTotals(bt.id);
-    setBt((prev) => (prev ? { ...prev, statut: "ouvert", date_fermeture: null, ...totals } : prev));
+    setBt((prev) =>
+      prev
+        ? { ...prev, statut: "ouvert", date_fermeture: null, ...totals }
+        : prev,
+    );
     await loadAll();
   }
 
@@ -1985,7 +2162,10 @@ ${noms}`);
     if (!mainOeuvreTableAvailable) return;
     if (!confirm("Supprimer cette ligne de main-d’œuvre ?")) return;
 
-    const { error } = await supabase.from("bt_main_oeuvre").delete().eq("id", rowId);
+    const { error } = await supabase
+      .from("bt_main_oeuvre")
+      .delete()
+      .eq("id", rowId);
     if (error) {
       alert(error.message);
       return;
@@ -2007,7 +2187,10 @@ ${noms}`);
     if (!pointagesTableAvailable) return;
     if (!confirm("Supprimer ce pointage ?")) return;
 
-    const { error } = await supabase.from("bt_pointages").delete().eq("id", pointageId);
+    const { error } = await supabase
+      .from("bt_pointages")
+      .delete()
+      .eq("id", pointageId);
 
     if (error) {
       alert(error.message);
@@ -2047,7 +2230,11 @@ ${noms}`);
     const startMs = new Date(started_at).getTime();
     const endMs = new Date(ended_at).getTime();
 
-    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) {
+    if (
+      !Number.isFinite(startMs) ||
+      !Number.isFinite(endMs) ||
+      endMs < startMs
+    ) {
       alert("La fin doit être après le début.");
       return;
     }
@@ -2086,7 +2273,9 @@ ${noms}`);
   }
 
   function updateMainOeuvreLocal(rowId: string, patch: Partial<MainOeuvreRow>) {
-    setMainOeuvre((rows) => rows.map((r) => (r.id === rowId ? { ...r, ...patch } : r)));
+    setMainOeuvre((rows) =>
+      rows.map((r) => (r.id === rowId ? { ...r, ...patch } : r)),
+    );
   }
 
   async function sendDocumentsToClient() {
@@ -2105,16 +2294,19 @@ ${noms}`);
     setSendingDocuments(true);
 
     try {
-      const { data, error } = await supabase.functions.invoke("send-bt-documents", {
-        body: {
-          bt_id: bt.id,
-          to_email: sendToEmail.trim(),
-          to_name: sendToName.trim(),
-          include_bt: includeBtDocument,
-          include_pep: includePepDocument,
-          commentaire: sendCommentaire.trim(),
+      const { data, error } = await supabase.functions.invoke(
+        "send-bt-documents",
+        {
+          body: {
+            bt_id: bt.id,
+            to_email: sendToEmail.trim(),
+            to_name: sendToName.trim(),
+            include_bt: includeBtDocument,
+            include_pep: includePepDocument,
+            commentaire: sendCommentaire.trim(),
+          },
         },
-      });
+      );
 
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
@@ -2152,7 +2344,7 @@ ${noms}`);
                 <td>${escapeHtml(t.titre || "—")}</td>
                 <td class="center">${escapeHtml(formatDatePrint(t.date_effectuee))}</td>
               </tr>
-            `
+            `,
             )
             .join("")
         : `
@@ -2182,7 +2374,7 @@ ${noms}`);
                         <td>${escapeHtml(n.titre || "—")}</td>
                         <td class="center">${escapeHtml(formatDatePrint(n.created_at))}</td>
                       </tr>
-                    `
+                    `,
                   )
                   .join("")}
               </tbody>
@@ -2221,8 +2413,14 @@ ${noms}`);
         </tr>
       `;
 
-    const totalHeuresPointages = pointagesResume.reduce((s, r) => s + Number(r.heures || 0), 0);
-    const totalHeuresMainOeuvre = mainOeuvre.reduce((s, r) => s + Number(r.heures || 0), 0);
+    const totalHeuresPointages = pointagesResume.reduce(
+      (s, r) => s + Number(r.heures || 0),
+      0,
+    );
+    const totalHeuresMainOeuvre = mainOeuvre.reduce(
+      (s, r) => s + Number(r.heures || 0),
+      0,
+    );
     const totalHeuresGlobal = totalHeuresPointages + totalHeuresMainOeuvre;
 
     const html = btPrintTemplate
@@ -2485,7 +2683,11 @@ ${noms}`);
 
       <div
         className="no-print"
-        style={{ ...styles.row, justifyContent: "space-between", alignItems: "flex-start" }}
+        style={{
+          ...styles.row,
+          justifyContent: "space-between",
+          alignItems: "flex-start",
+        }}
       >
         <div style={styles.row}>
           <div>
@@ -2504,7 +2706,11 @@ ${noms}`);
 
           {!isClosed ? (
             <>
-              <button style={styles.btn} onClick={handlePrint} disabled={loading}>
+              <button
+                style={styles.btn}
+                onClick={handlePrint}
+                disabled={loading}
+              >
                 Imprimer
               </button>
               <button
@@ -2525,14 +2731,23 @@ ${noms}`);
               <button
                 style={styles.btnPrimary}
                 onClick={() => setConfirmTerminerOpen(true)}
-                disabled={loading || Boolean(bt?.verrouille) || isFacturedStatut(bt?.statut) || !hasKmColumn}
+                disabled={
+                  loading ||
+                  Boolean(bt?.verrouille) ||
+                  isFacturedStatut(bt?.statut) ||
+                  !hasKmColumn
+                }
               >
                 Fermer bon de travail
               </button>
             </>
           ) : (
             <>
-              <button style={styles.btn} onClick={handlePrint} disabled={loading}>
+              <button
+                style={styles.btn}
+                onClick={handlePrint}
+                disabled={loading}
+              >
                 Imprimer
               </button>
               <button
@@ -2553,7 +2768,11 @@ ${noms}`);
               <button
                 style={styles.btnPrimary}
                 onClick={reopenBT}
-                disabled={loading || Boolean(bt?.verrouille) || isFacturedStatut(bt?.statut)}
+                disabled={
+                  loading ||
+                  Boolean(bt?.verrouille) ||
+                  isFacturedStatut(bt?.statut)
+                }
               >
                 Réouvrir BT
               </button>
@@ -2575,14 +2794,18 @@ ${noms}`);
           <div className="no-print" style={styles.tabsWrap}>
             <button
               type="button"
-              style={activeTab === "details" ? styles.tabBtnActive : styles.tabBtn}
+              style={
+                activeTab === "details" ? styles.tabBtnActive : styles.tabBtn
+              }
               onClick={() => setActiveTab("details")}
             >
               Détails
             </button>
             <button
               type="button"
-              style={activeTab === "documents" ? styles.tabBtnActive : styles.tabBtn}
+              style={
+                activeTab === "documents" ? styles.tabBtnActive : styles.tabBtn
+              }
               onClick={() => setActiveTab("documents")}
             >
               Documents ({documents.length})
@@ -2610,8 +2833,10 @@ ${noms}`);
 
               <BonTravailOperations
                 btId={id}
-clientId={bt?.client_id || unite?.client_id || null}
-  uniteNo={unite?.no_unite || ""}
+                uniteId={bt.unite_id}
+                btKm={bt.km}
+                clientId={bt?.client_id || unite?.client_id || null}
+                uniteNo={unite?.no_unite || ""}
                 notes={notes}
                 autorisationMap={autorisationMap}
                 selected={selected}
@@ -2627,7 +2852,9 @@ clientId={bt?.client_id || unite?.client_id || null}
                 onCompleteSelectedTasks={completeSelectedTasks}
                 onDeleteSelectedTasks={deleteSelectedTasks}
                 onAutoriserManuellementTache={autoriserManuellementTache}
-                onCompleteSingleTaskFromAutorisation={completeSingleTaskFromAutorisation}
+                onCompleteSingleTaskFromAutorisation={
+                  completeSingleTaskFromAutorisation
+                }
                 onRefresh={loadAll}
                 onRemettreTacheOuverte={remettreTacheOuverte}
                 pieces={pieces}
@@ -2684,10 +2911,18 @@ clientId={bt?.client_id || unite?.client_id || null}
             </>
           ) : (
             <div style={styles.card}>
-              <div style={{ ...styles.row, justifyContent: "space-between", marginBottom: 12 }}>
+              <div
+                style={{
+                  ...styles.row,
+                  justifyContent: "space-between",
+                  marginBottom: 12,
+                }}
+              >
                 <div>
                   <div style={{ fontSize: 18, fontWeight: 900 }}>Documents</div>
-                  <div style={styles.muted}>Ajouter et consulter les documents liés à ce bon de travail.</div>
+                  <div style={styles.muted}>
+                    Ajouter et consulter les documents liés à ce bon de travail.
+                  </div>
                 </div>
               </div>
 
@@ -2723,11 +2958,21 @@ clientId={bt?.client_id || unite?.client_id || null}
                     <div style={{ ...styles.muted, marginTop: 6 }}>
                       ou cliquer pour parcourir
                     </div>
-                    <div style={{ ...styles.muted, marginTop: 8, fontSize: 12 }}>
-                      Formats courants acceptés : PDF, images, documents Office, etc.
+                    <div
+                      style={{ ...styles.muted, marginTop: 8, fontSize: 12 }}
+                    >
+                      Formats courants acceptés : PDF, images, documents Office,
+                      etc.
                     </div>
                     {isReadOnly && (
-                      <div style={{ marginTop: 10, fontSize: 12, color: "#b45309", fontWeight: 800 }}>
+                      <div
+                        style={{
+                          marginTop: 10,
+                          fontSize: 12,
+                          color: "#b45309",
+                          fontWeight: 800,
+                        }}
+                      >
                         BT fermé / verrouillé : ajout désactivé.
                       </div>
                     )}
@@ -2741,7 +2986,8 @@ clientId={bt?.client_id || unite?.client_id || null}
                 multiple
                 style={{ display: "none" }}
                 onChange={(e) => {
-                  if (e.target.files?.length) void handleUploadDocuments(e.target.files);
+                  if (e.target.files?.length)
+                    void handleUploadDocuments(e.target.files);
                 }}
               />
 
@@ -2749,37 +2995,58 @@ clientId={bt?.client_id || unite?.client_id || null}
                 {documentsLoading ? (
                   <div style={styles.muted}>Chargement des documents…</div>
                 ) : documents.length === 0 ? (
-                  <div style={styles.muted}>Aucun document lié à ce bon de travail.</div>
+                  <div style={styles.muted}>
+                    Aucun document lié à ce bon de travail.
+                  </div>
                 ) : (
                   documents.map((doc) => {
-                    const isPepDoc = doc.type === "pep" || doc.source === "auto_pep";
+                    const isPepDoc =
+                      doc.type === "pep" || doc.source === "auto_pep";
                     return (
                       <div key={doc.id} style={styles.docRow}>
                         <div style={{ minWidth: 0 }}>
-                          <div style={{ fontWeight: 800, wordBreak: "break-word" }}>
+                          <div
+                            style={{ fontWeight: 800, wordBreak: "break-word" }}
+                          >
                             {String(doc.nom_fichier || "Document")}
                           </div>
                           <div style={styles.docBadge}>
-                            {isPepDoc ? "PEP" : doc.type === "photo" ? "Photo" : "Document"}
+                            {isPepDoc
+                              ? "PEP"
+                              : doc.type === "photo"
+                                ? "Photo"
+                                : "Document"}
                           </div>
-                          <div style={{ ...styles.muted, marginTop: 6, fontSize: 12 }}>
+                          <div
+                            style={{
+                              ...styles.muted,
+                              marginTop: 6,
+                              fontSize: 12,
+                            }}
+                          >
                             Ajouté le {formatDateTimePrint(doc.created_at)}
                           </div>
                         </div>
 
-                        <div style={{ ...styles.row, justifyContent: "flex-end" }}>
-                          <button type="button" style={styles.btn} onClick={() => void openDocument(doc)}>
+                        <div
+                          style={{ ...styles.row, justifyContent: "flex-end" }}
+                        >
+                          <button
+                            type="button"
+                            style={styles.btn}
+                            onClick={() => void openDocument(doc)}
+                          >
                             Ouvrir
                           </button>
                           {!isReadOnly && (
-  <button
-    type="button"
-    style={styles.btnDanger}
-    onClick={() => void deleteDocument(doc)}
-  >
-    Supprimer
-  </button>
-)}
+                            <button
+                              type="button"
+                              style={styles.btnDanger}
+                              onClick={() => void deleteDocument(doc)}
+                            >
+                              Supprimer
+                            </button>
+                          )}
                         </div>
                       </div>
                     );
@@ -2798,7 +3065,10 @@ clientId={bt?.client_id || unite?.client_id || null}
             if (!sendingDocuments) setSendDocsModalOpen(false);
           }}
         >
-          <div style={{ ...styles.modalCard, maxWidth: 700 }} onClick={(e) => e.stopPropagation()}>
+          <div
+            style={{ ...styles.modalCard, maxWidth: 700 }}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div style={styles.modalHeader}>
               <h3 style={styles.modalTitle}>Envoyer des documents</h3>
               <button
@@ -2814,7 +3084,9 @@ clientId={bt?.client_id || unite?.client_id || null}
             <div style={styles.modalBody}>
               <div style={{ display: "grid", gap: 12 }}>
                 <div>
-                  <div style={{ fontWeight: 800, marginBottom: 6 }}>Nom du destinataire</div>
+                  <div style={{ fontWeight: 800, marginBottom: 6 }}>
+                    Nom du destinataire
+                  </div>
                   <input
                     style={{ ...styles.input, width: "100%", minWidth: 0 }}
                     value={sendToName}
@@ -2825,7 +3097,9 @@ clientId={bt?.client_id || unite?.client_id || null}
                 </div>
 
                 <div>
-                  <div style={{ fontWeight: 800, marginBottom: 6 }}>Contact client</div>
+                  <div style={{ fontWeight: 800, marginBottom: 6 }}>
+                    Contact client
+                  </div>
 
                   <select
                     style={{
@@ -2855,17 +3129,25 @@ clientId={bt?.client_id || unite?.client_id || null}
                     </option>
 
                     {clientContacts
-                      .filter((contact) => String(contact.courriel || "").trim())
+                      .filter((contact) =>
+                        String(contact.courriel || "").trim(),
+                      )
                       .map((contact) => (
                         <option key={contact.id} value={contact.id}>
                           {String(contact.nom || contact.courriel || "Contact")}
                           {contact.courriel ? ` (${contact.courriel})` : ""}
-                          {contact.type_facturation ? " — Facturation" : contact.principal ? " — Principal" : ""}
+                          {contact.type_facturation
+                            ? " — Facturation"
+                            : contact.principal
+                              ? " — Principal"
+                              : ""}
                         </option>
                       ))}
                   </select>
 
-                  <div style={{ fontWeight: 800, marginBottom: 6 }}>Courriel manuel</div>
+                  <div style={{ fontWeight: 800, marginBottom: 6 }}>
+                    Courriel manuel
+                  </div>
                   <input
                     style={{ ...styles.input, width: "100%", minWidth: 0 }}
                     value={sendToEmail}
@@ -2882,7 +3164,9 @@ clientId={bt?.client_id || unite?.client_id || null}
                 </div>
 
                 <div>
-                  <div style={{ fontWeight: 800, marginBottom: 8 }}>Documents à joindre</div>
+                  <div style={{ fontWeight: 800, marginBottom: 8 }}>
+                    Documents à joindre
+                  </div>
 
                   <div
                     style={{
@@ -2925,7 +3209,9 @@ clientId={bt?.client_id || unite?.client_id || null}
                         <input
                           type="checkbox"
                           checked={includePepDocument}
-                          onChange={(e) => setIncludePepDocument(e.target.checked)}
+                          onChange={(e) =>
+                            setIncludePepDocument(e.target.checked)
+                          }
                           disabled={sendingDocuments}
                         />
                         PEP PDF ({pepDocuments.length})
@@ -2939,7 +3225,9 @@ clientId={bt?.client_id || unite?.client_id || null}
                 </div>
 
                 <div>
-                  <div style={{ fontWeight: 800, marginBottom: 6 }}>Commentaire (optionnel)</div>
+                  <div style={{ fontWeight: 800, marginBottom: 6 }}>
+                    Commentaire (optionnel)
+                  </div>
                   <textarea
                     style={{
                       ...styles.input,
@@ -2985,7 +3273,11 @@ clientId={bt?.client_id || unite?.client_id || null}
           <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
             <div style={styles.modalHeader}>
               <h3 style={styles.modalTitle}>Nouvelle tâche</h3>
-              <button type="button" style={styles.iconCloseBtn} onClick={closeTaskModal}>
+              <button
+                type="button"
+                style={styles.iconCloseBtn}
+                onClick={closeTaskModal}
+              >
                 ×
               </button>
             </div>
@@ -2995,7 +3287,9 @@ clientId={bt?.client_id || unite?.client_id || null}
                 style={{ ...styles.input, width: "100%", minWidth: 0 }}
                 placeholder="Entrer la tâche"
                 value={taskModalValue}
-                onChange={(e) => setTaskModalValue(e.target.value.toUpperCase())}
+                onChange={(e) =>
+                  setTaskModalValue(e.target.value.toUpperCase())
+                }
                 onKeyDown={(e) => {
                   if (e.key === "Enter") addPendingTask();
                 }}
@@ -3004,16 +3298,29 @@ clientId={bt?.client_id || unite?.client_id || null}
 
               {pendingTasks.length > 0 ? (
                 <div style={styles.pendingList}>
-                  <div style={{ padding: "8px 10px", fontSize: 12, fontWeight: 900, color: "rgba(0,0,0,.62)" }}>
+                  <div
+                    style={{
+                      padding: "8px 10px",
+                      fontSize: 12,
+                      fontWeight: 900,
+                      color: "rgba(0,0,0,.62)",
+                    }}
+                  >
                     Tâches à enregistrer ({pendingTasks.length})
                   </div>
                   {pendingTasks.map((task, index) => (
                     <div key={`${task}-${index}`} style={styles.pendingItem}>
-                      <div style={{ fontWeight: 800, wordBreak: "break-word" }}>{task}</div>
+                      <div style={{ fontWeight: 800, wordBreak: "break-word" }}>
+                        {task}
+                      </div>
                       <button
                         type="button"
                         style={styles.smallDangerBtn}
-                        onClick={() => setPendingTasks((prev) => prev.filter((_, i) => i !== index))}
+                        onClick={() =>
+                          setPendingTasks((prev) =>
+                            prev.filter((_, i) => i !== index),
+                          )
+                        }
                         title="Retirer"
                       >
                         ×
@@ -3025,13 +3332,21 @@ clientId={bt?.client_id || unite?.client_id || null}
             </div>
 
             <div style={styles.modalFooter}>
-              <button type="button" style={styles.btnDanger} onClick={closeTaskModal}>
+              <button
+                type="button"
+                style={styles.btnDanger}
+                onClick={closeTaskModal}
+              >
                 Annuler
               </button>
               <button type="button" style={styles.btn} onClick={addPendingTask}>
                 Ajouter à la liste
               </button>
-              <button type="button" style={styles.btnPrimary} onClick={savePendingTasks}>
+              <button
+                type="button"
+                style={styles.btnPrimary}
+                onClick={savePendingTasks}
+              >
                 Enregistrer
               </button>
             </div>
@@ -3044,18 +3359,32 @@ clientId={bt?.client_id || unite?.client_id || null}
           <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
             <div style={styles.modalHeader}>
               <h3 style={styles.modalTitle}>Autoriser à faire</h3>
-              <button type="button" style={styles.iconCloseBtn} onClick={closeAutorisationModal} disabled={savingAutorisationModal}>
+              <button
+                type="button"
+                style={styles.iconCloseBtn}
+                onClick={closeAutorisationModal}
+                disabled={savingAutorisationModal}
+              >
                 ×
               </button>
             </div>
 
             <div style={styles.modalBody}>
-              <div style={{ fontWeight: 900, marginBottom: 8 }}>{autorisationModalTask.titre}</div>
+              <div style={{ fontWeight: 900, marginBottom: 8 }}>
+                {autorisationModalTask.titre}
+              </div>
               <div style={{ ...styles.muted, marginBottom: 12 }}>
-                Cette note sera conservée avec le suivi d’autorisation de la tâche.
+                Cette note sera conservée avec le suivi d’autorisation de la
+                tâche.
               </div>
               <textarea
-                style={{ ...styles.input, width: "100%", minWidth: 0, minHeight: 110, resize: "vertical" }}
+                style={{
+                  ...styles.input,
+                  width: "100%",
+                  minWidth: 0,
+                  minHeight: 110,
+                  resize: "vertical",
+                }}
                 placeholder="Ex. Client a rappelé et autorise finalement cette tâche."
                 value={autorisationModalNote}
                 onChange={(e) => setAutorisationModalNote(e.target.value)}
@@ -3064,11 +3393,23 @@ clientId={bt?.client_id || unite?.client_id || null}
             </div>
 
             <div style={styles.modalFooter}>
-              <button type="button" style={styles.btnDanger} onClick={closeAutorisationModal} disabled={savingAutorisationModal}>
+              <button
+                type="button"
+                style={styles.btnDanger}
+                onClick={closeAutorisationModal}
+                disabled={savingAutorisationModal}
+              >
                 Annuler
               </button>
-              <button type="button" style={styles.btnPrimary} onClick={confirmerAutoriserAFaire} disabled={savingAutorisationModal}>
-                {savingAutorisationModal ? "Enregistrement..." : "Autoriser à faire"}
+              <button
+                type="button"
+                style={styles.btnPrimary}
+                onClick={confirmerAutoriserAFaire}
+                disabled={savingAutorisationModal}
+              >
+                {savingAutorisationModal
+                  ? "Enregistrement..."
+                  : "Autoriser à faire"}
               </button>
             </div>
           </div>
@@ -3080,7 +3421,11 @@ clientId={bt?.client_id || unite?.client_id || null}
           <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
             <div style={styles.modalHeader}>
               <h3 style={styles.modalTitle}>Ajouter du temps</h3>
-              <button type="button" style={styles.iconCloseBtn} onClick={closeTempsModal}>
+              <button
+                type="button"
+                style={styles.iconCloseBtn}
+                onClick={closeTempsModal}
+              >
                 ×
               </button>
             </div>
@@ -3104,7 +3449,13 @@ clientId={bt?.client_id || unite?.client_id || null}
                 />
               </div>
 
-              <div style={{ ...styles.row, marginTop: 10, alignItems: "flex-start" }}>
+              <div
+                style={{
+                  ...styles.row,
+                  marginTop: 10,
+                  alignItems: "flex-start",
+                }}
+              >
                 <input
                   type="text"
                   style={{ ...styles.input, width: 120, minWidth: 120 }}
@@ -3132,7 +3483,11 @@ clientId={bt?.client_id || unite?.client_id || null}
             </div>
 
             <div style={styles.modalFooter}>
-              <button type="button" style={styles.btnDanger} onClick={closeTempsModal}>
+              <button
+                type="button"
+                style={styles.btnDanger}
+                onClick={closeTempsModal}
+              >
                 Annuler
               </button>
               <button
@@ -3149,7 +3504,10 @@ clientId={bt?.client_id || unite?.client_id || null}
       )}
 
       {confirmTerminerOpen && (
-        <div style={styles.modalBackdrop} onClick={() => setConfirmTerminerOpen(false)}>
+        <div
+          style={styles.modalBackdrop}
+          onClick={() => setConfirmTerminerOpen(false)}
+        >
           <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
             <div style={styles.modalHeader}>
               <h3 style={styles.modalTitle}>Terminer le bon de travail</h3>
@@ -3163,7 +3521,9 @@ clientId={bt?.client_id || unite?.client_id || null}
             </div>
 
             <div style={styles.modalBody}>
-              <p style={{ marginTop: 0 }}>Que veux-tu faire avec ce bon de travail ?</p>
+              <p style={{ marginTop: 0 }}>
+                Que veux-tu faire avec ce bon de travail ?
+              </p>
 
               <div style={{ display: "grid", gap: 10, marginTop: 16 }}>
                 <button
@@ -3198,9 +3558,11 @@ clientId={bt?.client_id || unite?.client_id || null}
         </div>
       )}
 
-
       {closeDateModalOpen && pendingCloseMode && bt && (
-        <div style={styles.modalBackdrop} onClick={() => setCloseDateModalOpen(false)}>
+        <div
+          style={styles.modalBackdrop}
+          onClick={() => setCloseDateModalOpen(false)}
+        >
           <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
             <div style={styles.modalHeader}>
               <h3 style={styles.modalTitle}>Date de fermeture</h3>
@@ -3230,10 +3592,16 @@ clientId={bt?.client_id || unite?.client_id || null}
                 <button
                   type="button"
                   style={styles.btnPrimary}
-                  onClick={() => handleTerminerBt(pendingCloseMode, lastDayOfBtMonthIso(bt.date_ouverture))}
+                  onClick={() =>
+                    handleTerminerBt(
+                      pendingCloseMode,
+                      lastDayOfBtMonthIso(bt.date_ouverture),
+                    )
+                  }
                   disabled={savingTerminer}
                 >
-                  Fermer au {formatDateOnly(lastDayOfBtMonthIso(bt.date_ouverture))}
+                  Fermer au{" "}
+                  {formatDateOnly(lastDayOfBtMonthIso(bt.date_ouverture))}
                 </button>
 
                 <button

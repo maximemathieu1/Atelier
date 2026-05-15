@@ -22,6 +22,7 @@ import BonTravailMecanoPage from "./pages/BonTravailMecanoPage";
 import BtPrintPage from "./pages/BtPrintPage";
 import OperationTempsReelPage from "./pages/OperationTempsReelPage";
 import Inventaire from "./pages/Inventaire";
+import GestionAtelierPage from "./pages/GestionAtelierPage";
 import FacturationBT from "./pages/FacturationBT";
 import FacturesFournisseurs from "./pages/FacturesFournisseurs";
 import AutorisationBtClientPage from "./pages/AutorisationBtClientPage";
@@ -156,6 +157,10 @@ function AppShell({ onLogout }: { onLogout: () => void | Promise<void> }) {
             <NavLink to="/inventaire" className={linkClass} onClick={onNavClick}>
               Inventaire
             </NavLink>
+
+            <NavLink to="/gestion-atelier" className={linkClass} onClick={onNavClick}>
+              Gestion atelier
+            </NavLink>
           </div>
 
           <div className="section">
@@ -239,6 +244,7 @@ function AppShell({ onLogout }: { onLogout: () => void | Promise<void> }) {
             <Route path="/bt/:id/imprimer" element={<BtPrintPage />} />
 
             <Route path="/inventaire" element={<Inventaire />} />
+            <Route path="/gestion-atelier" element={<GestionAtelierPage />} />
             <Route path="/operation-temps-reel" element={<OperationTempsReelPage />} />
 
             <Route path="/pep" element={<PepAccueil />}>

@@ -126,6 +126,8 @@ function localToIsoOrNull(v: string) {
 
 type Props = {
   btId: string;
+  uniteId?: string | null;
+  btKm?: number | string | null;
   clientId?: string | null;
   uniteNo?: string | null;
   autorisationClientUrl?: string | null;
@@ -214,7 +216,9 @@ export default function BonTravailOperations(props: Props) {
   const [vehicleReadyEmail, setVehicleReadyEmail] = useState("");
   const [vehicleReadySendSms, setVehicleReadySendSms] = useState(true);
   const [vehicleReadySendEmail, setVehicleReadySendEmail] = useState(false);
-  const [vehicleReadyMessage, setVehicleReadyMessage] = useState(initialVehicleReadyMessage);
+  const [vehicleReadyMessage, setVehicleReadyMessage] = useState(
+    initialVehicleReadyMessage,
+  );
 
   const styles: Record<string, CSSProperties> = {
     card: {
@@ -535,6 +539,8 @@ export default function BonTravailOperations(props: Props) {
 
   const {
     btId,
+    uniteId,
+    btKm,
     clientId,
     uniteNo,
     autorisationClientUrl,
@@ -599,7 +605,9 @@ export default function BonTravailOperations(props: Props) {
 
       const { data, error } = await supabase
         .from("client_contacts")
-        .select("id, client_id, nom, poste, telephone, courriel, principal, type_facturation")
+        .select(
+          "id, client_id, nom, poste, telephone, courriel, principal, type_facturation",
+        )
         .eq("client_id", clientId)
         .order("principal", { ascending: false })
         .order("type_facturation", { ascending: false })
@@ -615,9 +623,9 @@ export default function BonTravailOperations(props: Props) {
       setClientContacts(contacts);
 
       // Aucun auto-remplissage
-setSelectedContactId("");
-setVehicleReadyPhone("");
-setVehicleReadyEmail("");
+      setSelectedContactId("");
+      setVehicleReadyPhone("");
+      setVehicleReadyEmail("");
     }
 
     void loadClientContacts();
@@ -628,7 +636,7 @@ setVehicleReadyEmail("");
     setVehicleReadyMessage(
       currentUniteNo
         ? `Groupe Breton: votre véhicule/unité ${currentUniteNo} est prêt. Vous pouvez passer le récupérer.`
-        : "Groupe Breton: votre véhicule est prêt. Vous pouvez passer le récupérer."
+        : "Groupe Breton: votre véhicule est prêt. Vous pouvez passer le récupérer.",
     );
   }, [uniteNo]);
 
@@ -641,16 +649,17 @@ setVehicleReadyEmail("");
       .map((t) => `- ${String(t.titre || "Tâche").trim()}`)
       .join("\n");
 
-    const more = selectedTasks.length > 6 ? `\n- +${selectedTasks.length - 6} autre(s) tâche(s)` : "";
+    const more =
+      selectedTasks.length > 6
+        ? `\n- +${selectedTasks.length - 6} autre(s) tâche(s)`
+        : "";
     const url = getAutorisationUrl();
     const currentUniteNo = String(uniteNo || "").trim();
     const intro = currentUniteNo
       ? `Groupe Breton: des travaux sont à autoriser pour le véhicule/unité ${currentUniteNo}.`
       : "Groupe Breton: des travaux sont à autoriser pour votre véhicule.";
 
-    setTaskAuthSmsMessage(
-      `${intro}\n${taskLines}${more}\nLien: ${url}`.trim()
-    );
+    setTaskAuthSmsMessage(`${intro}\n${taskLines}${more}\nLien: ${url}`.trim());
   }, [taskAuthSmsOpen, selected, notes, uniteNo, autorisationClientUrl, btId]);
 
   function getAutorisationUrl() {
@@ -682,7 +691,9 @@ setVehicleReadyEmail("");
     }
 
     if (!selectedTasks.length) {
-      alert("Sélectionne au moins une tâche dans le tableau avant d’envoyer le SMS.");
+      alert(
+        "Sélectionne au moins une tâche dans le tableau avant d’envoyer le SMS.",
+      );
       return;
     }
 
@@ -780,7 +791,9 @@ setVehicleReadyEmail("");
     <>
       <div style={styles.card}>
         <div style={{ ...styles.row, justifyContent: "space-between" }}>
-          <div style={{ fontSize: 16, fontWeight: 950 }}>Tâches à compléter</div>
+          <div style={{ fontSize: 16, fontWeight: 950 }}>
+            Tâches à compléter
+          </div>
 
           <div style={styles.row}>
             <button
@@ -811,7 +824,11 @@ setVehicleReadyEmail("");
         </div>
 
         <div style={{ ...styles.row, marginTop: 10 }}>
-          <button style={styles.btnPrimary} onClick={onOpenTaskModal} disabled={isReadOnly}>
+          <button
+            style={styles.btnPrimary}
+            onClick={onOpenTaskModal}
+            disabled={isReadOnly}
+          >
             Ajouter une tâche
           </button>
         </div>
@@ -823,7 +840,9 @@ setVehicleReadyEmail("");
                 <th style={{ ...styles.th, width: 40 }}>
                   <input
                     type="checkbox"
-                    checked={notes.length > 0 && notes.every((t) => selected[t.id])}
+                    checked={
+                      notes.length > 0 && notes.every((t) => selected[t.id])
+                    }
                     onChange={(e) => {
                       const on = e.target.checked;
                       const next: Record<string, boolean> = { ...selected };
@@ -850,21 +869,26 @@ setVehicleReadyEmail("");
                 notes.map((t) => {
                   const autorisation = autorisationMap[t.id];
                   const decision = autorisation?.decision;
-                  const noteClient = String(autorisation?.note_client || "").trim();
+                  const noteClient = String(
+                    autorisation?.note_client || "",
+                  ).trim();
                   const isPendingClient = decision === "attente";
                   const isRefusedClient = decision === "refuse";
                   const isADiscuterClient = decision === "a_discuter";
-                  
 
                   const rowStyle: CSSProperties = {
                     background: isRefusedClient
                       ? "#fef2f2"
                       : isPendingClient
-                      ? "#fefce8"
-                      : isADiscuterClient
-                      ? "#eff6ff"
-                      : "transparent",
-                    opacity: isRefusedClient ? 0.62 : isPendingClient || isADiscuterClient ? 0.9 : 1,
+                        ? "#fefce8"
+                        : isADiscuterClient
+                          ? "#eff6ff"
+                          : "transparent",
+                    opacity: isRefusedClient
+                      ? 0.62
+                      : isPendingClient || isADiscuterClient
+                        ? 0.9
+                        : 1,
                     transition: "background .15s ease, opacity .15s ease",
                   };
 
@@ -875,37 +899,62 @@ setVehicleReadyEmail("");
                           type="checkbox"
                           checked={Boolean(selected[t.id])}
                           onChange={(e) =>
-                            setSelected((s) => ({ ...s, [t.id]: e.target.checked }))
+                            setSelected((s) => ({
+                              ...s,
+                              [t.id]: e.target.checked,
+                            }))
                           }
                           disabled={isReadOnly}
                         />
                       </td>
 
                       <td style={styles.td}>
-                        <div style={{ fontWeight: 500, textTransform: "uppercase" }}>
+                        <div
+                          style={{
+                            fontWeight: 500,
+                            textTransform: "uppercase",
+                          }}
+                        >
                           {String(t.titre || "")}
                         </div>
 
                         {isPendingClient && (
-                          <div style={{ ...styles.authStatusText, color: "#a16207" }}>
+                          <div
+                            style={{
+                              ...styles.authStatusText,
+                              color: "#a16207",
+                            }}
+                          >
                             En attente client
                           </div>
                         )}
 
                         {isADiscuterClient && (
-                          <div style={{ ...styles.authStatusText, color: "#2563eb" }}>
+                          <div
+                            style={{
+                              ...styles.authStatusText,
+                              color: "#2563eb",
+                            }}
+                          >
                             À discuter
                           </div>
                         )}
 
                         {isRefusedClient && (
-                          <div style={{ ...styles.authStatusText, color: "#dc2626" }}>
+                          <div
+                            style={{
+                              ...styles.authStatusText,
+                              color: "#dc2626",
+                            }}
+                          >
                             Refusé par le client
                           </div>
                         )}
 
                         {noteClient && (
-                          <div style={styles.clientNoteBox}>Note client : {noteClient}</div>
+                          <div style={styles.clientNoteBox}>
+                            Note client : {noteClient}
+                          </div>
                         )}
 
                         {isRefusedClient && !isReadOnly && (
@@ -921,7 +970,9 @@ setVehicleReadyEmail("");
                         )}
                       </td>
 
-                      <td style={styles.td}>{fmtDateTimeNoSeconds(t.created_at)}</td>
+                      <td style={styles.td}>
+                        {fmtDateTimeNoSeconds(t.created_at)}
+                      </td>
 
                       <td style={styles.photoTd}>
                         <BtTachePhotos
@@ -940,7 +991,8 @@ setVehicleReadyEmail("");
         </div>
 
         <div style={{ marginTop: 14, fontSize: 14, fontWeight: 950 }}>
-          Tâches effectuées <span style={styles.muted}>({tachesEffectuees.length})</span>
+          Tâches effectuées{" "}
+          <span style={styles.muted}>({tachesEffectuees.length})</span>
         </div>
 
         <table style={{ ...styles.table, marginTop: 6 }}>
@@ -964,12 +1016,16 @@ setVehicleReadyEmail("");
               tachesEffectuees.map((t) => (
                 <tr key={t.id}>
                   <td style={styles.td}>
-                    <div style={{ fontWeight: 500, textTransform: "uppercase" }}>
+                    <div
+                      style={{ fontWeight: 500, textTransform: "uppercase" }}
+                    >
                       {String(t.titre || "")}
                     </div>
                   </td>
 
-                  <td style={styles.td}>{fmtDateTimeNoSeconds(t.date_effectuee)}</td>
+                  <td style={styles.td}>
+                    {fmtDateTimeNoSeconds(t.date_effectuee)}
+                  </td>
 
                   <td style={styles.photoTd}>
                     <BtTachePhotos
@@ -998,6 +1054,8 @@ setVehicleReadyEmail("");
 
       <BtPiecesCard
         btId={btId}
+        uniteId={uniteId}
+        btKm={btKm}
         pieces={pieces}
         setPieces={setPieces}
         isReadOnly={isReadOnly}
@@ -1008,7 +1066,9 @@ setVehicleReadyEmail("");
       />
 
       <div style={styles.card}>
-        <div style={{ fontSize: 16, fontWeight: 950, marginBottom: 10 }}>Temps pointé</div>
+        <div style={{ fontSize: 16, fontWeight: 950, marginBottom: 10 }}>
+          Temps pointé
+        </div>
 
         <div style={{ ...styles.row, marginBottom: 10 }}>
           <button
@@ -1022,8 +1082,8 @@ setVehicleReadyEmail("");
 
         {!pointagesTableAvailable && (
           <div style={styles.warn}>
-            ⚠️ La table <b>bt_pointages</b> n’existe pas encore. Ajoute-la pour activer cette
-            section.
+            ⚠️ La table <b>bt_pointages</b> n’existe pas encore. Ajoute-la pour
+            activer cette section.
           </div>
         )}
 
@@ -1044,7 +1104,9 @@ setVehicleReadyEmail("");
                   {pointagesResume.length === 0 ? (
                     <tr>
                       <td style={styles.td} colSpan={4}>
-                        <span style={styles.muted}>Aucun temps pointé pour ce BT.</span>
+                        <span style={styles.muted}>
+                          Aucun temps pointé pour ce BT.
+                        </span>
                       </td>
                     </tr>
                   ) : (
@@ -1055,7 +1117,11 @@ setVehicleReadyEmail("");
                         </td>
                         <td style={styles.td}>{fmtHours(r.heures)}</td>
                         <td style={styles.td}>{money(effectiveTauxHoraire)}</td>
-                        <td style={styles.td}>{money(decimalToNumber(r.heures) * effectiveTauxHoraire)}</td>
+                        <td style={styles.td}>
+                          {money(
+                            decimalToNumber(r.heures) * effectiveTauxHoraire,
+                          )}
+                        </td>
                       </tr>
                     ))
                   )}
@@ -1066,7 +1132,9 @@ setVehicleReadyEmail("");
             {(pointages.length > 0 || mainOeuvre.length > 0) && (
               <div style={{ marginTop: 14 }}>
                 <div style={styles.sectionHeaderRow}>
-                  <div style={{ fontSize: 14, fontWeight: 950 }}>Détail des pointages</div>
+                  <div style={{ fontSize: 14, fontWeight: 950 }}>
+                    Détail des pointages
+                  </div>
                   <button
                     type="button"
                     style={styles.btnLink}
@@ -1084,11 +1152,21 @@ setVehicleReadyEmail("");
                           <thead>
                             <tr>
                               <th style={styles.th}>Mécano</th>
-                              <th style={{ ...styles.th, minWidth: 210 }}>Début</th>
-                              <th style={{ ...styles.th, minWidth: 210 }}>Fin</th>
-                              <th style={{ ...styles.th, width: 110 }}>Durée</th>
-                              <th style={{ ...styles.th, minWidth: 180 }}>Note</th>
-                              <th style={{ ...styles.th, width: 90 }}>Action</th>
+                              <th style={{ ...styles.th, minWidth: 210 }}>
+                                Début
+                              </th>
+                              <th style={{ ...styles.th, minWidth: 210 }}>
+                                Fin
+                              </th>
+                              <th style={{ ...styles.th, width: 110 }}>
+                                Durée
+                              </th>
+                              <th style={{ ...styles.th, minWidth: 180 }}>
+                                Note
+                              </th>
+                              <th style={{ ...styles.th, width: 90 }}>
+                                Action
+                              </th>
                             </tr>
                           </thead>
 
@@ -1101,9 +1179,15 @@ setVehicleReadyEmail("");
                                   {editingPointageId === p.id ? (
                                     <input
                                       type="datetime-local"
-                                      style={{ ...styles.input, minWidth: 190, width: "100%" }}
+                                      style={{
+                                        ...styles.input,
+                                        minWidth: 190,
+                                        width: "100%",
+                                      }}
                                       value={editingPointageStart}
-                                      onChange={(e) => setEditingPointageStart(e.target.value)}
+                                      onChange={(e) =>
+                                        setEditingPointageStart(e.target.value)
+                                      }
                                       disabled={isReadOnly}
                                     />
                                   ) : (
@@ -1115,9 +1199,15 @@ setVehicleReadyEmail("");
                                   {editingPointageId === p.id ? (
                                     <input
                                       type="datetime-local"
-                                      style={{ ...styles.input, minWidth: 190, width: "100%" }}
+                                      style={{
+                                        ...styles.input,
+                                        minWidth: 190,
+                                        width: "100%",
+                                      }}
                                       value={editingPointageEnd}
-                                      onChange={(e) => setEditingPointageEnd(e.target.value)}
+                                      onChange={(e) =>
+                                        setEditingPointageEnd(e.target.value)
+                                      }
                                       disabled={isReadOnly}
                                     />
                                   ) : (
@@ -1131,13 +1221,17 @@ setVehicleReadyEmail("");
                                         Math.max(
                                           0,
                                           (new Date(
-                                            localToIsoOrNull(editingPointageEnd) || 0
+                                            localToIsoOrNull(
+                                              editingPointageEnd,
+                                            ) || 0,
                                           ).getTime() -
                                             new Date(
-                                              localToIsoOrNull(editingPointageStart) || 0
+                                              localToIsoOrNull(
+                                                editingPointageStart,
+                                              ) || 0,
                                             ).getTime()) /
-                                            3600000
-                                        )
+                                            3600000,
+                                        ),
                                       )
                                     : fmtHours(
                                         p.duration_minutes != null
@@ -1145,24 +1239,30 @@ setVehicleReadyEmail("");
                                           : Math.max(
                                               0,
                                               (new Date(
-                                                p.ended_at || new Date().toISOString()
+                                                p.ended_at ||
+                                                  new Date().toISOString(),
                                               ).getTime() -
-                                                new Date(p.started_at).getTime()) /
-                                                3600000
-                                            )
+                                                new Date(
+                                                  p.started_at,
+                                                ).getTime()) /
+                                                3600000,
+                                            ),
                                       )}
                                 </td>
 
                                 <td style={styles.td}>{p.note || "—"}</td>
 
                                 <td style={styles.td}>
-                                  <div style={styles.menuWrap} data-menu-root="pointage">
+                                  <div
+                                    style={styles.menuWrap}
+                                    data-menu-root="pointage"
+                                  >
                                     <button
                                       type="button"
                                       style={styles.iconBtn}
                                       onClick={() =>
                                         setPointageMenuOpenId((cur) =>
-                                          cur === p.id ? null : p.id
+                                          cur === p.id ? null : p.id,
                                         )
                                       }
                                       disabled={isReadOnly}
@@ -1177,14 +1277,21 @@ setVehicleReadyEmail("");
                                             <button
                                               type="button"
                                               style={styles.menuItem}
-                                              onClick={() => onSavePointageRow(p.id)}
+                                              onClick={() =>
+                                                onSavePointageRow(p.id)
+                                              }
                                             >
                                               Enregistrer
                                             </button>
                                             <button
                                               type="button"
-                                              style={{ ...styles.menuItem, borderBottom: "none" }}
-                                              onClick={() => onDeletePointage(p.id)}
+                                              style={{
+                                                ...styles.menuItem,
+                                                borderBottom: "none",
+                                              }}
+                                              onClick={() =>
+                                                onDeletePointage(p.id)
+                                              }
                                             >
                                               Supprimer
                                             </button>
@@ -1194,14 +1301,21 @@ setVehicleReadyEmail("");
                                             <button
                                               type="button"
                                               style={styles.menuItem}
-                                              onClick={() => onOpenEditPointage(p)}
+                                              onClick={() =>
+                                                onOpenEditPointage(p)
+                                              }
                                             >
                                               Modifier
                                             </button>
                                             <button
                                               type="button"
-                                              style={{ ...styles.menuItem, borderBottom: "none" }}
-                                              onClick={() => onDeletePointage(p.id)}
+                                              style={{
+                                                ...styles.menuItem,
+                                                borderBottom: "none",
+                                              }}
+                                              onClick={() =>
+                                                onDeletePointage(p.id)
+                                              }
                                             >
                                               Supprimer
                                             </button>
@@ -1227,11 +1341,21 @@ setVehicleReadyEmail("");
                             <thead>
                               <tr>
                                 <th style={styles.th}>Mécano</th>
-                                <th style={{ ...styles.th, minWidth: 220 }}>Description</th>
-                                <th style={{ ...styles.th, width: 110 }}>Heures</th>
-                                <th style={{ ...styles.th, width: 140 }}>Taux horaire</th>
-                                <th style={{ ...styles.th, width: 130 }}>Total</th>
-                                <th style={{ ...styles.th, width: 90 }}>Action</th>
+                                <th style={{ ...styles.th, minWidth: 220 }}>
+                                  Description
+                                </th>
+                                <th style={{ ...styles.th, width: 110 }}>
+                                  Heures
+                                </th>
+                                <th style={{ ...styles.th, width: 140 }}>
+                                  Taux horaire
+                                </th>
+                                <th style={{ ...styles.th, width: 130 }}>
+                                  Total
+                                </th>
+                                <th style={{ ...styles.th, width: 90 }}>
+                                  Action
+                                </th>
                               </tr>
                             </thead>
 
@@ -1243,21 +1367,29 @@ setVehicleReadyEmail("");
                                   : decimalToNumber(row.taux_horaire);
                                 const total = heuresValue * tauxHoraireValue;
 
-                                const isEditing = editingMainOeuvreId === row.id;
+                                const isEditing =
+                                  editingMainOeuvreId === row.id;
 
                                 return (
                                   <tr key={row.id}>
                                     <td style={styles.td}>
                                       {isEditing ? (
                                         <input
-                                          style={{ ...styles.input, minWidth: 160, width: "100%" }}
+                                          style={{
+                                            ...styles.input,
+                                            minWidth: 160,
+                                            width: "100%",
+                                          }}
                                           value={row.mecano_nom ?? ""}
                                           onChange={(e) =>
                                             updateMainOeuvreLocal(row.id, {
                                               mecano_nom: e.target.value,
                                             })
                                           }
-                                          disabled={isReadOnly || !mainOeuvreTableAvailable}
+                                          disabled={
+                                            isReadOnly ||
+                                            !mainOeuvreTableAvailable
+                                          }
                                         />
                                       ) : (
                                         row.mecano_nom || "—"
@@ -1267,14 +1399,21 @@ setVehicleReadyEmail("");
                                     <td style={styles.td}>
                                       {isEditing ? (
                                         <input
-                                          style={{ ...styles.input, minWidth: 220, width: "100%" }}
+                                          style={{
+                                            ...styles.input,
+                                            minWidth: 220,
+                                            width: "100%",
+                                          }}
                                           value={row.description ?? ""}
                                           onChange={(e) =>
                                             updateMainOeuvreLocal(row.id, {
                                               description: e.target.value,
                                             })
                                           }
-                                          disabled={isReadOnly || !mainOeuvreTableAvailable}
+                                          disabled={
+                                            isReadOnly ||
+                                            !mainOeuvreTableAvailable
+                                          }
                                         />
                                       ) : (
                                         row.description || "—"
@@ -1285,7 +1424,11 @@ setVehicleReadyEmail("");
                                       {isEditing ? (
                                         <input
                                           type="text"
-                                          style={{ ...styles.input, minWidth: 90, width: "100%" }}
+                                          style={{
+                                            ...styles.input,
+                                            minWidth: 90,
+                                            width: "100%",
+                                          }}
                                           inputMode="decimal"
                                           value={String(row.heures ?? "")}
                                           onChange={(e) => {
@@ -1297,7 +1440,10 @@ setVehicleReadyEmail("");
                                               });
                                             }
                                           }}
-                                          disabled={isReadOnly || !mainOeuvreTableAvailable}
+                                          disabled={
+                                            isReadOnly ||
+                                            !mainOeuvreTableAvailable
+                                          }
                                         />
                                       ) : (
                                         fmtHours(decimalToNumber(row.heures))
@@ -1308,7 +1454,11 @@ setVehicleReadyEmail("");
                                       {isEditing ? (
                                         <input
                                           type="text"
-                                          style={{ ...styles.input, minWidth: 110, width: "100%" }}
+                                          style={{
+                                            ...styles.input,
+                                            minWidth: 110,
+                                            width: "100%",
+                                          }}
                                           inputMode="decimal"
                                           value={String(row.taux_horaire ?? "")}
                                           onChange={(e) => {
@@ -1320,13 +1470,16 @@ setVehicleReadyEmail("");
                                               });
                                             }
                                           }}
-                                          disabled={isReadOnly || !mainOeuvreTableAvailable}
+                                          disabled={
+                                            isReadOnly ||
+                                            !mainOeuvreTableAvailable
+                                          }
                                         />
                                       ) : (
                                         money(
                                           isBtOpenPricing
                                             ? effectiveTauxHoraire
-                                            : decimalToNumber(row.taux_horaire)
+                                            : decimalToNumber(row.taux_horaire),
                                         )
                                       )}
                                     </td>
@@ -1334,16 +1487,22 @@ setVehicleReadyEmail("");
                                     <td style={styles.td}>{money(total)}</td>
 
                                     <td style={styles.td}>
-                                      <div style={styles.menuWrap} data-menu-root="mainoeuvre">
+                                      <div
+                                        style={styles.menuWrap}
+                                        data-menu-root="mainoeuvre"
+                                      >
                                         <button
                                           type="button"
                                           style={styles.iconBtn}
                                           onClick={() =>
                                             setMainOeuvreMenuOpenId((cur) =>
-                                              cur === row.id ? null : row.id
+                                              cur === row.id ? null : row.id,
                                             )
                                           }
-                                          disabled={isReadOnly || !mainOeuvreTableAvailable}
+                                          disabled={
+                                            isReadOnly ||
+                                            !mainOeuvreTableAvailable
+                                          }
                                         >
                                           ...
                                         </button>
@@ -1355,7 +1514,9 @@ setVehicleReadyEmail("");
                                                 <button
                                                   type="button"
                                                   style={styles.menuItem}
-                                                  onClick={() => onSaveMainOeuvreRow(row)}
+                                                  onClick={() =>
+                                                    onSaveMainOeuvreRow(row)
+                                                  }
                                                 >
                                                   Enregistrer
                                                 </button>
@@ -1365,7 +1526,11 @@ setVehicleReadyEmail("");
                                                     ...styles.menuItem,
                                                     borderBottom: "none",
                                                   }}
-                                                  onClick={() => onDeleteMainOeuvreRow(row.id)}
+                                                  onClick={() =>
+                                                    onDeleteMainOeuvreRow(
+                                                      row.id,
+                                                    )
+                                                  }
                                                 >
                                                   Supprimer
                                                 </button>
@@ -1375,7 +1540,9 @@ setVehicleReadyEmail("");
                                                 <button
                                                   type="button"
                                                   style={styles.menuItem}
-                                                  onClick={() => onOpenEditMainOeuvre(row.id)}
+                                                  onClick={() =>
+                                                    onOpenEditMainOeuvre(row.id)
+                                                  }
                                                 >
                                                   Modifier
                                                 </button>
@@ -1385,7 +1552,11 @@ setVehicleReadyEmail("");
                                                     ...styles.menuItem,
                                                     borderBottom: "none",
                                                   }}
-                                                  onClick={() => onDeleteMainOeuvreRow(row.id)}
+                                                  onClick={() =>
+                                                    onDeleteMainOeuvreRow(
+                                                      row.id,
+                                                    )
+                                                  }
                                                 >
                                                   Supprimer
                                                 </button>
@@ -1412,7 +1583,9 @@ setVehicleReadyEmail("");
       </div>
 
       <div style={styles.card}>
-        <div style={{ fontSize: 16, fontWeight: 950, marginBottom: 8 }}>Total</div>
+        <div style={{ fontSize: 16, fontWeight: 950, marginBottom: 8 }}>
+          Total
+        </div>
 
         <div style={styles.totalCard}>
           <div style={styles.totalRowFirst}>
@@ -1459,18 +1632,17 @@ setVehicleReadyEmail("");
 
             <div style={styles.modalActionsColumn}>
               <BtAutorisationClient
-  btId={btId}
-  clientId={clientId}
-  uniteNo={uniteNo}
-  notes={notes}
-  isReadOnly={isReadOnly}
-  onSent={() => {
-    setSendClientChoiceOpen(false);
-    void onRefresh?.();
-  }}
-/>
+                btId={btId}
+                clientId={clientId}
+                uniteNo={uniteNo}
+                notes={notes}
+                isReadOnly={isReadOnly}
+                onSent={() => {
+                  setSendClientChoiceOpen(false);
+                  void onRefresh?.();
+                }}
+              />
 
-              
               <button
                 type="button"
                 style={styles.btnPrimary}
@@ -1507,7 +1679,9 @@ setVehicleReadyEmail("");
 
             <div style={styles.modalTitle}>Tâches à autoriser par SMS</div>
             <div style={styles.modalText}>
-              Sélectionne les tâches dans le tableau avant d’envoyer. Le contact principal est sélectionné par défaut, mais tu peux choisir un autre contact ou écrire le numéro manuellement.
+              Sélectionne les tâches dans le tableau avant d’envoyer. Le contact
+              principal est sélectionné par défaut, mais tu peux choisir un
+              autre contact ou écrire le numéro manuellement.
             </div>
 
             <div style={{ display: "grid", gap: 10 }}>
@@ -1536,7 +1710,8 @@ setVehicleReadyEmail("");
               />
 
               <div style={styles.helpBox}>
-                Tâches sélectionnées : {selectedIds.length}. Le lien utilisé sera : {getAutorisationUrl()}
+                Tâches sélectionnées : {selectedIds.length}. Le lien utilisé
+                sera : {getAutorisationUrl()}
               </div>
 
               <textarea
@@ -1580,8 +1755,8 @@ setVehicleReadyEmail("");
 
             <div style={styles.modalTitle}>Véhicule prêt</div>
             <div style={styles.modalText}>
-              Le contact principal est sélectionné par défaut. Tu peux choisir un autre contact ou
-              écrire les informations manuellement.
+              Le contact principal est sélectionné par défaut. Tu peux choisir
+              un autre contact ou écrire les informations manuellement.
             </div>
 
             <div style={{ display: "grid", gap: 10 }}>

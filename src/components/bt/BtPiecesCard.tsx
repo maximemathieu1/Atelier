@@ -1,4 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import React, {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import { supabase } from "../../lib/supabaseClient";
 
 export type Piece = {
@@ -17,12 +23,21 @@ export type Piece = {
 
 type InventaireItem = {
   id: string;
+
   sku: string | null;
   nom: string;
+
   unite: string | null;
   cout_unitaire: number | null;
   quantite: number | null;
+
   actif?: boolean | null;
+
+  suivi_actif?: boolean | null;
+  suivi_type?: string | null;
+  categorie_piece_id?: string | null;
+  sous_categorie_piece_id?: string | null;
+
   matched_by?: "sku" | "supersed" | null;
   supersed_code?: string | null;
 };
@@ -49,6 +64,33 @@ type PendingPiece = {
   prix_unitaire: string;
   is_manual?: boolean;
   matched_by?: "sku" | "supersed" | null;
+  suivi_actif?: boolean | null;
+  suivi_type?: string | null;
+  categorie_piece_id?: string | null;
+  sous_categorie_piece_id?: string | null;
+  suivi_action?: "installation" | "remplacement" | "retrait" | "ignorer";
+  suivi_localisation?: string;
+  suivi_remplace_evenement_id?: string | null;
+};
+
+type PieceSuiviEvenement = {
+  id: string;
+  created_at?: string | null;
+  unite_id: string;
+  bt_id?: string | null;
+  inventaire_item_id?: string | null;
+  suivi_type: string;
+  categorie_piece_id?: string | null;
+  sous_categorie_piece_id?: string | null;
+  localisation: string;
+  action: string;
+  date_evenement?: string | null;
+  km?: number | null;
+  actif: boolean;
+  remplace_evenement_id?: string | null;
+  piece_sku?: string | null;
+  piece_nom?: string | null;
+  note?: string | null;
 };
 
 type QuickCreateForm = {
@@ -65,6 +107,8 @@ type QuickCreateForm = {
 
 type BtPiecesCardProps = {
   btId: string;
+  uniteId?: string | null;
+  btKm?: number | string | null;
   pieces: Piece[];
   setPieces: React.Dispatch<React.SetStateAction<Piece[]>>;
   isReadOnly: boolean;
@@ -86,7 +130,11 @@ function pct(v: number) {
 }
 
 function toNum(value: unknown) {
-  const n = Number(String(value ?? "").trim().replace(",", "."));
+  const n = Number(
+    String(value ?? "")
+      .trim()
+      .replace(",", "."),
+  );
   return Number.isFinite(n) ? n : 0;
 }
 
@@ -100,12 +148,18 @@ function toNullableText(value: string) {
 }
 
 function toNumberOrZero(value: unknown) {
-  const n = Number(String(value ?? "").trim().replace(",", "."));
+  const n = Number(
+    String(value ?? "")
+      .trim()
+      .replace(",", "."),
+  );
   return Number.isFinite(n) ? n : 0;
 }
 
 function toNullableNumber(value: unknown) {
-  const cleaned = String(value ?? "").trim().replace(",", ".");
+  const cleaned = String(value ?? "")
+    .trim()
+    .replace(",", ".");
   if (!cleaned) return null;
   const n = Number(cleaned);
   return Number.isFinite(n) ? n : null;
@@ -131,8 +185,41 @@ function makeQuickCreateForm(searchTerm = ""): QuickCreateForm {
   };
 }
 
+const LOCALISATIONS_SUIVI = [
+  { value: "ignore", label: "Ignoré" },
+  { value: "avant", label: "Avant" },
+  { value: "arriere", label: "Arrière" },
+  { value: "avant_gauche", label: "Avant gauche" },
+  { value: "avant_droite", label: "Avant droite" },
+  { value: "arriere_gauche", label: "Arrière gauche" },
+  { value: "arriere_droite", label: "Arrière droite" },
+  { value: "tous", label: "Tous" },
+];
+
+function localisationLabel(value: string | null | undefined) {
+  return (
+    LOCALISATIONS_SUIVI.find((x) => x.value === value)?.label || value || "—"
+  );
+}
+
+function formatKm(value: number | string | null | undefined) {
+  if (value === null || value === undefined || value === "") return "—";
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "—";
+  return `${new Intl.NumberFormat("fr-CA", { maximumFractionDigits: 0 }).format(n)} km`;
+}
+
+function formatDate(value: string | null | undefined) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("fr-CA");
+}
+
 export default function BtPiecesCard({
   btId,
+  uniteId,
+  btKm,
   pieces,
   setPieces,
   isReadOnly,
@@ -143,8 +230,21 @@ export default function BtPiecesCard({
 }: BtPiecesCardProps) {
   const [pieceModalOpen, setPieceModalOpen] = useState(false);
 
+  const [suiviModalOpen, setSuiviModalOpen] = useState(false);
+  const [suiviItem, setSuiviItem] = useState<InventaireItem | null>(null);
+  const [suiviAction, setSuiviAction] = useState<
+    "installation" | "remplacement" | "retrait" | "ignorer"
+  >("installation");
+  const [suiviLocalisation, setSuiviLocalisation] = useState("ignore");
+  const [suiviPendingKey, setSuiviPendingKey] = useState<string | null>(null);
+  const [suiviActifs, setSuiviActifs] = useState<PieceSuiviEvenement[]>([]);
+  const [suiviLoading, setSuiviLoading] = useState(false);
+  const [suiviError, setSuiviError] = useState<string | null>(null);
+
   const [searchTerm, setSearchTerm] = useState("");
-  const [inventoryResults, setInventoryResults] = useState<InventaireItem[]>([]);
+  const [inventoryResults, setInventoryResults] = useState<InventaireItem[]>(
+    [],
+  );
   const [inventoryLoading, setInventoryLoading] = useState(false);
   const [pendingPieces, setPendingPieces] = useState<PendingPiece[]>([]);
   const [scanHint, setScanHint] = useState<string>("");
@@ -152,7 +252,7 @@ export default function BtPiecesCard({
   const [quickCreateOpen, setQuickCreateOpen] = useState(false);
   const [quickCreateSaving, setQuickCreateSaving] = useState(false);
   const [quickCreateForm, setQuickCreateForm] = useState<QuickCreateForm>(() =>
-    makeQuickCreateForm()
+    makeQuickCreateForm(),
   );
   const [categories, setCategories] = useState<PieceCategorie[]>([]);
 
@@ -195,6 +295,19 @@ export default function BtPiecesCard({
 
     void loadCategories();
   }, []);
+
+  useEffect(() => {
+    if (!suiviModalOpen || !suiviItem) return;
+
+    const existing = activeEventForLocalisation(suiviLocalisation);
+
+    if (suiviLocalisation !== "ignore" && existing) {
+      setSuiviAction("remplacement");
+    } else if (suiviAction === "remplacement") {
+      setSuiviAction("installation");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [suiviLocalisation, suiviActifs, suiviModalOpen, suiviItem]);
 
   function getPieceFactureU(p: Piece) {
     if (isBtOpenPricing) {
@@ -273,7 +386,21 @@ export default function BtPiecesCard({
     try {
       const { data: directData, error: directError } = await supabase
         .from("inventaire_items")
-        .select("id, sku, nom, unite, cout_unitaire, quantite, actif")
+        .select(
+          `
+          id,
+          sku,
+          nom,
+          unite,
+          cout_unitaire,
+          quantite,
+          actif,
+          suivi_actif,
+          suivi_type,
+          categorie_piece_id,
+          sous_categorie_piece_id
+        `,
+        )
         .eq("actif", true)
         .or(`nom.ilike.%${q}%,sku.ilike.%${q}%`)
         .order("nom", { ascending: true })
@@ -281,7 +408,9 @@ export default function BtPiecesCard({
 
       if (directError) throw directError;
 
-      const directRows: InventaireItem[] = ((directData || []) as InventaireItem[]).map((row) => ({
+      const directRows: InventaireItem[] = (
+        (directData || []) as InventaireItem[]
+      ).map((row) => ({
         ...row,
         matched_by: "sku",
         supersed_code: null,
@@ -291,7 +420,9 @@ export default function BtPiecesCard({
         .from("inventaire_supersedes")
         .select("item_id, sku_remplacement, nom_remplacement, note, actif")
         .eq("actif", true)
-        .or(`sku_remplacement.ilike.%${q}%,nom_remplacement.ilike.%${q}%,note.ilike.%${q}%`)
+        .or(
+          `sku_remplacement.ilike.%${q}%,nom_remplacement.ilike.%${q}%,note.ilike.%${q}%`,
+        )
         .limit(12);
 
       if (supersedError) throw supersedError;
@@ -308,16 +439,26 @@ export default function BtPiecesCard({
 
       if (supersedRows.length > 0) {
         const itemIds = Array.from(
-          new Set(
-            supersedRows
-              .map((row) => row.item_id)
-              .filter(Boolean)
-          )
+          new Set(supersedRows.map((row) => row.item_id).filter(Boolean)),
         );
 
         const { data: itemData, error: itemError } = await supabase
           .from("inventaire_items")
-          .select("id, sku, nom, unite, cout_unitaire, quantite, actif")
+          .select(
+            `
+          id,
+          sku,
+          nom,
+          unite,
+          cout_unitaire,
+          quantite,
+          actif,
+          suivi_actif,
+          suivi_type,
+          categorie_piece_id,
+          sous_categorie_piece_id
+        `,
+          )
           .eq("actif", true)
           .in("id", itemIds);
 
@@ -326,8 +467,11 @@ export default function BtPiecesCard({
         const supersedByItemId = new Map(
           supersedRows.map((row) => [
             row.item_id,
-            row.sku_remplacement || row.nom_remplacement || row.note || "supersed",
-          ])
+            row.sku_remplacement ||
+              row.nom_remplacement ||
+              row.note ||
+              "supersed",
+          ]),
         );
 
         supersedItems = ((itemData || []) as InventaireItem[]).map((row) => ({
@@ -360,7 +504,9 @@ export default function BtPiecesCard({
       setInventoryResults(merged.slice(0, 12));
 
       if (supersedItems.length > 0) {
-        setScanHint("Supersed détecté — la pièce courante est affichée dans les résultats.");
+        setScanHint(
+          "Supersed détecté — la pièce courante est affichée dans les résultats.",
+        );
       }
     } catch (e: any) {
       console.error("Erreur recherche inventaire:", e);
@@ -371,14 +517,85 @@ export default function BtPiecesCard({
     }
   }
 
+  async function loadSuivisActifsForItem(item: InventaireItem) {
+    setSuiviActifs([]);
+    setSuiviError(null);
+
+    if (!uniteId) {
+      setSuiviError(
+        "Unité introuvable : impossible de vérifier les positions suivies.",
+      );
+      return;
+    }
+
+    setSuiviLoading(true);
+
+    try {
+      let query = supabase
+        .from("pieces_suivi_evenements")
+        .select("*")
+        .eq("unite_id", uniteId)
+        .eq("actif", true)
+        .order("date_evenement", { ascending: false })
+        .order("created_at", { ascending: false });
+
+      if (item.categorie_piece_id) {
+        query = query.eq("categorie_piece_id", item.categorie_piece_id);
+      }
+
+      if (item.sous_categorie_piece_id) {
+        query = query.eq(
+          "sous_categorie_piece_id",
+          item.sous_categorie_piece_id,
+        );
+      }
+
+      if (
+        !item.categorie_piece_id &&
+        !item.sous_categorie_piece_id &&
+        item.suivi_type
+      ) {
+        query = query.eq("suivi_type", item.suivi_type);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+
+      setSuiviActifs((data || []) as PieceSuiviEvenement[]);
+    } catch (e: any) {
+      console.error("Erreur chargement suivi actif:", e);
+      setSuiviError(
+        e?.message || "Impossible de charger les positions déjà suivies.",
+      );
+      setSuiviActifs([]);
+    } finally {
+      setSuiviLoading(false);
+    }
+  }
+
+  function activeEventForLocalisation(localisation: string) {
+    return suiviActifs.find((ev) => ev.localisation === localisation) || null;
+  }
+
+  function openSuiviForPendingPiece(item: InventaireItem, pendingKey: string) {
+    setSuiviItem(item);
+    setSuiviPendingKey(pendingKey);
+    setSuiviAction("installation");
+    setSuiviLocalisation("ignore");
+    setSuiviModalOpen(true);
+    void loadSuivisActifsForItem(item);
+  }
+
   function chooseInventoryItem(
     item: InventaireItem,
-    matchedBy: "sku" | "supersed" | null = null
+    matchedBy: "sku" | "supersed" | null = null,
   ) {
+    const pendingKey = makePendingKey("inv");
+
     setPendingPieces((rows) => [
       ...rows,
       {
-        key: makePendingKey("inv"),
+        key: pendingKey,
         inventaire_item_id: item.id,
         sku: item.sku || "",
         description: item.nom || "",
@@ -387,8 +604,19 @@ export default function BtPiecesCard({
         prix_unitaire: String(Number(item.cout_unitaire || 0)),
         is_manual: false,
         matched_by: matchedBy,
+        suivi_actif: Boolean(item.suivi_actif),
+        suivi_type: item.suivi_type ?? null,
+        categorie_piece_id: item.categorie_piece_id ?? null,
+        sous_categorie_piece_id: item.sous_categorie_piece_id ?? null,
+        suivi_action: item.suivi_actif ? "installation" : undefined,
+        suivi_localisation: item.suivi_actif ? "ignore" : undefined,
+        suivi_remplace_evenement_id: null,
       },
     ]);
+
+    if (item.suivi_actif) {
+      openSuiviForPendingPiece(item, pendingKey);
+    }
 
     if (matchedBy === "supersed") {
       setScanHint("Code remplacé détecté — pièce courante sélectionnée.");
@@ -413,9 +641,12 @@ export default function BtPiecesCard({
     setScanHint("");
 
     try {
-      const { data, error } = await supabase.rpc("inventaire_trouver_par_code", {
-        p_code: code,
-      });
+      const { data, error } = await supabase.rpc(
+        "inventaire_trouver_par_code",
+        {
+          p_code: code,
+        },
+      );
 
       if (error) throw error;
 
@@ -426,7 +657,21 @@ export default function BtPiecesCard({
 
         const { data: itemData, error: itemError } = await supabase
           .from("inventaire_items")
-          .select("id, sku, nom, unite, cout_unitaire, quantite, actif")
+          .select(
+            `
+          id,
+          sku,
+          nom,
+          unite,
+          cout_unitaire,
+          quantite,
+          actif,
+          suivi_actif,
+          suivi_type,
+          categorie_piece_id,
+          sous_categorie_piece_id
+        `,
+          )
           .eq("id", match.item_id)
           .single();
 
@@ -435,13 +680,15 @@ export default function BtPiecesCard({
 
         chooseInventoryItem(
           itemData as InventaireItem,
-          match.matched_by === "supersed" ? "supersed" : "sku"
+          match.matched_by === "supersed" ? "supersed" : "sku",
         );
         return;
       }
 
       await searchInventory(code);
-      setScanHint("Aucune correspondance exacte au scan — résultats de recherche affichés.");
+      setScanHint(
+        "Aucune correspondance exacte au scan — résultats de recherche affichés.",
+      );
     } catch (e: any) {
       console.error("Erreur scan inventaire:", e);
       alert(e?.message || "Erreur scan inventaire");
@@ -505,16 +752,33 @@ export default function BtPiecesCard({
       const { data, error } = await supabase
         .from("inventaire_items")
         .insert(payload)
-        .select("id, sku, nom, unite, cout_unitaire, quantite, actif")
+        .select(
+          `
+          id,
+          sku,
+          nom,
+          unite,
+          cout_unitaire,
+          quantite,
+          actif,
+          suivi_actif,
+          suivi_type,
+          categorie_piece_id,
+          sous_categorie_piece_id
+        `,
+        )
         .single();
 
       if (error) throw error;
-      if (!data) throw new Error("La pièce a été créée, mais elle est introuvable.");
+      if (!data)
+        throw new Error("La pièce a été créée, mais elle est introuvable.");
 
       chooseInventoryItem(data as InventaireItem, null);
       setQuickCreateForm(makeQuickCreateForm());
       setQuickCreateOpen(false);
-      setScanHint("Nouvelle pièce créée dans l’inventaire et ajoutée à la liste du BT.");
+      setScanHint(
+        "Nouvelle pièce créée dans l’inventaire et ajoutée à la liste du BT.",
+      );
     } catch (e: any) {
       console.error("Erreur création rapide inventaire:", e);
       alert(e?.message || "Erreur lors de la création de la pièce.");
@@ -538,15 +802,145 @@ export default function BtPiecesCard({
 
   function closePieceModal() {
     setPieceModalOpen(false);
+    setSuiviModalOpen(false);
+    setSuiviItem(null);
     clearPendingPieces();
   }
 
+  function closeSuiviModal() {
+    setSuiviModalOpen(false);
+    setSuiviItem(null);
+    setSuiviAction("installation");
+    setSuiviLocalisation("ignore");
+    setSuiviPendingKey(null);
+    setSuiviActifs([]);
+    setSuiviError(null);
+  }
+
+  function confirmSuiviModal() {
+    if (!suiviPendingKey || !suiviItem) {
+      closeSuiviModal();
+      return;
+    }
+
+    const existing = activeEventForLocalisation(suiviLocalisation);
+    const resolvedAction =
+      suiviAction === "installation" &&
+      suiviLocalisation !== "ignore" &&
+      existing
+        ? "remplacement"
+        : suiviAction;
+
+    updatePendingPiece(suiviPendingKey, {
+      suivi_action: resolvedAction,
+      suivi_localisation: suiviLocalisation,
+      suivi_remplace_evenement_id:
+        resolvedAction === "remplacement" || resolvedAction === "retrait"
+          ? existing?.id || null
+          : null,
+    });
+
+    closeSuiviModal();
+  }
+
   function updatePendingPiece(key: string, patch: Partial<PendingPiece>) {
-    setPendingPieces((rows) => rows.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+    setPendingPieces((rows) =>
+      rows.map((r) => (r.key === key ? { ...r, ...patch } : r)),
+    );
   }
 
   function removePendingPiece(key: string) {
     setPendingPieces((rows) => rows.filter((r) => r.key !== key));
+  }
+
+  async function saveSuiviForPendingPieces(rows: PendingPiece[]) {
+    if (!rows.some((row) => row.suivi_actif && row.suivi_action !== "ignorer"))
+      return;
+
+    if (!uniteId) {
+      console.warn("Suivi pièces ignoré: uniteId manquant.");
+      return;
+    }
+
+    const kmValue = toNullableNumber(btKm ?? null);
+
+    if (kmValue == null || kmValue <= 0) {
+      throw new Error(
+        "Impossible d’ajouter une pièce suivie sans KM au BT.",
+      );
+    }
+
+    for (const row of rows) {
+      if (!row.suivi_actif || row.suivi_action === "ignorer") continue;
+
+      const action = row.suivi_action || "installation";
+      const localisation = row.suivi_localisation || "ignore";
+      let remplaceId = row.suivi_remplace_evenement_id || null;
+
+      if (
+        (action === "remplacement" || action === "retrait") &&
+        !remplaceId &&
+        localisation !== "ignore"
+      ) {
+        let query = supabase
+          .from("pieces_suivi_evenements")
+          .select("id")
+          .eq("unite_id", uniteId)
+          .eq("localisation", localisation)
+          .eq("actif", true)
+          .limit(1);
+
+        if (row.categorie_piece_id)
+          query = query.eq("categorie_piece_id", row.categorie_piece_id);
+        if (row.sous_categorie_piece_id)
+          query = query.eq(
+            "sous_categorie_piece_id",
+            row.sous_categorie_piece_id,
+          );
+        if (
+          !row.categorie_piece_id &&
+          !row.sous_categorie_piece_id &&
+          row.suivi_type
+        ) {
+          query = query.eq("suivi_type", row.suivi_type);
+        }
+
+        const { data } = await query;
+        remplaceId = String((data || [])[0]?.id || "") || null;
+      }
+
+      if (remplaceId) {
+        const { error: deactivateError } = await supabase
+          .from("pieces_suivi_evenements")
+          .update({ actif: false })
+          .eq("id", remplaceId);
+
+        if (deactivateError) throw deactivateError;
+      }
+
+      const payload = {
+        unite_id: uniteId,
+        bt_id: btId,
+        inventaire_item_id: row.inventaire_item_id,
+        suivi_type: row.suivi_type || "piece",
+        categorie_piece_id: row.categorie_piece_id || null,
+        sous_categorie_piece_id: row.sous_categorie_piece_id || null,
+        localisation,
+        action,
+        date_evenement: new Date().toISOString(),
+        km: kmValue,
+        actif: action !== "retrait",
+        remplace_evenement_id: remplaceId,
+        piece_sku: row.sku || null,
+        piece_nom: row.description || null,
+      };
+
+      const { error: insertError } = await supabase
+        .from("pieces_suivi_evenements")
+        .insert(payload);
+
+      if (insertError) throw insertError;
+    }
   }
 
   async function addPieces() {
@@ -571,7 +965,9 @@ export default function BtPiecesCard({
       const prix_unitaire = toNum(row.prix_unitaire);
 
       if (!description) {
-        throw new Error(`Description requise pour ${row.sku || "la pièce manuelle"}.`);
+        throw new Error(
+          `Description requise pour ${row.sku || "la pièce manuelle"}.`,
+        );
       }
 
       if (!Number.isFinite(quantite) || quantite <= 0) {
@@ -579,7 +975,9 @@ export default function BtPiecesCard({
       }
 
       if (!Number.isFinite(prix_unitaire) || prix_unitaire < 0) {
-        throw new Error(`Coût unitaire invalide pour ${row.sku || description}.`);
+        throw new Error(
+          `Coût unitaire invalide pour ${row.sku || description}.`,
+        );
       }
 
       const margePct = effectiveMargePiecesPct;
@@ -606,10 +1004,16 @@ export default function BtPiecesCard({
 
       for (const row of pendingPieces) {
         const quantite = toNum(row.quantite);
-        if (row.inventaire_item_id && Number.isFinite(quantite) && quantite > 0) {
+        if (
+          row.inventaire_item_id &&
+          Number.isFinite(quantite) &&
+          quantite > 0
+        ) {
           await adjustInventoryStock(row.inventaire_item_id, -quantite);
         }
       }
+
+      await saveSuiviForPendingPieces(pendingPieces);
 
       closePieceModal();
       await onReload(btId);
@@ -632,10 +1036,9 @@ export default function BtPiecesCard({
     if (!Number.isFinite(quantite) || quantite <= 0) return;
     if (!Number.isFinite(prix_unitaire) || prix_unitaire < 0) return;
 
-    const margePct =
-      isBtOpenPricing
-        ? effectiveMargePiecesPct
-        : row.marge_pct_snapshot != null
+    const margePct = isBtOpenPricing
+      ? effectiveMargePiecesPct
+      : row.marge_pct_snapshot != null
         ? Number(row.marge_pct_snapshot || 0)
         : effectiveMargePiecesPct;
 
@@ -654,12 +1057,13 @@ export default function BtPiecesCard({
 
       const originalQty = Number((dbRow as any).quantite || 0);
       const newQty = toNum(row.quantite);
-      const originalItemId = ((dbRow as any).inventaire_item_id as string | null) ?? null;
+      const originalItemId =
+        ((dbRow as any).inventaire_item_id as string | null) ?? null;
       const currentItemId = row.inventaire_item_id ?? null;
 
       if (originalItemId !== currentItemId) {
         throw new Error(
-          "Le lien inventaire de cette pièce a changé. Recharge le BT avant de continuer."
+          "Le lien inventaire de cette pièce a changé. Recharge le BT avant de continuer.",
         );
       }
 
@@ -705,7 +1109,10 @@ export default function BtPiecesCard({
     if (!row) return;
 
     try {
-      const { error } = await supabase.from("bt_pieces").delete().eq("id", pieceId);
+      const { error } = await supabase
+        .from("bt_pieces")
+        .delete()
+        .eq("id", pieceId);
       if (error) throw error;
 
       if (row.inventaire_item_id) {
@@ -719,7 +1126,9 @@ export default function BtPiecesCard({
   }
 
   function updatePieceLocal(pieceId: string, patch: Partial<Piece>) {
-    setPieces((rows) => rows.map((r) => (r.id === pieceId ? { ...r, ...patch } : r)));
+    setPieces((rows) =>
+      rows.map((r) => (r.id === pieceId ? { ...r, ...patch } : r)),
+    );
   }
 
   const modalLineTotal = useMemo(() => {
@@ -952,7 +1361,8 @@ export default function BtPiecesCard({
     },
     selectedLine: {
       display: "grid",
-      gridTemplateColumns: "minmax(110px, 150px) minmax(240px, 1fr) 130px 150px 34px",
+      gridTemplateColumns:
+        "minmax(110px, 150px) minmax(240px, 1fr) 130px 150px 34px",
       gap: 12,
       alignItems: "center",
     },
@@ -1030,12 +1440,65 @@ export default function BtPiecesCard({
       marginTop: 12,
       flexWrap: "wrap",
     },
+    suiviBackdrop: {
+      position: "fixed" as const,
+      inset: 0,
+      background: "rgba(15,23,42,.35)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: 16,
+      zIndex: 1200,
+    },
+    suiviCard: {
+      width: "100%",
+      maxWidth: 520,
+      background: "#fff",
+      borderRadius: 16,
+      border: "1px solid rgba(0,0,0,.08)",
+      boxShadow: "0 24px 60px rgba(0,0,0,.22)",
+      overflow: "hidden",
+    },
+    suiviHeader: {
+      padding: "14px 16px",
+      borderBottom: "1px solid rgba(0,0,0,.08)",
+    },
+    suiviBody: {
+      padding: 16,
+      display: "grid",
+      gap: 12,
+    },
+    suiviInfoBox: {
+      border: "1px solid rgba(37,99,235,.18)",
+      background: "rgba(37,99,235,.06)",
+      borderRadius: 12,
+      padding: 12,
+      color: "#1e3a8a",
+      fontWeight: 750,
+      fontSize: 13,
+    },
+    suiviExistingBox: {
+      border: "1px solid rgba(0,0,0,.08)",
+      background: "#f8fafc",
+      borderRadius: 12,
+      padding: 12,
+      display: "grid",
+      gap: 8,
+    },
+    suiviExistingItem: {
+      border: "1px solid rgba(0,0,0,.08)",
+      background: "#fff",
+      borderRadius: 10,
+      padding: 10,
+    },
   };
 
   return (
     <>
       <div style={styles.card}>
-        <div style={{ fontSize: 16, fontWeight: 950, marginBottom: 10 }}>Pièces</div>
+        <div style={{ fontSize: 16, fontWeight: 950, marginBottom: 10 }}>
+          Pièces
+        </div>
 
         <div style={{ ...styles.row, marginBottom: 10 }}>
           <button
@@ -1049,7 +1512,8 @@ export default function BtPiecesCard({
 
         {!piecesTableAvailable && (
           <div style={styles.warn}>
-            ⚠️ La table <b>bt_pieces</b> n’existe pas encore. Ajoute-la pour activer cette section.
+            ⚠️ La table <b>bt_pieces</b> n’existe pas encore. Ajoute-la pour
+            activer cette section.
           </div>
         )}
 
@@ -1063,7 +1527,9 @@ export default function BtPiecesCard({
                 <th style={{ ...styles.th, width: 90 }}>Qté</th>
                 <th style={{ ...styles.th, width: 130 }}>Coût unitaire</th>
                 <th style={{ ...styles.th, width: 110 }}>Marge</th>
-                <th style={{ ...styles.th, width: 150 }}>Prix facturé unitaire</th>
+                <th style={{ ...styles.th, width: 150 }}>
+                  Prix facturé unitaire
+                </th>
                 <th style={{ ...styles.th, width: 130 }}>Total facturé</th>
                 <th style={{ ...styles.th, width: 120 }}>Action</th>
               </tr>
@@ -1086,18 +1552,32 @@ export default function BtPiecesCard({
                     <tr key={p.id}>
                       <td style={styles.td}>
                         <input
-                          style={{ ...styles.input, minWidth: 100, width: "100%" }}
+                          style={{
+                            ...styles.input,
+                            minWidth: 100,
+                            width: "100%",
+                          }}
                           value={p.sku ?? ""}
-                          onChange={(e) => updatePieceLocal(p.id, { sku: e.target.value })}
+                          onChange={(e) =>
+                            updatePieceLocal(p.id, { sku: e.target.value })
+                          }
                           onBlur={() => autoSavePieceRow(p.id)}
                           disabled={isReadOnly || !piecesTableAvailable}
                         />
                       </td>
                       <td style={styles.td}>
                         <input
-                          style={{ ...styles.input, minWidth: 180, width: "100%" }}
+                          style={{
+                            ...styles.input,
+                            minWidth: 180,
+                            width: "100%",
+                          }}
                           value={p.description ?? ""}
-                          onChange={(e) => updatePieceLocal(p.id, { description: e.target.value })}
+                          onChange={(e) =>
+                            updatePieceLocal(p.id, {
+                              description: e.target.value,
+                            })
+                          }
                           onBlur={() => autoSavePieceRow(p.id)}
                           disabled={isReadOnly || !piecesTableAvailable}
                         />
@@ -1107,9 +1587,15 @@ export default function BtPiecesCard({
                           <div style={styles.dashBox}>—</div>
                         ) : (
                           <input
-                            style={{ ...styles.input, minWidth: 80, width: "100%" }}
+                            style={{
+                              ...styles.input,
+                              minWidth: 80,
+                              width: "100%",
+                            }}
                             value={p.unite ?? ""}
-                            onChange={(e) => updatePieceLocal(p.id, { unite: e.target.value })}
+                            onChange={(e) =>
+                              updatePieceLocal(p.id, { unite: e.target.value })
+                            }
                             onBlur={() => autoSavePieceRow(p.id)}
                             disabled={isReadOnly || !piecesTableAvailable}
                           />
@@ -1117,17 +1603,29 @@ export default function BtPiecesCard({
                       </td>
                       <td style={styles.td}>
                         <input
-                          style={{ ...styles.input, minWidth: 70, width: "100%" }}
+                          style={{
+                            ...styles.input,
+                            minWidth: 70,
+                            width: "100%",
+                          }}
                           inputMode="numeric"
                           value={String(p.quantite ?? 0)}
-                          onChange={(e) => updatePieceLocal(p.id, { quantite: toNum(e.target.value) })}
+                          onChange={(e) =>
+                            updatePieceLocal(p.id, {
+                              quantite: toNum(e.target.value),
+                            })
+                          }
                           onBlur={() => autoSavePieceRow(p.id)}
                           disabled={isReadOnly || !piecesTableAvailable}
                         />
                       </td>
                       <td style={styles.td}>
                         <input
-                          style={{ ...styles.input, minWidth: 110, width: "100%" }}
+                          style={{
+                            ...styles.input,
+                            minWidth: 110,
+                            width: "100%",
+                          }}
                           inputMode="decimal"
                           value={String(p.prix_unitaire ?? "")}
                           onChange={(e) => {
@@ -1137,7 +1635,9 @@ export default function BtPiecesCard({
                             }
                           }}
                           onBlur={() => {
-                            updatePieceLocal(p.id, { prix_unitaire: toNum(p.prix_unitaire) });
+                            updatePieceLocal(p.id, {
+                              prix_unitaire: toNum(p.prix_unitaire),
+                            });
                             void autoSavePieceRow(p.id);
                           }}
                           disabled={isReadOnly || !piecesTableAvailable}
@@ -1169,7 +1669,11 @@ export default function BtPiecesCard({
           <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
             <div style={styles.modalHeader}>
               <h3 style={styles.modalTitle}>Ajouter une pièce</h3>
-              <button type="button" style={styles.iconCloseBtn} onClick={closePieceModal}>
+              <button
+                type="button"
+                style={styles.iconCloseBtn}
+                onClick={closePieceModal}
+              >
                 ×
               </button>
             </div>
@@ -1220,12 +1724,13 @@ export default function BtPiecesCard({
                   {inventoryLoading
                     ? "Recherche..."
                     : pendingPieces.length
-                    ? `${pendingPieces.length} pièce(s) sélectionnée(s)`
-                    : "Aucune pièce sélectionnée"}
+                      ? `${pendingPieces.length} pièce(s) sélectionnée(s)`
+                      : "Aucune pièce sélectionnée"}
                 </div>
 
                 <div style={{ marginTop: 8, ...styles.tiny }}>
-                  Compatible scan clavier : clique dans le champ, scanne, puis Entrée.
+                  Compatible scan clavier : clique dans le champ, scanne, puis
+                  Entrée.
                 </div>
 
                 {scanHint ? <div style={styles.info}>{scanHint}</div> : null}
@@ -1245,16 +1750,25 @@ export default function BtPiecesCard({
 
                 {quickCreateOpen && (
                   <div style={styles.quickCreateBox}>
-                    <div style={styles.modalSectionTitle}>Création rapide inventaire</div>
+                    <div style={styles.modalSectionTitle}>
+                      Création rapide inventaire
+                    </div>
 
                     <div style={styles.quickCreateGrid}>
                       <div>
                         <label style={styles.fieldLabel}>SKU / code</label>
                         <input
-                          style={{ ...styles.input, width: "100%", minWidth: 0 }}
+                          style={{
+                            ...styles.input,
+                            width: "100%",
+                            minWidth: 0,
+                          }}
                           value={quickCreateForm.sku}
                           onChange={(e) =>
-                            setQuickCreateForm((p) => ({ ...p, sku: e.target.value }))
+                            setQuickCreateForm((p) => ({
+                              ...p,
+                              sku: e.target.value,
+                            }))
                           }
                           disabled={quickCreateSaving}
                           autoComplete="off"
@@ -1266,10 +1780,17 @@ export default function BtPiecesCard({
                         <label style={styles.fieldLabel}>Nom *</label>
                         <input
                           ref={quickNameInputRef}
-                          style={{ ...styles.input, width: "100%", minWidth: 0 }}
+                          style={{
+                            ...styles.input,
+                            width: "100%",
+                            minWidth: 0,
+                          }}
                           value={quickCreateForm.nom}
                           onChange={(e) =>
-                            setQuickCreateForm((p) => ({ ...p, nom: e.target.value }))
+                            setQuickCreateForm((p) => ({
+                              ...p,
+                              nom: e.target.value,
+                            }))
                           }
                           disabled={quickCreateSaving}
                           autoComplete="off"
@@ -1280,10 +1801,17 @@ export default function BtPiecesCard({
                       <div>
                         <label style={styles.fieldLabel}>Catégorie</label>
                         <select
-                          style={{ ...styles.input, width: "100%", minWidth: 0 }}
+                          style={{
+                            ...styles.input,
+                            width: "100%",
+                            minWidth: 0,
+                          }}
                           value={quickCreateForm.categorie}
                           onChange={(e) =>
-                            setQuickCreateForm((p) => ({ ...p, categorie: e.target.value }))
+                            setQuickCreateForm((p) => ({
+                              ...p,
+                              categorie: e.target.value,
+                            }))
                           }
                           disabled={quickCreateSaving}
                         >
@@ -1299,10 +1827,17 @@ export default function BtPiecesCard({
                       <div>
                         <label style={styles.fieldLabel}>Unité</label>
                         <input
-                          style={{ ...styles.input, width: "100%", minWidth: 0 }}
+                          style={{
+                            ...styles.input,
+                            width: "100%",
+                            minWidth: 0,
+                          }}
                           value={quickCreateForm.unite}
                           onChange={(e) =>
-                            setQuickCreateForm((p) => ({ ...p, unite: e.target.value }))
+                            setQuickCreateForm((p) => ({
+                              ...p,
+                              unite: e.target.value,
+                            }))
                           }
                           disabled={quickCreateSaving}
                           placeholder="UN, L, boîte..."
@@ -1310,12 +1845,21 @@ export default function BtPiecesCard({
                       </div>
 
                       <div>
-                        <label style={styles.fieldLabel}>Quantité initiale</label>
+                        <label style={styles.fieldLabel}>
+                          Quantité initiale
+                        </label>
                         <input
-                          style={{ ...styles.input, width: "100%", minWidth: 0 }}
+                          style={{
+                            ...styles.input,
+                            width: "100%",
+                            minWidth: 0,
+                          }}
                           value={quickCreateForm.quantite}
                           onChange={(e) =>
-                            setQuickCreateForm((p) => ({ ...p, quantite: e.target.value }))
+                            setQuickCreateForm((p) => ({
+                              ...p,
+                              quantite: e.target.value,
+                            }))
                           }
                           disabled={quickCreateSaving}
                           inputMode="decimal"
@@ -1325,10 +1869,17 @@ export default function BtPiecesCard({
                       <div>
                         <label style={styles.fieldLabel}>Coût unitaire</label>
                         <input
-                          style={{ ...styles.input, width: "100%", minWidth: 0 }}
+                          style={{
+                            ...styles.input,
+                            width: "100%",
+                            minWidth: 0,
+                          }}
                           value={quickCreateForm.cout_unitaire}
                           onChange={(e) =>
-                            setQuickCreateForm((p) => ({ ...p, cout_unitaire: e.target.value }))
+                            setQuickCreateForm((p) => ({
+                              ...p,
+                              cout_unitaire: e.target.value,
+                            }))
                           }
                           disabled={quickCreateSaving}
                           inputMode="decimal"
@@ -1338,10 +1889,17 @@ export default function BtPiecesCard({
                       <div>
                         <label style={styles.fieldLabel}>Seuil alerte</label>
                         <input
-                          style={{ ...styles.input, width: "100%", minWidth: 0 }}
+                          style={{
+                            ...styles.input,
+                            width: "100%",
+                            minWidth: 0,
+                          }}
                           value={quickCreateForm.seuil_alerte}
                           onChange={(e) =>
-                            setQuickCreateForm((p) => ({ ...p, seuil_alerte: e.target.value }))
+                            setQuickCreateForm((p) => ({
+                              ...p,
+                              seuil_alerte: e.target.value,
+                            }))
                           }
                           disabled={quickCreateSaving}
                           inputMode="decimal"
@@ -1351,10 +1909,17 @@ export default function BtPiecesCard({
                       <div>
                         <label style={styles.fieldLabel}>Emplacement</label>
                         <input
-                          style={{ ...styles.input, width: "100%", minWidth: 0 }}
+                          style={{
+                            ...styles.input,
+                            width: "100%",
+                            minWidth: 0,
+                          }}
                           value={quickCreateForm.emplacement}
                           onChange={(e) =>
-                            setQuickCreateForm((p) => ({ ...p, emplacement: e.target.value }))
+                            setQuickCreateForm((p) => ({
+                              ...p,
+                              emplacement: e.target.value,
+                            }))
                           }
                           disabled={quickCreateSaving}
                         />
@@ -1363,10 +1928,18 @@ export default function BtPiecesCard({
                       <div style={styles.quickCreateFull}>
                         <label style={styles.fieldLabel}>Note</label>
                         <textarea
-                          style={{ ...styles.input, width: "100%", minWidth: 0, minHeight: 70 }}
+                          style={{
+                            ...styles.input,
+                            width: "100%",
+                            minWidth: 0,
+                            minHeight: 70,
+                          }}
                           value={quickCreateForm.note}
                           onChange={(e) =>
-                            setQuickCreateForm((p) => ({ ...p, note: e.target.value }))
+                            setQuickCreateForm((p) => ({
+                              ...p,
+                              note: e.target.value,
+                            }))
                           }
                           disabled={quickCreateSaving}
                         />
@@ -1389,7 +1962,9 @@ export default function BtPiecesCard({
                         onClick={createInventoryItemAndAddToBt}
                         disabled={quickCreateSaving}
                       >
-                        {quickCreateSaving ? "Création..." : "Créer et ajouter au BT"}
+                        {quickCreateSaving
+                          ? "Création..."
+                          : "Créer et ajouter au BT"}
                       </button>
                     </div>
                   </div>
@@ -1405,23 +1980,25 @@ export default function BtPiecesCard({
                         onClick={() =>
                           chooseInventoryItem(
                             item,
-                            item.matched_by === "supersed" ? "supersed" : null
+                            item.matched_by === "supersed" ? "supersed" : null,
                           )
                         }
                         disabled={isReadOnly || !piecesTableAvailable}
                       >
                         <div>
-                          {(item.sku || "—")} — {item.nom}
+                          {item.sku || "—"} — {item.nom}
                         </div>
                         <div style={styles.tiny}>
-                          Coût: {money(Number(item.cout_unitaire || 0))} • Stock:{" "}
-                          {Number(item.quantite || 0)}
+                          Coût: {money(Number(item.cout_unitaire || 0))} •
+                          Stock: {Number(item.quantite || 0)}
                         </div>
 
                         {item.matched_by === "supersed" && (
                           <div style={styles.badgeSupersed}>
                             Supersed détecté
-                            {item.supersed_code ? ` : ${item.supersed_code}` : ""}
+                            {item.supersed_code
+                              ? ` : ${item.supersed_code}`
+                              : ""}
                           </div>
                         )}
                       </button>
@@ -1431,12 +2008,15 @@ export default function BtPiecesCard({
               </div>
 
               <div style={styles.modalSection}>
-                <div style={styles.modalSectionTitle}>Ajout au bon de travail</div>
+                <div style={styles.modalSectionTitle}>
+                  Ajout au bon de travail
+                </div>
 
                 {!pendingPieces.length ? (
                   <div style={styles.tiny}>
-                    Sélectionne une ou plusieurs pièces, crée une pièce inventaire si elle n’existe
-                    pas, ou clique sur + pour ajouter une ligne manuelle sans inventaire.
+                    Sélectionne une ou plusieurs pièces, crée une pièce
+                    inventaire si elle n’existe pas, ou clique sur + pour
+                    ajouter une ligne manuelle sans inventaire.
                   </div>
                 ) : (
                   <div style={styles.selectedList}>
@@ -1444,31 +2024,50 @@ export default function BtPiecesCard({
                       <div key={row.key} style={styles.selectedItem}>
                         <div style={styles.selectedLine}>
                           <input
-                            style={{ ...styles.input, minWidth: 0, width: "100%" }}
+                            style={{
+                              ...styles.input,
+                              minWidth: 0,
+                              width: "100%",
+                            }}
                             placeholder="SKU"
                             value={row.sku}
-                            onChange={(e) => updatePendingPiece(row.key, { sku: e.target.value })}
+                            onChange={(e) =>
+                              updatePendingPiece(row.key, {
+                                sku: e.target.value,
+                              })
+                            }
                             disabled={isReadOnly || !piecesTableAvailable}
                           />
 
                           <input
-                            style={{ ...styles.input, minWidth: 0, width: "100%" }}
+                            style={{
+                              ...styles.input,
+                              minWidth: 0,
+                              width: "100%",
+                            }}
                             placeholder="Description"
                             value={row.description}
                             onChange={(e) =>
-                              updatePendingPiece(row.key, { description: e.target.value })
+                              updatePendingPiece(row.key, {
+                                description: e.target.value,
+                              })
                             }
                             disabled={isReadOnly || !piecesTableAvailable}
                           />
 
                           <div style={styles.inlineFieldWrap}>
                             <input
-                              style={{ ...styles.input, ...styles.inputWithSuffix }}
+                              style={{
+                                ...styles.input,
+                                ...styles.inputWithSuffix,
+                              }}
                               inputMode="numeric"
                               placeholder="Qté"
                               value={row.quantite}
                               onChange={(e) =>
-                                updatePendingPiece(row.key, { quantite: e.target.value })
+                                updatePendingPiece(row.key, {
+                                  quantite: e.target.value,
+                                })
                               }
                               disabled={isReadOnly || !piecesTableAvailable}
                             />
@@ -1477,12 +2076,17 @@ export default function BtPiecesCard({
 
                           <div style={styles.inlineFieldWrap}>
                             <input
-                              style={{ ...styles.input, ...styles.inputWithSuffix }}
+                              style={{
+                                ...styles.input,
+                                ...styles.inputWithSuffix,
+                              }}
                               inputMode="decimal"
                               placeholder="Coût"
                               value={row.prix_unitaire}
                               onChange={(e) =>
-                                updatePendingPiece(row.key, { prix_unitaire: e.target.value })
+                                updatePendingPiece(row.key, {
+                                  prix_unitaire: e.target.value,
+                                })
                               }
                               disabled={isReadOnly || !piecesTableAvailable}
                             />
@@ -1501,7 +2105,9 @@ export default function BtPiecesCard({
                         </div>
 
                         {row.matched_by === "supersed" && (
-                          <div style={styles.badgeSupersed}>Supersed détecté</div>
+                          <div style={styles.badgeSupersed}>
+                            Supersed détecté
+                          </div>
                         )}
                       </div>
                     ))}
@@ -1515,16 +2121,144 @@ export default function BtPiecesCard({
             </div>
 
             <div style={styles.modalFooter}>
-              <button type="button" style={styles.btnDanger} onClick={closePieceModal}>
+              <button
+                type="button"
+                style={styles.btnDanger}
+                onClick={closePieceModal}
+              >
                 Annuler
               </button>
               <button
                 type="button"
                 style={styles.btnPrimary}
                 onClick={addPieces}
-                disabled={isReadOnly || !piecesTableAvailable || pendingPieces.length === 0}
+                disabled={
+                  isReadOnly ||
+                  !piecesTableAvailable ||
+                  pendingPieces.length === 0
+                }
               >
                 Ajouter
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {suiviModalOpen && suiviItem && (
+        <div style={styles.suiviBackdrop} onClick={closeSuiviModal}>
+          <div style={styles.suiviCard} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.suiviHeader}>
+              <div style={{ fontSize: 18, fontWeight: 950 }}>
+                Pièce suivie détectée
+              </div>
+              <div style={{ ...styles.tiny, marginTop: 4 }}>
+                Choisis la position. Si une pièce est déjà active à cette
+                position, le remplacement sera proposé automatiquement.
+              </div>
+            </div>
+
+            <div style={styles.suiviBody}>
+              <div style={styles.suiviInfoBox}>
+                <div>
+                  {suiviItem.sku || "—"} — {suiviItem.nom}
+                </div>
+                <div style={{ marginTop: 4 }}>
+                  Type : {suiviItem.suivi_type || "—"}
+                </div>
+                <div style={{ marginTop: 4 }}>KM BT : {formatKm(btKm)}</div>
+              </div>
+
+              <div style={styles.suiviExistingBox}>
+                <div style={{ fontWeight: 950 }}>
+                  Positions actuellement suivies
+                </div>
+
+                {suiviLoading ? (
+                  <div style={styles.tiny}>Chargement...</div>
+                ) : suiviError ? (
+                  <div
+                    style={{
+                      ...styles.tiny,
+                      color: "#dc2626",
+                      fontWeight: 800,
+                    }}
+                  >
+                    {suiviError}
+                  </div>
+                ) : suiviActifs.length === 0 ? (
+                  <div style={styles.tiny}>
+                    Aucune position active trouvée pour cette catégorie.
+                  </div>
+                ) : (
+                  suiviActifs.map((ev) => (
+                    <div key={ev.id} style={styles.suiviExistingItem}>
+                      <div style={{ fontWeight: 950 }}>
+                        {localisationLabel(ev.localisation)}
+                      </div>
+                      <div style={styles.tiny}>
+                        Pièce : {ev.piece_sku || ev.piece_nom || "—"}
+                      </div>
+                      <div style={styles.tiny}>
+                        Installée le{" "}
+                        {formatDate(ev.date_evenement || ev.created_at)} •{" "}
+                        {formatKm(ev.km)}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {suiviLocalisation !== "ignore" &&
+              activeEventForLocalisation(suiviLocalisation) ? (
+                <div style={styles.warn}>
+                  Une pièce est déjà suivie à cette position. L’action sera
+                  traitée comme un remplacement.
+                </div>
+              ) : null}
+
+              <div>
+                <label style={styles.fieldLabel}>Action</label>
+                <select
+                  style={{ ...styles.input, width: "100%", minWidth: 0 }}
+                  value={suiviAction}
+                  onChange={(e) =>
+                    setSuiviAction(e.target.value as typeof suiviAction)
+                  }
+                >
+                  <option value="installation">Nouvelle installation</option>
+                  <option value="remplacement">Remplacement</option>
+                  <option value="retrait">Retrait</option>
+                  <option value="ignorer">Ignorer le suivi cette fois</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={styles.fieldLabel}>Localisation</label>
+                <select
+                  style={{ ...styles.input, width: "100%", minWidth: 0 }}
+                  value={suiviLocalisation}
+                  onChange={(e) => setSuiviLocalisation(e.target.value)}
+                >
+                  {LOCALISATIONS_SUIVI.map((loc) => (
+                    <option key={loc.value} value={loc.value}>
+                      {loc.label}
+                      {activeEventForLocalisation(loc.value)
+                        ? " — déjà suivie"
+                        : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div style={styles.modalFooter}>
+              <button
+                type="button"
+                style={styles.btn}
+                onClick={confirmSuiviModal}
+              >
+                Confirmer
               </button>
             </div>
           </div>

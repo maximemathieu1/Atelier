@@ -1,7 +1,15 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
-import BtPiecesCard, { type Piece as PieceFull } from "../components/bt/BtPiecesCard";
+import BtPiecesCard, {
+  type Piece as PieceFull,
+} from "../components/bt/BtPiecesCard";
 import BtTachePhotos from "../components/bt/BtTachePhotos";
 
 type BonTravail = {
@@ -193,7 +201,9 @@ function fmtDate(v: string | null | undefined) {
 
 function fmtKm(v: number | null | undefined) {
   if (v === null || v === undefined || Number.isNaN(Number(v))) return "—";
-  return new Intl.NumberFormat("fr-CA", { maximumFractionDigits: 0 }).format(Number(v));
+  return new Intl.NumberFormat("fr-CA", { maximumFractionDigits: 0 }).format(
+    Number(v),
+  );
 }
 
 function fmtKmLabel(v: number | null | undefined) {
@@ -225,8 +235,6 @@ function daysBetween(a: Date, b: Date) {
   return Math.ceil((b.getTime() - a.getTime()) / 86400000);
 }
 
-
-
 function normalizeText(value: string) {
   return value
     .toLowerCase()
@@ -239,15 +247,15 @@ function normalizeText(value: string) {
     .trim();
 }
 
-
-
 function levenshtein(a: string, b: string) {
   const aa = normalizeText(a);
   const bb = normalizeText(b);
 
   const rows = aa.length + 1;
   const cols = bb.length + 1;
-  const dp: number[][] = Array.from({ length: rows }, () => Array(cols).fill(0));
+  const dp: number[][] = Array.from({ length: rows }, () =>
+    Array(cols).fill(0),
+  );
 
   for (let i = 0; i < rows; i += 1) dp[i][0] = i;
   for (let j = 0; j < cols; j += 1) dp[0][j] = j;
@@ -258,7 +266,7 @@ function levenshtein(a: string, b: string) {
       dp[i][j] = Math.min(
         dp[i - 1][j] + 1,
         dp[i][j - 1] + 1,
-        dp[i - 1][j - 1] + cost
+        dp[i - 1][j - 1] + cost,
       );
     }
   }
@@ -281,14 +289,12 @@ function areTokensClose(a: string, b: string) {
   return dist <= 3;
 }
 
-
-
 function normalizeVoiceNote(input: string, corrections: VoiceCorrection[]) {
   let text = input.toLowerCase();
 
   // 1️⃣ expressions longues en premier
   const multiWordRules = corrections
-    .filter(c => c.actif && c.entendu.includes(" "))
+    .filter((c) => c.actif && c.entendu.includes(" "))
     .sort((a, b) => b.entendu.length - a.entendu.length);
 
   for (const rule of multiWordRules) {
@@ -307,25 +313,25 @@ function normalizeVoiceNote(input: string, corrections: VoiceCorrection[]) {
   const words = text.split(/\s+/);
 
   const singleWordRules = corrections.filter(
-    c => c.actif && !c.entendu.includes(" ")
+    (c) => c.actif && !c.entendu.includes(" "),
   );
 
-  const correctedWords = words.map(word => {
-  const normWord = normalizeText(word);
+  const correctedWords = words.map((word) => {
+    const normWord = normalizeText(word);
 
-  // 🔒 FIX BUG GAUCHE
-  if (normWord === "gauche") return word;
+    // 🔒 FIX BUG GAUCHE
+    if (normWord === "gauche") return word;
 
-  for (const rule of singleWordRules) {
-    const normRule = normalizeText(rule.entendu);
+    for (const rule of singleWordRules) {
+      const normRule = normalizeText(rule.entendu);
 
-    if (areTokensClose(normWord, normRule)) {
-      return rule.remplacement.toLowerCase();
+      if (areTokensClose(normWord, normRule)) {
+        return rule.remplacement.toLowerCase();
+      }
     }
-  }
 
-  return word;
-});
+    return word;
+  });
 
   text = correctedWords.join(" ");
 
@@ -400,8 +406,10 @@ function nextDueText(row: ItemRow, currentKm: number | null) {
 
   if (!h) {
     const parts: string[] = [];
-    if (row.frequence_km != null) parts.push(`${fmtNumber(row.frequence_km)} km`);
-    if (row.frequence_jours != null) parts.push(`${fmtNumber(row.frequence_jours)} jours`);
+    if (row.frequence_km != null)
+      parts.push(`${fmtNumber(row.frequence_km)} km`);
+    if (row.frequence_jours != null)
+      parts.push(`${fmtNumber(row.frequence_jours)} jours`);
     return parts.length ? parts.join(" • ") : "—";
   }
 
@@ -455,10 +463,14 @@ export default function BonTravailMecanoPage() {
   const [clientCfg, setClientCfg] = useState<ClientConfig | null>(null);
 
   const [notes, setNotes] = useState<NoteMeca[]>([]);
-  const [tachesEffectuees, setTachesEffectuees] = useState<TacheEffectuee[]>([]);
+  const [tachesEffectuees, setTachesEffectuees] = useState<TacheEffectuee[]>(
+    [],
+  );
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [selectedDone, setSelectedDone] = useState<Record<string, boolean>>({});
-  const [autorisationMap, setAutorisationMap] = useState<Record<string, AutorisationInfo>>({});
+  const [autorisationMap, setAutorisationMap] = useState<
+    Record<string, AutorisationInfo>
+  >({});
   const [newTask, setNewTask] = useState("");
   const [taskInterim, setTaskInterim] = useState("");
   const [speechSupported, setSpeechSupported] = useState(false);
@@ -467,9 +479,13 @@ export default function BonTravailMecanoPage() {
 
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
 
-  const [assignedTemplates, setAssignedTemplates] = useState<UniteEntretienTemplate[]>([]);
+  const [assignedTemplates, setAssignedTemplates] = useState<
+    UniteEntretienTemplate[]
+  >([]);
   const [templates, setTemplates] = useState<EntretienTemplate[]>([]);
-  const [templateItems, setTemplateItems] = useState<EntretienTemplateItem[]>([]);
+  const [templateItems, setTemplateItems] = useState<EntretienTemplateItem[]>(
+    [],
+  );
   const [unitItems, setUnitItems] = useState<UniteEntretienItem[]>([]);
   const [historique, setHistorique] = useState<EntretienHistorique[]>([]);
 
@@ -485,11 +501,15 @@ export default function BonTravailMecanoPage() {
 
   const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [pendingTasks, setPendingTasks] = useState<string[]>([]);
-  const [voiceCorrections, setVoiceCorrections] = useState<VoiceCorrection[]>([]);
+  const [voiceCorrections, setVoiceCorrections] = useState<VoiceCorrection[]>(
+    [],
+  );
 
   useEffect(() => {
     const w = window as WindowWithSpeechRecognition;
-    setSpeechSupported(Boolean(w.SpeechRecognition || w.webkitSpeechRecognition));
+    setSpeechSupported(
+      Boolean(w.SpeechRecognition || w.webkitSpeechRecognition),
+    );
   }, []);
 
   useEffect(() => {
@@ -626,7 +646,8 @@ export default function BonTravailMecanoPage() {
 
   const effectiveMargePiecesPct = useMemo(() => {
     if (isBtOpenPricing) return Number(clientCfg?.marge_pieces || 0);
-    if (bt?.marge_pieces_snapshot != null) return Number(bt.marge_pieces_snapshot || 0);
+    if (bt?.marge_pieces_snapshot != null)
+      return Number(bt.marge_pieces_snapshot || 0);
     return Number(clientCfg?.marge_pieces || 0);
   }, [isBtOpenPricing, bt, clientCfg]);
 
@@ -640,7 +661,9 @@ export default function BonTravailMecanoPage() {
   const rows = useMemo(() => {
     const assignedSet = new Set(assignedTemplates.map((x) => x.template_id));
     const templateMap = new Map(templates.map((t) => [t.id, t]));
-    const assignedTemplateByTemplateId = new Map(assignedTemplates.map((x) => [x.template_id, x]));
+    const assignedTemplateByTemplateId = new Map(
+      assignedTemplates.map((x) => [x.template_id, x]),
+    );
 
     const hByTemplateItem = new Map<string, EntretienHistorique>();
     const hByUnitItem = new Map<string, EntretienHistorique>();
@@ -665,7 +688,8 @@ export default function BonTravailMecanoPage() {
         frequence_jours: it.periodicite_jours,
         templateNom: templateMap.get(it.template_id)?.nom ?? null,
         templateId: it.template_id,
-        assignedTemplateLinkId: assignedTemplateByTemplateId.get(it.template_id)?.id ?? null,
+        assignedTemplateLinkId:
+          assignedTemplateByTemplateId.get(it.template_id)?.id ?? null,
         lastDone: hByTemplateItem.get(it.id) ?? null,
       }));
 
@@ -682,7 +706,9 @@ export default function BonTravailMecanoPage() {
       lastDone: hByUnitItem.get(it.id) ?? null,
     }));
 
-    return [...fromTemplates, ...fromUnit].sort((a, b) => a.nom.localeCompare(b.nom, "fr-CA"));
+    return [...fromTemplates, ...fromUnit].sort((a, b) =>
+      a.nom.localeCompare(b.nom, "fr-CA"),
+    );
   }, [assignedTemplates, templates, templateItems, unitItems, historique]);
 
   const entretiensAVenir = useMemo(() => {
@@ -695,8 +721,10 @@ export default function BonTravailMecanoPage() {
         const alreadyOpen = notes.some(
           (n) =>
             n.titre.trim().toLowerCase() === titre.trim().toLowerCase() &&
-            ((row.sourceType === "template" && n.entretien_template_item_id === row.sourceId) ||
-              (row.sourceType === "unite" && n.entretien_unite_item_id === row.sourceId))
+            ((row.sourceType === "template" &&
+              n.entretien_template_item_id === row.sourceId) ||
+              (row.sourceType === "unite" &&
+                n.entretien_unite_item_id === row.sourceId)),
         );
 
         return {
@@ -706,7 +734,9 @@ export default function BonTravailMecanoPage() {
           alreadyOpen,
         };
       })
-      .filter(({ status, alreadyOpen }) => status.label !== "OK" && !alreadyOpen);
+      .filter(
+        ({ status, alreadyOpen }) => status.label !== "OK" && !alreadyOpen,
+      );
   }, [rows, bt?.km, unite?.km_actuel, notes]);
 
   async function loadPieces(btId: string) {
@@ -743,7 +773,9 @@ export default function BonTravailMecanoPage() {
 
         const rawDecision = String((row as any).decision || "attente");
         const decision: AutorisationDecision =
-          rawDecision === "autorise" || rawDecision === "refuse" || rawDecision === "a_discuter"
+          rawDecision === "autorise" ||
+          rawDecision === "refuse" ||
+          rawDecision === "a_discuter"
             ? rawDecision
             : "attente";
 
@@ -769,12 +801,38 @@ export default function BonTravailMecanoPage() {
     return "—";
   }
 
-  function getAutorisationBadgeStyle(decision?: AutorisationDecision | null): CSSProperties {
+  function getAutorisationBadgeStyle(
+    decision?: AutorisationDecision | null,
+  ): CSSProperties {
     const base: CSSProperties = { ...badgeStyle, whiteSpace: "nowrap" };
-    if (decision === "autorise") return { ...base, color: "#065f46", background: "rgba(16,185,129,.12)", borderColor: "rgba(16,185,129,.28)" };
-    if (decision === "refuse") return { ...base, color: "#991b1b", background: "rgba(239,68,68,.12)", borderColor: "rgba(239,68,68,.28)" };
-    if (decision === "a_discuter") return { ...base, color: "#1d4ed8", background: "rgba(59,130,246,.12)", borderColor: "rgba(59,130,246,.28)" };
-    if (decision === "attente") return { ...base, color: "#92400e", background: "rgba(245,158,11,.14)", borderColor: "rgba(245,158,11,.30)" };
+    if (decision === "autorise")
+      return {
+        ...base,
+        color: "#065f46",
+        background: "rgba(16,185,129,.12)",
+        borderColor: "rgba(16,185,129,.28)",
+      };
+    if (decision === "refuse")
+      return {
+        ...base,
+        color: "#991b1b",
+        background: "rgba(239,68,68,.12)",
+        borderColor: "rgba(239,68,68,.28)",
+      };
+    if (decision === "a_discuter")
+      return {
+        ...base,
+        color: "#1d4ed8",
+        background: "rgba(59,130,246,.12)",
+        borderColor: "rgba(59,130,246,.28)",
+      };
+    if (decision === "attente")
+      return {
+        ...base,
+        color: "#92400e",
+        background: "rgba(245,158,11,.14)",
+        borderColor: "rgba(245,158,11,.30)",
+      };
     return base;
   }
 
@@ -782,15 +840,21 @@ export default function BonTravailMecanoPage() {
     const decision = autorisationMap[t.id]?.decision;
 
     if (decision === "refuse") {
-      return window.confirm(`ATTENTION\n\nCette tâche a été REFUSÉE par le client.\n\n${t.titre}\n\nVoulez-vous continuer ?`);
+      return window.confirm(
+        `ATTENTION\n\nCette tâche a été REFUSÉE par le client.\n\n${t.titre}\n\nVoulez-vous continuer ?`,
+      );
     }
 
     if (decision === "a_discuter") {
-      return window.confirm(`Cette tâche est À DISCUTER avec le client.\n\n${t.titre}\n\nVoulez-vous continuer ?`);
+      return window.confirm(
+        `Cette tâche est À DISCUTER avec le client.\n\n${t.titre}\n\nVoulez-vous continuer ?`,
+      );
     }
 
     if (decision === "attente") {
-      return window.confirm(`Cette tâche est EN ATTENTE d’autorisation.\n\n${t.titre}\n\nVoulez-vous continuer ?`);
+      return window.confirm(
+        `Cette tâche est EN ATTENTE d’autorisation.\n\n${t.titre}\n\nVoulez-vous continuer ?`,
+      );
     }
 
     return true;
@@ -805,7 +869,9 @@ export default function BonTravailMecanoPage() {
     try {
       const { data: btData, error: btErr } = await supabase
         .from("bons_travail")
-        .select("id,numero,unite_id,statut,date_ouverture,km,client_id,client_nom,marge_pieces_snapshot")
+        .select(
+          "id,numero,unite_id,statut,date_ouverture,km,client_id,client_nom,marge_pieces_snapshot",
+        )
         .eq("id", id)
         .single();
 
@@ -815,7 +881,9 @@ export default function BonTravailMecanoPage() {
 
       const { data: uData, error: uErr } = await supabase
         .from("unites")
-        .select("id,no_unite,marque,modele,niv,plaque,client_id,type_unite_id,km_actuel,km_updated_at,km_last_bt_id,km_status")
+        .select(
+          "id,no_unite,marque,modele,niv,plaque,client_id,type_unite_id,km_actuel,km_updated_at,km_last_bt_id,km_status",
+        )
         .eq("id", btRow.unite_id)
         .single();
 
@@ -852,7 +920,7 @@ export default function BonTravailMecanoPage() {
         supabase
           .from("unite_notes")
           .select(
-            "id,unite_id,titre,details,created_at,entretien_template_item_id,entretien_unite_item_id,entretien_auto"
+            "id,unite_id,titre,details,created_at,entretien_template_item_id,entretien_unite_item_id,entretien_auto",
           )
           .eq("unite_id", btRow.unite_id)
           .order("created_at", { ascending: false }),
@@ -860,7 +928,7 @@ export default function BonTravailMecanoPage() {
         supabase
           .from("bt_taches_effectuees")
           .select(
-            "id,bt_id,unite_id,unite_note_id,titre,details,date_effectuee,entretien_template_item_id,entretien_unite_item_id,entretien_auto,autorisation_tache_id,decision_client,note_client"
+            "id,bt_id,unite_id,unite_note_id,titre,details,date_effectuee,entretien_template_item_id,entretien_unite_item_id,entretien_auto,autorisation_tache_id,decision_client,note_client",
           )
           .eq("bt_id", btRow.id)
           .order("date_effectuee", { ascending: true }),
@@ -879,14 +947,18 @@ export default function BonTravailMecanoPage() {
 
         supabase
           .from("entretien_template_items")
-          .select("id,template_id,nom,description,periodicite_km,periodicite_jours,ordre,actif")
+          .select(
+            "id,template_id,nom,description,periodicite_km,periodicite_jours,ordre,actif",
+          )
           .eq("actif", true)
           .order("ordre", { ascending: true })
           .order("nom", { ascending: true }),
 
         supabase
           .from("unite_entretien_items")
-          .select("id,unite_id,titre,details,periodicite_km,periodicite_jours,nom,description,frequence_km,frequence_jours,ordre,actif")
+          .select(
+            "id,unite_id,titre,details,periodicite_km,periodicite_jours,nom,description,frequence_km,frequence_jours,ordre,actif",
+          )
           .eq("unite_id", btRow.unite_id)
           .eq("actif", true)
           .order("ordre", { ascending: true })
@@ -895,7 +967,7 @@ export default function BonTravailMecanoPage() {
         supabase
           .from("unite_entretien_historique")
           .select(
-            "id,unite_id,template_item_id,unite_item_id,bt_id,km_log_id,nom_snapshot,frequence_km_snapshot,frequence_jours_snapshot,date_effectuee,km_effectue,note,created_at"
+            "id,unite_id,template_item_id,unite_item_id,bt_id,km_log_id,nom_snapshot,frequence_km_snapshot,frequence_jours_snapshot,date_effectuee,km_effectue,note,created_at",
           )
           .eq("unite_id", btRow.unite_id)
           .order("date_effectuee", { ascending: false })
@@ -914,9 +986,13 @@ export default function BonTravailMecanoPage() {
       setSelected({});
       setSelectedDone({});
       setTachesEffectuees((doneRes.data || []) as TacheEffectuee[]);
-      setAssignedTemplates((assignedRes.data || []) as UniteEntretienTemplate[]);
+      setAssignedTemplates(
+        (assignedRes.data || []) as UniteEntretienTemplate[],
+      );
       setTemplates((templatesRes.data || []) as EntretienTemplate[]);
-      setTemplateItems((templateItemsRes.data || []) as EntretienTemplateItem[]);
+      setTemplateItems(
+        (templateItemsRes.data || []) as EntretienTemplateItem[],
+      );
       setUnitItems((unitItemsRes.data || []) as UniteEntretienItem[]);
       setHistorique((historiqueRes.data || []) as EntretienHistorique[]);
 
@@ -935,7 +1011,7 @@ export default function BonTravailMecanoPage() {
   async function saveKmValue(
     value: string,
     force = false,
-    overrideReason?: string | null
+    overrideReason?: string | null,
   ) {
     if (!bt) return false;
     if (isReadOnly) {
@@ -988,7 +1064,11 @@ export default function BonTravailMecanoPage() {
         const confirmed = window.confirm(message);
         if (!confirmed) return false;
 
-        return await saveKmValue(value, true, "KM inférieur confirmé manuellement");
+        return await saveKmValue(
+          value,
+          true,
+          "KM inférieur confirmé manuellement",
+        );
       }
 
       if (res.ok === false) {
@@ -1095,8 +1175,10 @@ export default function BonTravailMecanoPage() {
     const alreadyOpen = notes.some(
       (n) =>
         n.titre.trim().toLowerCase() === titre.trim().toLowerCase() &&
-        ((row.sourceType === "template" && n.entretien_template_item_id === row.sourceId) ||
-          (row.sourceType === "unite" && n.entretien_unite_item_id === row.sourceId))
+        ((row.sourceType === "template" &&
+          n.entretien_template_item_id === row.sourceId) ||
+          (row.sourceType === "unite" &&
+            n.entretien_unite_item_id === row.sourceId)),
     );
 
     if (alreadyOpen) return;
@@ -1104,8 +1186,11 @@ export default function BonTravailMecanoPage() {
     const { error } = await supabase.from("unite_notes").insert({
       unite_id: bt.unite_id,
       titre,
-      details: row.templateNom ? `Template : ${row.templateNom}` : row.description,
-      entretien_template_item_id: row.sourceType === "template" ? row.sourceId : null,
+      details: row.templateNom
+        ? `Template : ${row.templateNom}`
+        : row.description,
+      entretien_template_item_id:
+        row.sourceType === "template" ? row.sourceId : null,
       entretien_unite_item_id: row.sourceType === "unite" ? row.sourceId : null,
       entretien_auto: true,
     });
@@ -1129,16 +1214,22 @@ export default function BonTravailMecanoPage() {
     }
 
     const isEntretienTask =
-      !!t.entretien_template_item_id || !!t.entretien_unite_item_id || !!t.entretien_auto;
+      !!t.entretien_template_item_id ||
+      !!t.entretien_unite_item_id ||
+      !!t.entretien_auto;
 
     if (isEntretienTask) {
       if (bt.km == null || !Number.isFinite(Number(bt.km))) {
-        alert("Impossible de compléter un entretien périodique sans kilométrage au BT.");
+        alert(
+          "Impossible de compléter un entretien périodique sans kilométrage au BT.",
+        );
         return;
       }
 
       const nomEntretien =
-        String(t.titre || "").replace(/^Entretien périodique\s*-\s*/i, "").trim() || t.titre;
+        String(t.titre || "")
+          .replace(/^Entretien périodique\s*-\s*/i, "")
+          .trim() || t.titre;
 
       let existingQuery = supabase
         .from("unite_entretien_historique")
@@ -1147,13 +1238,19 @@ export default function BonTravailMecanoPage() {
         .eq("bt_id", bt.id);
 
       if (t.entretien_template_item_id) {
-        existingQuery = existingQuery.eq("template_item_id", t.entretien_template_item_id);
+        existingQuery = existingQuery.eq(
+          "template_item_id",
+          t.entretien_template_item_id,
+        );
       } else {
         existingQuery = existingQuery.is("template_item_id", null);
       }
 
       if (t.entretien_unite_item_id) {
-        existingQuery = existingQuery.eq("unite_item_id", t.entretien_unite_item_id);
+        existingQuery = existingQuery.eq(
+          "unite_item_id",
+          t.entretien_unite_item_id,
+        );
       } else {
         existingQuery = existingQuery.is("unite_item_id", null);
       }
@@ -1175,18 +1272,20 @@ export default function BonTravailMecanoPage() {
           return;
         }
       } else {
-        const { error: histErr } = await supabase.from("unite_entretien_historique").insert({
-          unite_id: bt.unite_id,
-          template_item_id: t.entretien_template_item_id ?? null,
-          unite_item_id: t.entretien_unite_item_id ?? null,
-          bt_id: bt.id,
-          nom_snapshot: nomEntretien,
-          frequence_km_snapshot: null,
-          frequence_jours_snapshot: null,
-          date_effectuee: new Date().toISOString().slice(0, 10),
-          km_effectue: bt.km,
-          note: null,
-        });
+        const { error: histErr } = await supabase
+          .from("unite_entretien_historique")
+          .insert({
+            unite_id: bt.unite_id,
+            template_item_id: t.entretien_template_item_id ?? null,
+            unite_item_id: t.entretien_unite_item_id ?? null,
+            bt_id: bt.id,
+            nom_snapshot: nomEntretien,
+            frequence_km_snapshot: null,
+            frequence_jours_snapshot: null,
+            date_effectuee: new Date().toISOString().slice(0, 10),
+            km_effectue: bt.km,
+            note: null,
+          });
 
         if (histErr) {
           alert(histErr.message);
@@ -1196,39 +1295,43 @@ export default function BonTravailMecanoPage() {
     }
 
     const { data: insertedDoneTask, error: insertErr } = await supabase
-  .from("bt_taches_effectuees")
-  .insert({
-    bt_id: bt.id,
-    unite_id: bt.unite_id,
-    unite_note_id: t.id,
-    titre: t.titre,
-    details: t.details,
-    date_effectuee: new Date().toISOString(),
-    entretien_template_item_id: t.entretien_template_item_id ?? null,
-    entretien_unite_item_id: t.entretien_unite_item_id ?? null,
-    entretien_auto: Boolean(t.entretien_auto),
-    autorisation_tache_id: autorisationMap[t.id]?.autorisation_tache_id || null,
-    decision_client: autorisationMap[t.id]?.decision ?? null,
-    note_client: autorisationMap[t.id]?.note_client || null,
-  })
-  .select("id")
-  .single();
+      .from("bt_taches_effectuees")
+      .insert({
+        bt_id: bt.id,
+        unite_id: bt.unite_id,
+        unite_note_id: t.id,
+        titre: t.titre,
+        details: t.details,
+        date_effectuee: new Date().toISOString(),
+        entretien_template_item_id: t.entretien_template_item_id ?? null,
+        entretien_unite_item_id: t.entretien_unite_item_id ?? null,
+        entretien_auto: Boolean(t.entretien_auto),
+        autorisation_tache_id:
+          autorisationMap[t.id]?.autorisation_tache_id || null,
+        decision_client: autorisationMap[t.id]?.decision ?? null,
+        note_client: autorisationMap[t.id]?.note_client || null,
+      })
+      .select("id")
+      .single();
 
-if (insertErr) {
-  alert(insertErr.message);
-  return;
-}
+    if (insertErr) {
+      alert(insertErr.message);
+      return;
+    }
 
-await supabase
-  .from("bt_tache_photos")
-  .update({
-    unite_note_id: null,
-    tache_effectuee_id: insertedDoneTask.id,
-  })
-  .eq("bt_id", bt.id)
-  .eq("unite_note_id", t.id);
+    await supabase
+      .from("bt_tache_photos")
+      .update({
+        unite_note_id: null,
+        tache_effectuee_id: insertedDoneTask.id,
+      })
+      .eq("bt_id", bt.id)
+      .eq("unite_note_id", t.id);
 
-    const { error: deleteErr } = await supabase.from("unite_notes").delete().eq("id", t.id);
+    const { error: deleteErr } = await supabase
+      .from("unite_notes")
+      .delete()
+      .eq("id", t.id);
 
     if (deleteErr) {
       alert(deleteErr.message);
@@ -1247,7 +1350,9 @@ await supabase
     if (!checked) return;
 
     const isEntretienTask =
-      !!t.entretien_template_item_id || !!t.entretien_unite_item_id || !!t.entretien_auto;
+      !!t.entretien_template_item_id ||
+      !!t.entretien_unite_item_id ||
+      !!t.entretien_auto;
 
     try {
       if (isEntretienTask && bt) {
@@ -1258,7 +1363,10 @@ await supabase
           .eq("bt_id", bt.id);
 
         if (t.entretien_template_item_id) {
-          histQuery = histQuery.eq("template_item_id", t.entretien_template_item_id);
+          histQuery = histQuery.eq(
+            "template_item_id",
+            t.entretien_template_item_id,
+          );
         } else {
           histQuery = histQuery.is("template_item_id", null);
         }
@@ -1319,7 +1427,9 @@ await supabase
 
     try {
       const isEntretienTask =
-        !!t.entretien_template_item_id || !!t.entretien_unite_item_id || !!t.entretien_auto;
+        !!t.entretien_template_item_id ||
+        !!t.entretien_unite_item_id ||
+        !!t.entretien_auto;
 
       if (isEntretienTask && bt) {
         let histQuery = supabase
@@ -1329,7 +1439,10 @@ await supabase
           .eq("bt_id", bt.id);
 
         if (t.entretien_template_item_id) {
-          histQuery = histQuery.eq("template_item_id", t.entretien_template_item_id);
+          histQuery = histQuery.eq(
+            "template_item_id",
+            t.entretien_template_item_id,
+          );
         } else {
           histQuery = histQuery.is("template_item_id", null);
         }
@@ -1348,7 +1461,10 @@ await supabase
         }
       }
 
-      const { error } = await supabase.from("bt_taches_effectuees").delete().eq("id", t.id);
+      const { error } = await supabase
+        .from("bt_taches_effectuees")
+        .delete()
+        .eq("id", t.id);
 
       if (error) {
         alert(error.message);
@@ -1606,7 +1722,13 @@ await supabase
 
   return (
     <div style={styles.page}>
-      <div style={{ ...styles.row, justifyContent: "space-between", alignItems: "flex-start" }}>
+      <div
+        style={{
+          ...styles.row,
+          justifyContent: "space-between",
+          alignItems: "flex-start",
+        }}
+      >
         <div>
           <div style={styles.h1}>Bon de travail</div>
           <div style={styles.muted}>Vue simplifiée mécano</div>
@@ -1628,9 +1750,17 @@ await supabase
       ) : (
         <>
           <div style={styles.card}>
-            <div style={{ ...styles.row, justifyContent: "space-between", alignItems: "center" }}>
+            <div
+              style={{
+                ...styles.row,
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
               <div style={styles.row}>
-                <div style={{ fontSize: 18, fontWeight: 950 }}>{bt.numero || "(BT)"}</div>
+                <div style={{ fontSize: 18, fontWeight: 950 }}>
+                  {bt.numero || "(BT)"}
+                </div>
                 <StatutBadge statut={bt.statut} />
               </div>
             </div>
@@ -1639,13 +1769,16 @@ await supabase
               <div style={styles.headerCell}>
                 <div style={styles.headerLabel}>Unité</div>
                 <div style={styles.headerMain}>{unite.no_unite}</div>
-                {unite.plaque ? <div style={styles.headerSub}>Plaque {unite.plaque}</div> : null}
+                {unite.plaque ? (
+                  <div style={styles.headerSub}>Plaque {unite.plaque}</div>
+                ) : null}
               </div>
 
               <div style={styles.headerCell}>
                 <div style={styles.headerLabel}>Véhicule</div>
                 <div style={styles.headerMain}>
-                  {[unite.marque, unite.modele].filter(Boolean).join(" ") || "—"}
+                  {[unite.marque, unite.modele].filter(Boolean).join(" ") ||
+                    "—"}
                 </div>
               </div>
 
@@ -1660,9 +1793,15 @@ await supabase
                   <div style={styles.headerMain}>—</div>
                 ) : !editKmInline ? (
                   <div
-                    style={isReadOnly ? styles.headerMain : styles.headerMainClickable}
+                    style={
+                      isReadOnly
+                        ? styles.headerMain
+                        : styles.headerMainClickable
+                    }
                     onDoubleClick={openInlineKmEdit}
-                    title={isReadOnly ? undefined : "Double-cliquer pour modifier"}
+                    title={
+                      isReadOnly ? undefined : "Double-cliquer pour modifier"
+                    }
                   >
                     {fmtKmLabel(bt.km)}
                   </div>
@@ -1692,7 +1831,9 @@ await supabase
 
               <div style={styles.headerCell}>
                 <div style={styles.headerLabel}>Ouvert</div>
-                <div style={styles.headerMain}>{fmtDate(bt.date_ouverture)}</div>
+                <div style={styles.headerMain}>
+                  {fmtDate(bt.date_ouverture)}
+                </div>
               </div>
             </div>
 
@@ -1727,8 +1868,9 @@ await supabase
                     Number.isFinite(Number(kmInput)) &&
                     Number(kmInput) < Number(unite.km_actuel) && (
                       <div style={styles.warn}>
-                        Attention : le nouveau KM est inférieur au dernier KM enregistré de l’unité.
-                        Une confirmation apparaîtra à l’enregistrement.
+                        Attention : le nouveau KM est inférieur au dernier KM
+                        enregistré de l’unité. Une confirmation apparaîtra à
+                        l’enregistrement.
                       </div>
                     )}
                 </>
@@ -1740,8 +1882,9 @@ await supabase
                 Number.isFinite(Number(editKmInput)) &&
                 Number(editKmInput) < Number(unite.km_actuel) && (
                   <div style={styles.warn}>
-                    Attention : le nouveau KM est inférieur au dernier KM enregistré de l’unité.
-                    Une confirmation apparaîtra à l’enregistrement.
+                    Attention : le nouveau KM est inférieur au dernier KM
+                    enregistré de l’unité. Une confirmation apparaîtra à
+                    l’enregistrement.
                   </div>
                 )}
 
@@ -1750,7 +1893,9 @@ await supabase
           </div>
 
           <div style={styles.card}>
-            <div style={{ fontSize: 16, fontWeight: 950 }}>Entretiens périodiques à venir</div>
+            <div style={{ fontSize: 16, fontWeight: 950 }}>
+              Entretiens périodiques à venir
+            </div>
 
             {entretiensAVenir.length === 0 ? (
               <div style={{ ...styles.muted, marginTop: 10 }}>
@@ -1774,7 +1919,8 @@ await supabase
                         <input
                           type="checkbox"
                           onChange={(ev) => {
-                            if (ev.target.checked) addEntretienToOpenTasks(row, true);
+                            if (ev.target.checked)
+                              addEntretienToOpenTasks(row, true);
                           }}
                           disabled={isReadOnly}
                         />
@@ -1783,9 +1929,17 @@ await supabase
                       <td style={styles.td}>
                         <div style={{ fontWeight: 900 }}>{row.nom}</div>
                         {row.description ? (
-                          <div style={{ ...styles.muted, fontSize: 12 }}>{row.description}</div>
+                          <div style={{ ...styles.muted, fontSize: 12 }}>
+                            {row.description}
+                          </div>
                         ) : null}
-                        <div style={{ ...styles.muted, fontSize: 12, marginTop: 4 }}>
+                        <div
+                          style={{
+                            ...styles.muted,
+                            fontSize: 12,
+                            marginTop: 4,
+                          }}
+                        >
                           {row.sourceType === "template"
                             ? `Template${row.templateNom ? ` • ${row.templateNom}` : ""}`
                             : "Entretien propre à l’unité"}
@@ -1828,7 +1982,9 @@ await supabase
 
           <div style={styles.card}>
             <div style={{ ...styles.row, justifyContent: "space-between" }}>
-              <div style={{ fontSize: 16, fontWeight: 950 }}>Tâches ouvertes</div>
+              <div style={{ fontSize: 16, fontWeight: 950 }}>
+                Tâches ouvertes
+              </div>
 
               <button
                 style={styles.btnPrimary}
@@ -1841,35 +1997,39 @@ await supabase
 
             <table style={{ ...styles.table, marginTop: 10 }}>
               <thead>
-  <tr>
-    <th style={{ ...styles.th, width: 40 }}>
-      <input
-        type="checkbox"
-        checked={notes.length > 0 && notes.every((t) => selected[t.id])}
-        onChange={(e) => {
-          const on = e.target.checked;
-          const next: Record<string, boolean> = {};
-          notes.forEach((t) => {
-            next[t.id] = on;
-          });
-          setSelected(next);
+                <tr>
+                  <th style={{ ...styles.th, width: 40 }}>
+                    <input
+                      type="checkbox"
+                      checked={
+                        notes.length > 0 && notes.every((t) => selected[t.id])
+                      }
+                      onChange={(e) => {
+                        const on = e.target.checked;
+                        const next: Record<string, boolean> = {};
+                        notes.forEach((t) => {
+                          next[t.id] = on;
+                        });
+                        setSelected(next);
 
-          if (on) {
-            notes.forEach((t) => {
-              completeTask(t, true);
-            });
-          }
-        }}
-        disabled={isReadOnly && notes.length > 0}
-      />
-    </th>
+                        if (on) {
+                          notes.forEach((t) => {
+                            completeTask(t, true);
+                          });
+                        }
+                      }}
+                      disabled={isReadOnly && notes.length > 0}
+                    />
+                  </th>
 
-    <th style={styles.th}>Titre</th>
-    <th style={{ ...styles.th, width: 140 }}>Autorisation</th>
-    <th style={{ ...styles.th, width: 180 }}>Créé</th>
-    <th style={{ ...styles.th, width: 90, textAlign: "center" }}>Photos</th>
-  </tr>
-</thead>
+                  <th style={styles.th}>Titre</th>
+                  <th style={{ ...styles.th, width: 140 }}>Autorisation</th>
+                  <th style={{ ...styles.th, width: 180 }}>Créé</th>
+                  <th style={{ ...styles.th, width: 90, textAlign: "center" }}>
+                    Photos
+                  </th>
+                </tr>
+              </thead>
               <tbody>
                 {notes.length === 0 ? (
                   <tr>
@@ -1880,61 +2040,78 @@ await supabase
                 ) : (
                   notes.map((t) => (
                     <tr key={t.id}>
-  <td style={styles.td}>
-    <input
-      type="checkbox"
-      checked={Boolean(selected[t.id])}
-      onChange={async (e) => {
-        const checked = e.target.checked;
-        setSelected((s) => ({ ...s, [t.id]: checked }));
-        await completeTask(t, checked);
-      }}
-      disabled={isReadOnly}
-    />
-  </td>
+                      <td style={styles.td}>
+                        <input
+                          type="checkbox"
+                          checked={Boolean(selected[t.id])}
+                          onChange={async (e) => {
+                            const checked = e.target.checked;
+                            setSelected((s) => ({ ...s, [t.id]: checked }));
+                            await completeTask(t, checked);
+                          }}
+                          disabled={isReadOnly}
+                        />
+                      </td>
 
-  {/* Titre */}
-  <td style={styles.td}>
-    <div style={{ fontWeight: 900 }}>{t.titre}</div>
+                      {/* Titre */}
+                      <td style={styles.td}>
+                        <div style={{ fontWeight: 900 }}>{t.titre}</div>
 
-    {t.entretien_auto ? (
-      <div style={{ ...styles.muted, fontSize: 12 }}>
-        Entretien périodique
-      </div>
-    ) : null}
-  </td>
+                        {t.entretien_auto ? (
+                          <div style={{ ...styles.muted, fontSize: 12 }}>
+                            Entretien périodique
+                          </div>
+                        ) : null}
+                      </td>
 
-  <td style={styles.td}>
-    {autorisationMap[t.id] ? (
-      <>
-        <span style={getAutorisationBadgeStyle(autorisationMap[t.id]?.decision)}>
-          {getAutorisationLabel(autorisationMap[t.id]?.decision)}
-        </span>
-        {autorisationMap[t.id]?.note_client ? (
-          <div style={{ ...styles.muted, fontSize: 12, marginTop: 4, whiteSpace: "pre-wrap" }}>
-            {autorisationMap[t.id]?.note_client}
-          </div>
-        ) : null}
-      </>
-    ) : (
-      <span style={styles.muted}>—</span>
-    )}
-  </td>
+                      <td style={styles.td}>
+                        {autorisationMap[t.id] ? (
+                          <>
+                            <span
+                              style={getAutorisationBadgeStyle(
+                                autorisationMap[t.id]?.decision,
+                              )}
+                            >
+                              {getAutorisationLabel(
+                                autorisationMap[t.id]?.decision,
+                              )}
+                            </span>
+                            {autorisationMap[t.id]?.note_client ? (
+                              <div
+                                style={{
+                                  ...styles.muted,
+                                  fontSize: 12,
+                                  marginTop: 4,
+                                  whiteSpace: "pre-wrap",
+                                }}
+                              >
+                                {autorisationMap[t.id]?.note_client}
+                              </div>
+                            ) : null}
+                          </>
+                        ) : (
+                          <span style={styles.muted}>—</span>
+                        )}
+                      </td>
 
-  {/* Date */}
-  <td style={styles.td}>
-    {fmtDateTime(t.created_at)}
-  </td>
+                      {/* Date */}
+                      <td style={styles.td}>{fmtDateTime(t.created_at)}</td>
 
-<td style={{ ...styles.td, textAlign: "center", verticalAlign: "middle" }}>
-    <BtTachePhotos
-      btId={bt.id}
-      uniteId={bt.unite_id}
-      uniteNoteId={t.id}
-      isReadOnly={isReadOnly}
-    />
-  </td>
-</tr>
+                      <td
+                        style={{
+                          ...styles.td,
+                          textAlign: "center",
+                          verticalAlign: "middle",
+                        }}
+                      >
+                        <BtTachePhotos
+                          btId={bt.id}
+                          uniteId={bt.unite_id}
+                          uniteNoteId={t.id}
+                          isReadOnly={isReadOnly}
+                        />
+                      </td>
+                    </tr>
                   ))
                 )}
               </tbody>
@@ -1942,12 +2119,20 @@ await supabase
 
             {!hasBtKm && notes.some((t) => t.entretien_auto) && (
               <div style={styles.warn}>
-                Les tâches d’entretien périodique ne peuvent pas être cochées tant que le KM du BT n’est pas saisi.
+                Les tâches d’entretien périodique ne peuvent pas être cochées
+                tant que le KM du BT n’est pas saisi.
               </div>
             )}
 
             <div style={styles.completedBox}>
-              <div style={{ fontSize: 15, fontWeight: 950, marginBottom: 8, opacity: 0.8 }}>
+              <div
+                style={{
+                  fontSize: 15,
+                  fontWeight: 950,
+                  marginBottom: 8,
+                  opacity: 0.8,
+                }}
+              >
                 Tâches effectuées
               </div>
 
@@ -1981,7 +2166,11 @@ await supabase
                     <th style={styles.th}>Titre</th>
                     <th style={{ ...styles.th, width: 140 }}>Autorisation</th>
                     <th style={{ ...styles.th, width: 190 }}>Date</th>
-                    <th style={{ ...styles.th, width: 90, textAlign: "center" }}>Photos</th>
+                    <th
+                      style={{ ...styles.th, width: 90, textAlign: "center" }}
+                    >
+                      Photos
+                    </th>
                     <th style={{ ...styles.th, width: 140 }}>Action</th>
                   </tr>
                 </thead>
@@ -1989,7 +2178,9 @@ await supabase
                   {tachesEffectuees.length === 0 ? (
                     <tr>
                       <td style={styles.td} colSpan={6}>
-                        <span style={styles.muted}>Aucune tâche effectuée.</span>
+                        <span style={styles.muted}>
+                          Aucune tâche effectuée.
+                        </span>
                       </td>
                     </tr>
                   ) : (
@@ -2001,45 +2192,65 @@ await supabase
                             checked={Boolean(selectedDone[t.id])}
                             onChange={async (e) => {
                               const checked = e.target.checked;
-                              setSelectedDone((s) => ({ ...s, [t.id]: checked }));
+                              setSelectedDone((s) => ({
+                                ...s,
+                                [t.id]: checked,
+                              }));
                               await reopenCompletedTask(t, checked);
                             }}
                             disabled={isReadOnly}
                           />
                         </td>
-                      <td style={styles.td}>
-  <div style={{ fontWeight: 900 }}>{t.titre}</div>
-</td>
+                        <td style={styles.td}>
+                          <div style={{ fontWeight: 900 }}>{t.titre}</div>
+                        </td>
 
-<td style={styles.td}>
-  {t.decision_client ? (
-    <>
-      <span style={getAutorisationBadgeStyle(t.decision_client)}>
-        {getAutorisationLabel(t.decision_client)}
-      </span>
-      {t.note_client ? (
-        <div style={{ ...styles.muted, fontSize: 12, marginTop: 4, whiteSpace: "pre-wrap" }}>
-          {t.note_client}
-        </div>
-      ) : null}
-    </>
-  ) : (
-    <span style={styles.muted}>—</span>
-  )}
-</td>
+                        <td style={styles.td}>
+                          {t.decision_client ? (
+                            <>
+                              <span
+                                style={getAutorisationBadgeStyle(
+                                  t.decision_client,
+                                )}
+                              >
+                                {getAutorisationLabel(t.decision_client)}
+                              </span>
+                              {t.note_client ? (
+                                <div
+                                  style={{
+                                    ...styles.muted,
+                                    fontSize: 12,
+                                    marginTop: 4,
+                                    whiteSpace: "pre-wrap",
+                                  }}
+                                >
+                                  {t.note_client}
+                                </div>
+                              ) : null}
+                            </>
+                          ) : (
+                            <span style={styles.muted}>—</span>
+                          )}
+                        </td>
 
-<td style={styles.td}>
-  {fmtDateTime(t.date_effectuee)}
-</td>
+                        <td style={styles.td}>
+                          {fmtDateTime(t.date_effectuee)}
+                        </td>
 
-<td style={{ ...styles.td, textAlign: "center", verticalAlign: "middle" }}>
-  <BtTachePhotos
-    btId={bt.id}
-    uniteId={t.unite_id}
-    tacheEffectueeId={t.id}
-    isReadOnly={isReadOnly}
-  />
-</td>
+                        <td
+                          style={{
+                            ...styles.td,
+                            textAlign: "center",
+                            verticalAlign: "middle",
+                          }}
+                        >
+                          <BtTachePhotos
+                            btId={bt.id}
+                            uniteId={t.unite_id}
+                            tacheEffectueeId={t.id}
+                            isReadOnly={isReadOnly}
+                          />
+                        </td>
                         <td style={styles.td}>
                           <button
                             style={styles.btn}
@@ -2059,6 +2270,8 @@ await supabase
 
           <BtPiecesCard
             btId={bt.id}
+            uniteId={bt.unite_id}
+            btKm={bt.km}
             pieces={pieces}
             setPieces={setPieces}
             isReadOnly={isReadOnly}
@@ -2101,8 +2314,8 @@ await supabase
                   !speechSupported
                     ? "Dictée non supportée"
                     : speechListening
-                    ? "Arrêter la dictée"
-                    : "Démarrer la dictée"
+                      ? "Arrêter la dictée"
+                      : "Démarrer la dictée"
                 }
               >
                 {speechListening ? "⏹" : "🎤"}
@@ -2114,25 +2327,44 @@ await supabase
                 Dictée vocale non disponible sur cet appareil ou navigateur.
               </div>
             ) : speechListening ? (
-              <div style={styles.helperText}>Écoute en cours… parle normalement.</div>
+              <div style={styles.helperText}>
+                Écoute en cours… parle normalement.
+              </div>
             ) : (
-              <div style={styles.helperText}>Clique sur le micro pour dicter la tâche.</div>
+              <div style={styles.helperText}>
+                Clique sur le micro pour dicter la tâche.
+              </div>
             )}
 
-            {speechError ? <div style={styles.helperError}>{speechError}</div> : null}
+            {speechError ? (
+              <div style={styles.helperError}>{speechError}</div>
+            ) : null}
 
             {pendingTasks.length > 0 ? (
               <div style={styles.pendingList}>
-                <div style={{ padding: "8px 10px", fontSize: 12, fontWeight: 900, color: "rgba(0,0,0,.62)" }}>
+                <div
+                  style={{
+                    padding: "8px 10px",
+                    fontSize: 12,
+                    fontWeight: 900,
+                    color: "rgba(0,0,0,.62)",
+                  }}
+                >
                   Tâches à enregistrer ({pendingTasks.length})
                 </div>
                 {pendingTasks.map((task, index) => (
                   <div key={`${task}-${index}`} style={styles.pendingItem}>
-                    <div style={{ fontWeight: 800, wordBreak: "break-word" }}>{task}</div>
+                    <div style={{ fontWeight: 800, wordBreak: "break-word" }}>
+                      {task}
+                    </div>
                     <button
                       type="button"
                       style={styles.smallDangerBtn}
-                      onClick={() => setPendingTasks((prev) => prev.filter((_, i) => i !== index))}
+                      onClick={() =>
+                        setPendingTasks((prev) =>
+                          prev.filter((_, i) => i !== index),
+                        )
+                      }
                       title="Retirer"
                     >
                       ×
@@ -2142,8 +2374,18 @@ await supabase
               </div>
             ) : null}
 
-            <div style={{ ...styles.row, justifyContent: "flex-end", marginTop: 14 }}>
-              <button style={styles.btn} type="button" onClick={resetTaskModalState}>
+            <div
+              style={{
+                ...styles.row,
+                justifyContent: "flex-end",
+                marginTop: 14,
+              }}
+            >
+              <button
+                style={styles.btn}
+                type="button"
+                onClick={resetTaskModalState}
+              >
                 Annuler
               </button>
 
@@ -2151,7 +2393,11 @@ await supabase
                 Ajouter à la liste
               </button>
 
-              <button style={styles.btnPrimary} type="button" onClick={savePendingTasks}>
+              <button
+                style={styles.btnPrimary}
+                type="button"
+                onClick={savePendingTasks}
+              >
                 Enregistrer tout
               </button>
             </div>

@@ -7,10 +7,6 @@ type InventaireItem = {
   sku: string | null;
   nom: string;
   categorie: string | null;
-  categorie_piece_id?: string | null;
-  sous_categorie_piece_id?: string | null;
-  suivi_actif?: boolean | null;
-  suivi_type?: string | null;
   quantite: number;
   unite: string | null;
   cout_unitaire: number | null;
@@ -36,15 +32,6 @@ type CoutHistorique = {
 
 type PieceCategorieRow = {
   id: string;
-  nom: string;
-  ordre: number | null;
-  actif: boolean;
-  created_at?: string;
-};
-
-type PieceSousCategorieRow = {
-  id: string;
-  categorie_id: string;
   nom: string;
   ordre: number | null;
   actif: boolean;
@@ -95,10 +82,6 @@ type FormState = {
   sku: string;
   nom: string;
   categorie: string;
-  categorie_piece_id: string;
-  sous_categorie_piece_id: string;
-  suivi_actif: boolean;
-  suivi_type: string;
   quantite: string;
   unite: string;
   cout_unitaire: string;
@@ -132,10 +115,6 @@ const emptyForm: FormState = {
   sku: "",
   nom: "",
   categorie: "",
-  categorie_piece_id: "",
-  sous_categorie_piece_id: "",
-  suivi_actif: false,
-  suivi_type: "",
   quantite: "0",
   unite: "",
   cout_unitaire: "",
@@ -212,7 +191,6 @@ export default function Inventaire() {
 
   const [items, setItems] = useState<InventaireItem[]>([]);
   const [categoriesOptions, setCategoriesOptions] = useState<PieceCategorieRow[]>([]);
-  const [sousCategoriesOptions, setSousCategoriesOptions] = useState<PieceSousCategorieRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -305,28 +283,6 @@ export default function Inventaire() {
     }
 
     setCategoriesOptions((data ?? []) as PieceCategorieRow[]);
-  }
-
-  async function loadSousCategories() {
-    const { data, error } = await supabase
-      .from("pieces_sous_categories")
-      .select("id,categorie_id,nom,ordre,actif,created_at")
-      .eq("actif", true)
-      .order("ordre", { ascending: true })
-      .order("nom", { ascending: true });
-
-    if (error) {
-      console.error(error);
-
-      if (!isMissingRelation(error)) {
-        alert("Erreur lors du chargement des sous-catégories de pièces.");
-      }
-
-      setSousCategoriesOptions([]);
-      return;
-    }
-
-    setSousCategoriesOptions((data ?? []) as PieceSousCategorieRow[]);
   }
 
   async function loadHistory(itemId: string) {
@@ -450,7 +406,6 @@ export default function Inventaire() {
   useEffect(() => {
     loadItems();
     loadCategories();
-    loadSousCategories();
     loadSupersedSearchMap();
   }, []);
 
@@ -487,29 +442,6 @@ export default function Inventaire() {
     };
   }, []);
 
-  const categorieById = useMemo(() => {
-    return new Map(categoriesOptions.map((cat) => [cat.id, cat]));
-  }, [categoriesOptions]);
-
-  const sousCategorieById = useMemo(() => {
-    return new Map(sousCategoriesOptions.map((sub) => [sub.id, sub]));
-  }, [sousCategoriesOptions]);
-
-  const filteredSousCategoriesForm = useMemo(() => {
-    if (!form.categorie_piece_id) return [];
-    return sousCategoriesOptions.filter((sub) => sub.categorie_id === form.categorie_piece_id);
-  }, [form.categorie_piece_id, sousCategoriesOptions]);
-
-  function getCategorieLabel(item: InventaireItem) {
-    const fromId = item.categorie_piece_id ? categorieById.get(item.categorie_piece_id)?.nom : null;
-    return fromId || item.categorie || "";
-  }
-
-  function getSousCategorieLabel(item: InventaireItem) {
-    if (!item.sous_categorie_piece_id) return "";
-    return sousCategorieById.get(item.sous_categorie_piece_id)?.nom || "";
-  }
-
   const filteredItems = useMemo(() => {
     const q = search.trim().toLowerCase();
 
@@ -532,10 +464,7 @@ export default function Inventaire() {
       const haystack = [
         item.sku ?? "",
         item.nom ?? "",
-        getCategorieLabel(item),
-        getSousCategorieLabel(item),
-        item.suivi_actif ? "suivi pièce suivie" : "",
-        item.suivi_type ?? "",
+        item.categorie ?? "",
         item.unite ?? "",
         item.emplacement ?? "",
         item.note ?? "",
@@ -546,7 +475,7 @@ export default function Inventaire() {
 
       return haystack.includes(q);
     });
-  }, [items, search, showLowStockOnly, statusFilter, supersedSearchMap, categorieById, sousCategorieById]);
+  }, [items, search, showLowStockOnly, statusFilter, supersedSearchMap]);
 
   function handleSort(key: SortKey) {
     if (sortKey === key) {
@@ -564,7 +493,7 @@ export default function Inventaire() {
       case "nom":
         return item.nom ?? "";
       case "categorie":
-        return [getCategorieLabel(item), getSousCategorieLabel(item)].filter(Boolean).join(" > ");
+        return item.categorie ?? "";
       case "quantite":
         return Number(item.quantite ?? 0);
       case "unite":
@@ -660,20 +589,11 @@ export default function Inventaire() {
   }
 
   function openEdit(item: InventaireItem) {
-    const legacyCategory = item.categorie ?? "";
-    const matchedCategory = item.categorie_piece_id
-      ? categoriesOptions.find((cat) => cat.id === item.categorie_piece_id)
-      : categoriesOptions.find((cat) => cat.nom === legacyCategory);
-
     setForm({
       id: item.id,
       sku: item.sku ?? "",
       nom: item.nom ?? "",
-      categorie: matchedCategory?.nom ?? legacyCategory,
-      categorie_piece_id: matchedCategory?.id ?? "",
-      sous_categorie_piece_id: item.sous_categorie_piece_id ?? "",
-      suivi_actif: !!item.suivi_actif,
-      suivi_type: item.suivi_type ?? matchedCategory?.nom ?? legacyCategory,
+      categorie: item.categorie ?? "",
       quantite: String(item.quantite ?? 0),
       unite: item.unite ?? "",
       cout_unitaire: item.cout_unitaire == null ? "" : String(item.cout_unitaire),
@@ -737,22 +657,10 @@ export default function Inventaire() {
       return;
     }
 
-    if (form.suivi_actif && !form.categorie_piece_id) {
-      alert("Sélectionne une catégorie pour activer le suivi de cette pièce.");
-      return;
-    }
-
-    const selectedCategory = form.categorie_piece_id ? categorieById.get(form.categorie_piece_id) : null;
-    const selectedSubCategory = form.sous_categorie_piece_id ? sousCategorieById.get(form.sous_categorie_piece_id) : null;
-
     const payload = {
       sku: toNullableText(form.sku),
       nom,
-      categorie: selectedCategory?.nom ?? toNullableText(form.categorie),
-      categorie_piece_id: form.categorie_piece_id || null,
-      sous_categorie_piece_id: selectedSubCategory?.id ?? null,
-      suivi_actif: !!form.suivi_actif,
-      suivi_type: form.suivi_actif ? selectedCategory?.nom ?? toNullableText(form.suivi_type) : null,
+      categorie: toNullableText(form.categorie),
       quantite: toNumberOrZero(form.quantite),
       unite: toNullableText(form.unite),
       cout_unitaire: toNullableNumber(form.cout_unitaire),
@@ -1463,13 +1371,7 @@ const isLow = seuil > 0 && quantite <= seuil;
                         >
                           {item.nom}
                         </td>
-                        <td style={{ ...td, background: bg }}>
-                          <div style={{ fontWeight: 700 }}>{getCategorieLabel(item) || "—"}</div>
-                          {getSousCategorieLabel(item) && (
-                            <div style={miniInfoText}>{getSousCategorieLabel(item)}</div>
-                          )}
-                          {item.suivi_actif && <span style={badgeSuivi}>Suivi</span>}
-                        </td>
+                        <td style={{ ...td, background: bg }}>{item.categorie || "—"}</td>
                         <td style={{ ...tdRight, background: bg }}>{fmtQty(item.quantite)}</td>
                         <td style={{ ...td, background: bg }}>{item.unite || "—"}</td>
                         <td style={{ ...tdRight, background: bg }}>{fmtMoney(item.cout_unitaire)}</td>
@@ -1983,11 +1885,7 @@ const isLow = seuil > 0 && quantite <= seuil;
                     </div>
                     <div>
                       <div style={detailLabel}>Catégorie</div>
-                      <div style={detailValue}>
-                        {getCategorieLabel(selectedItem) || "—"}
-                        {getSousCategorieLabel(selectedItem) ? ` > ${getSousCategorieLabel(selectedItem)}` : ""}
-                        {selectedItem.suivi_actif ? " • Suivi" : ""}
-                      </div>
+                      <div style={detailValue}>{selectedItem.categorie || "—"}</div>
                     </div>
                     <div>
                       <div style={detailLabel}>Stock</div>
@@ -2306,41 +2204,13 @@ const isLow = seuil > 0 && quantite <= seuil;
                   <label style={label}>Catégorie</label>
                   <select
                     style={inputClassic}
-                    value={form.categorie_piece_id}
-                    onChange={(e) => {
-                      const nextId = e.target.value;
-                      const cat = categoriesOptions.find((c) => c.id === nextId);
-
-                      setForm((p) => ({
-                        ...p,
-                        categorie_piece_id: nextId,
-                        categorie: cat?.nom ?? "",
-                        sous_categorie_piece_id: "",
-                        suivi_type: p.suivi_actif ? cat?.nom ?? "" : p.suivi_type,
-                      }));
-                    }}
+                    value={form.categorie}
+                    onChange={(e) => setForm((p) => ({ ...p, categorie: e.target.value }))}
                   >
                     <option value="">— Sélectionner —</option>
                     {categoriesOptions.map((cat) => (
-                      <option key={cat.id} value={cat.id}>
+                      <option key={cat.id} value={cat.nom}>
                         {cat.nom}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label style={label}>Sous-catégorie</label>
-                  <select
-                    style={inputClassic}
-                    value={form.sous_categorie_piece_id}
-                    onChange={(e) => setForm((p) => ({ ...p, sous_categorie_piece_id: e.target.value }))}
-                    disabled={!form.categorie_piece_id || filteredSousCategoriesForm.length === 0}
-                  >
-                    <option value="">— Aucune —</option>
-                    {filteredSousCategoriesForm.map((sub) => (
-                      <option key={sub.id} value={sub.id}>
-                        {sub.nom}
                       </option>
                     ))}
                   </select>
@@ -2396,47 +2266,12 @@ const isLow = seuil > 0 && quantite <= seuil;
                 </div>
 
                 <div style={{ gridColumn: "1 / -1" }}>
-                  <div style={suiviBox}>
-                    <div style={suiviBoxHeader}>
-                      <div>
-                        <div style={suiviBoxTitle}>Suivi avancé</div>
-                        <div style={suiviBoxText}>Active seulement pour les pièces que tu veux analyser dans les rapports.</div>
-                      </div>
-
-                      <label style={checkboxWrap}>
-                        <input
-                          type="checkbox"
-                          checked={form.suivi_actif}
-                          onChange={(e) => {
-                            const checked = e.target.checked;
-                            const cat = form.categorie_piece_id ? categorieById.get(form.categorie_piece_id) : null;
-
-                            setForm((p) => ({
-                              ...p,
-                              suivi_actif: checked,
-                              suivi_type: checked ? cat?.nom ?? p.categorie : "",
-                            }));
-                          }}
-                        />
-                        <span>Pièce suivie</span>
-                      </label>
-                    </div>
-
-                    {form.suivi_actif && (
-                      <div style={{ marginTop: 12 }}>
-                        <label style={label}>Type de suivi</label>
-                        <input
-                          style={{ ...inputClassic, background: "#f8fafc" }}
-                          value={form.suivi_type || form.categorie}
-                          readOnly
-                          placeholder="Déterminé automatiquement par la catégorie"
-                        />
-                        <div style={suiviBoxText}>
-                          Le modal de remplacement BT s’ouvrira seulement pour les pièces cochées suivies.
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                  <label style={label}>Note</label>
+                  <textarea
+                    style={{ ...inputClassic, minHeight: 90, resize: "vertical" }}
+                    value={form.note}
+                    onChange={(e) => setForm((p) => ({ ...p, note: e.target.value }))}
+                  />
                 </div>
 
                 <div style={{ gridColumn: "1 / -1" }}>
@@ -2674,13 +2509,6 @@ const badgeInactive: React.CSSProperties = {
   color: "#374151",
 };
 
-const badgeSuivi: React.CSSProperties = {
-  ...badgeBase,
-  background: "#eff6ff",
-  color: "#1d4ed8",
-  marginTop: 6,
-};
-
 
 const actionMenuWrap: React.CSSProperties = {
   display: "flex",
@@ -2784,33 +2612,6 @@ const checkboxWrap: React.CSSProperties = {
   gap: 8,
   fontWeight: 600,
   color: "#0f172a",
-};
-
-const suiviBox: React.CSSProperties = {
-  border: "1px solid #dbeafe",
-  background: "#f8fbff",
-  borderRadius: 14,
-  padding: 14,
-};
-
-const suiviBoxHeader: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 12,
-  alignItems: "center",
-  flexWrap: "wrap",
-};
-
-const suiviBoxTitle: React.CSSProperties = {
-  fontWeight: 900,
-  color: "#0f172a",
-};
-
-const suiviBoxText: React.CSSProperties = {
-  marginTop: 4,
-  color: "#64748b",
-  fontSize: 12,
-  fontWeight: 650,
 };
 
 const btnBase: React.CSSProperties = {
