@@ -1468,7 +1468,6 @@ export default function PepFinal() {
         setArchiveDone(true);
         setArchiveError("");
         setArchiveMessage("Archivage déjà complété. Aucune étape répétée.");
-        localStorage.removeItem("pep_draft_current");
         return;
       }
 
@@ -1492,7 +1491,6 @@ export default function PepFinal() {
         setArchiveDone(true);
         setArchiveError("");
         setArchiveMessage("Archivage complété à partir du PDF déjà envoyé.");
-        localStorage.removeItem("pep_draft_current");
         return;
       }
 
@@ -1513,7 +1511,6 @@ export default function PepFinal() {
       setArchiveDone(true);
       setArchiveError("");
       setArchiveMessage("Archivage complété.");
-      localStorage.removeItem("pep_draft_current");
     } catch (e: any) {
       console.error(e);
       setArchiveStep("error");

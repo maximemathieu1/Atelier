@@ -1,0 +1,1199 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { supabase } from "../../lib/supabaseClient";
+
+const BUCKET_NAME = "vehicle-documents";
+
+type TabKey = "apercu" | "pep" | "bt" | "rondes" | "documents";
+
+type UniteRow = {
+  id: string;
+  numero?: string | null;
+  no_unite?: string | null;
+  nom?: string | null;
+  plaque?: string | null;
+  immatriculation?: string | null;
+  niv?: string | null;
+  vin?: string | null;
+  marque?: string | null;
+  modele?: string | null;
+  annee?: number | string | null;
+  km_actuel?: number | string | null;
+  odometre?: number | string | null;
+  pep_vignette_no?: string | null;
+  pep_vignette_expiration?: string | null;
+};
+
+type PepArchiveRow = {
+  id: string;
+  unite_id?: string | null;
+  unite?: string | null;
+  date_pep?: string | null;
+  date_prochain?: string | null;
+  num_mecano?: string | null;
+  odometre?: number | string | null;
+  payload_json?: unknown;
+  signature_data_url?: string | null;
+  html_complet?: string | null;
+  pages_html?: unknown;
+  created_at?: string | null;
+  archive_key?: string | null;
+};
+
+type BtRow = {
+  id: string;
+  numero?: string | null;
+  unite_id?: string | null;
+  date_ouverture?: string | null;
+  date_fermeture?: string | null;
+  created_at?: string | null;
+  statut?: string | null;
+  km?: number | string | null;
+  total_final?: number | string | null;
+  total?: number | string | null;
+};
+
+type VehicleDocumentRow = {
+  id: string;
+  unite_id: string;
+  type_document: string;
+  nom_fichier: string;
+  storage_path: string;
+  mime_type?: string | null;
+  taille_bytes?: number | null;
+  note?: string | null;
+  date_expiration?: string | null;
+  created_at: string;
+};
+
+const DOCUMENT_TYPES = [
+  { value: "immatriculation", label: "Immatriculation" },
+  { value: "assurance", label: "Assurance" },
+  { value: "contrat_location", label: "Contrat de location" },
+  { value: "rappel_constructeur", label: "Rappel constructeur" },
+  { value: "cvm", label: "CVM" },
+  { value: "autre", label: "Autre" },
+];
+
+function unitLabel(u?: UniteRow | null) {
+  if (!u) return "—";
+  return u.numero || u.no_unite || u.nom || "—";
+}
+
+function plateLabel(u?: UniteRow | null) {
+  if (!u) return "—";
+  return u.plaque || u.immatriculation || "—";
+}
+
+function nivLabel(u?: UniteRow | null) {
+  if (!u) return "—";
+  return u.niv || u.vin || "—";
+}
+
+function kmLabel(value?: number | string | null) {
+  if (value === null || value === undefined || value === "") return "—";
+  const n = Number(value);
+  if (Number.isNaN(n)) return String(value);
+  return n.toLocaleString("fr-CA");
+}
+
+function moneyLabel(value?: number | string | null) {
+  if (value === null || value === undefined || value === "") return "—";
+  const n = Number(value);
+  if (Number.isNaN(n)) return String(value);
+  return n.toLocaleString("fr-CA", { style: "currency", currency: "CAD" });
+}
+
+function formatDate(value?: string | null) {
+  if (!value) return "—";
+  const d = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("fr-CA");
+}
+
+function documentTypeLabel(value: string) {
+  return DOCUMENT_TYPES.find((t) => t.value === value)?.label || value;
+}
+
+function fileSizeLabel(size?: number | null) {
+  if (!size) return "—";
+  if (size < 1024) return `${size} o`;
+  if (size < 1024 * 1024) return `${Math.round(size / 1024)} Ko`;
+  return `${(size / 1024 / 1024).toFixed(1)} Mo`;
+}
+
+function expirationStatus(value?: string | null) {
+  if (!value) return { label: "—", style: styles.statusNeutral };
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const exp = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(exp.getTime())) return { label: "—", style: styles.statusNeutral };
+
+  const diffDays = Math.ceil((exp.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+  if (diffDays < 0) return { label: "Expiré", style: styles.statusDanger };
+  if (diffDays <= 30) return { label: "Expire bientôt", style: styles.statusWarning };
+  return { label: "OK", style: styles.statusOk };
+}
+
+function requiresExpiration(type: string) {
+  return type === "assurance" || type === "immatriculation" || type === "cvm";
+}
+
+function findLinkedBtForPep(pep: PepArchiveRow, bts: BtRow[]) {
+  if (!pep.unite_id || !pep.date_pep) return null;
+
+  const pepDate = new Date(`${pep.date_pep}T00:00:00`);
+  if (Number.isNaN(pepDate.getTime())) return null;
+
+  const sameUnit = bts.filter((bt) => bt.unite_id === pep.unite_id);
+
+  const sameMonth = sameUnit.find((bt) => {
+    const sourceDate = bt.date_ouverture || bt.created_at;
+    if (!sourceDate) return false;
+
+    const btDate = new Date(sourceDate);
+
+    return (
+      btDate.getFullYear() === pepDate.getFullYear() &&
+      btDate.getMonth() === pepDate.getMonth()
+    );
+  });
+
+  if (sameMonth) return sameMonth;
+
+  const closest = sameUnit
+    .map((bt) => {
+      const sourceDate = bt.date_ouverture || bt.created_at;
+      const btDate = sourceDate ? new Date(sourceDate) : null;
+      const diff = btDate
+        ? Math.abs(btDate.getTime() - pepDate.getTime())
+        : Number.MAX_SAFE_INTEGER;
+
+      return { bt, diff };
+    })
+    .sort((a, b) => a.diff - b.diff)[0];
+
+  if (!closest) return null;
+
+  const maxDays = 45;
+  const maxMs = maxDays * 24 * 60 * 60 * 1000;
+
+  return closest.diff <= maxMs ? closest.bt : null;
+}
+
+export default function DossierVehiculeDetailPage() {
+  const { uniteId } = useParams<{ uniteId: string }>();
+  const navigate = useNavigate();
+  const fileRef = useRef<HTMLInputElement | null>(null);
+
+  const [activeTab, setActiveTab] = useState<TabKey>("apercu");
+  const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [savingVignette, setSavingVignette] = useState(false);
+
+  const [unite, setUnite] = useState<UniteRow | null>(null);
+  const [peps, setPeps] = useState<PepArchiveRow[]>([]);
+  const [bts, setBts] = useState<BtRow[]>([]);
+  const [documents, setDocuments] = useState<VehicleDocumentRow[]>([]);
+
+  const [docType, setDocType] = useState("immatriculation");
+  const [docNote, setDocNote] = useState("");
+  const [docExpiration, setDocExpiration] = useState("");
+
+  const [vignetteNo, setVignetteNo] = useState("");
+  const [vignetteExpiration, setVignetteExpiration] = useState("");
+
+  useEffect(() => {
+    if (uniteId) load();
+  }, [uniteId]);
+
+  async function load() {
+    if (!uniteId) return;
+    setLoading(true);
+
+    const [uniteRes, pepRes, btRes, docsRes] = await Promise.all([
+      supabase.from("unites").select("*").eq("id", uniteId).maybeSingle(),
+      supabase
+        .from("pep_archives")
+        .select("*")
+        .eq("unite_id", uniteId)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("bons_travail")
+        .select("*")
+        .eq("unite_id", uniteId)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("vehicle_documents")
+        .select("*")
+        .eq("unite_id", uniteId)
+        .order("created_at", { ascending: false }),
+    ]);
+
+    if (uniteRes.data) {
+      const u = uniteRes.data as UniteRow;
+      setUnite(u);
+      setVignetteNo(u.pep_vignette_no || "");
+      setVignetteExpiration(u.pep_vignette_expiration || "");
+    }
+
+    if (pepRes.data) setPeps(pepRes.data as PepArchiveRow[]);
+    if (btRes.data) setBts(btRes.data as BtRow[]);
+    if (docsRes.data) setDocuments(docsRes.data as VehicleDocumentRow[]);
+
+    setLoading(false);
+  }
+
+  const cvmDocuments = useMemo(
+    () => documents.filter((d) => d.type_document === "cvm"),
+    [documents]
+  );
+
+  const adminDocuments = useMemo(
+    () => documents.filter((d) => d.type_document !== "cvm"),
+    [documents]
+  );
+
+  const lastPep = peps[0] || null;
+  const recentBts = bts.slice(0, 5);
+  const recentDocs = documents.slice(0, 5);
+
+  const assuranceDocs = useMemo(
+    () => documents.filter((d) => d.type_document === "assurance"),
+    [documents]
+  );
+
+  const immatriculationDocs = useMemo(
+    () => documents.filter((d) => d.type_document === "immatriculation"),
+    [documents]
+  );
+
+  const lastAssurance = assuranceDocs[0] || null;
+  const lastImmatriculation = immatriculationDocs[0] || null;
+
+  async function getSignedUrl(path: string) {
+    const { data, error } = await supabase.storage.from(BUCKET_NAME).createSignedUrl(path, 60 * 10);
+    if (error || !data?.signedUrl) {
+      alert("Impossible d'ouvrir le document.");
+      return null;
+    }
+    return data.signedUrl;
+  }
+
+  async function openVehicleDocument(doc: VehicleDocumentRow) {
+    const url = await getSignedUrl(doc.storage_path);
+    if (url) window.open(url, "_blank", "noopener,noreferrer");
+  }
+
+  async function openPepArchive(pep: PepArchiveRow) {
+  const linkedBt = findLinkedBtForPep(pep, bts);
+
+  if (linkedBt?.id) {
+    const folderPath = `bt/${linkedBt.id}/pep`;
+
+    const { data: files, error: listError } = await supabase.storage
+      .from("bt-documents")
+      .list(folderPath);
+
+    if (!listError && files && files.length > 0) {
+      const pdfFile =
+        files.find((f) => f.name.toLowerCase().endsWith(".pdf")) || files[0];
+
+      const fullPath = `${folderPath}/${pdfFile.name}`;
+
+      const { data: signed, error: signedError } = await supabase.storage
+        .from("bt-documents")
+        .createSignedUrl(fullPath, 60 * 10);
+
+      if (!signedError && signed?.signedUrl) {
+        window.open(signed.signedUrl, "_blank", "noopener,noreferrer");
+        return;
+      }
+    }
+  }
+
+  if (!pep.html_complet) {
+    alert("Aucun PEP disponible.");
+    return;
+  }
+
+  const blob = new Blob([pep.html_complet], {
+    type: "text/html;charset=utf-8",
+  });
+
+  const url = URL.createObjectURL(blob);
+  window.open(url, "_blank", "noopener,noreferrer");
+
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+  async function saveVignette() {
+    if (!uniteId) return;
+
+    setSavingVignette(true);
+
+    const { error } = await supabase
+      .from("unites")
+      .update({
+        pep_vignette_no: vignetteNo.trim() || null,
+        pep_vignette_expiration: vignetteExpiration || null,
+      })
+      .eq("id", uniteId);
+
+    if (error) {
+      setSavingVignette(false);
+      alert(`Erreur sauvegarde vignette : ${error.message}`);
+      return;
+    }
+
+    await load();
+    setSavingVignette(false);
+  }
+
+  async function uploadDocument(file: File) {
+    if (!uniteId) return;
+
+    if (requiresExpiration(docType) && !docExpiration) {
+      alert("Une date d'expiration est requise pour ce type de document.");
+      if (fileRef.current) fileRef.current.value = "";
+      return;
+    }
+
+    setUploading(true);
+
+    const safeName = file.name.replace(/[^\w.\-À-ÿ ]+/g, "_");
+    const path = `${uniteId}/${Date.now()}-${safeName}`;
+
+    const uploadRes = await supabase.storage.from(BUCKET_NAME).upload(path, file, {
+      cacheControl: "3600",
+      upsert: false,
+      contentType: file.type || "application/octet-stream",
+    });
+
+    if (uploadRes.error) {
+      setUploading(false);
+      alert(`Erreur upload : ${uploadRes.error.message}`);
+      return;
+    }
+
+    const userRes = await supabase.auth.getUser();
+
+    const insertRes = await supabase.from("vehicle_documents").insert({
+      unite_id: uniteId,
+      type_document: docType,
+      nom_fichier: file.name,
+      storage_path: path,
+      mime_type: file.type || null,
+      taille_bytes: file.size,
+      note: docNote.trim() || null,
+      date_expiration: docExpiration || null,
+      uploaded_by: userRes.data.user?.id || null,
+    });
+
+    if (insertRes.error) {
+      setUploading(false);
+      alert(`Erreur sauvegarde document : ${insertRes.error.message}`);
+      return;
+    }
+
+    setDocNote("");
+    setDocExpiration("");
+    if (fileRef.current) fileRef.current.value = "";
+    await load();
+    setUploading(false);
+  }
+
+  async function deleteDocument(doc: VehicleDocumentRow) {
+    const ok = window.confirm(`Supprimer le document "${doc.nom_fichier}" ?`);
+    if (!ok) return;
+
+    const deleteStorageRes = await supabase.storage.from(BUCKET_NAME).remove([doc.storage_path]);
+
+    if (deleteStorageRes.error) {
+      alert(`Erreur suppression fichier : ${deleteStorageRes.error.message}`);
+      return;
+    }
+
+    const deleteDbRes = await supabase.from("vehicle_documents").delete().eq("id", doc.id);
+
+    if (deleteDbRes.error) {
+      alert(`Erreur suppression document : ${deleteDbRes.error.message}`);
+      return;
+    }
+
+    await load();
+  }
+
+  if (loading) {
+    return <div style={styles.page}>Chargement…</div>;
+  }
+
+  if (!unite) {
+    return (
+      <div style={styles.page}>
+        <button type="button" onClick={() => navigate("/admin/dossiers-vehicules")} style={styles.backBtn}>
+          ← Retour
+        </button>
+        <div style={styles.card}>Unité introuvable.</div>
+      </div>
+    );
+  }
+
+  const tabs: { key: TabKey; label: string }[] = [
+    { key: "apercu", label: "Aperçu" },
+    { key: "pep", label: "PEP / CVM" },
+    { key: "bt", label: "Bons de travail" },
+    { key: "rondes", label: "Rondes de sécurité" },
+    { key: "documents", label: "Documents" },
+  ];
+
+  const pepVignetteStatus = expirationStatus(unite.pep_vignette_expiration);
+  const assuranceStatus = expirationStatus(lastAssurance?.date_expiration);
+  const immatStatus = expirationStatus(lastImmatriculation?.date_expiration);
+
+  return (
+    <div style={styles.page}>
+      <button type="button" onClick={() => navigate("/admin/dossiers-vehicules")} style={styles.backBtn}>
+        ← Retour aux dossiers véhicules
+      </button>
+
+      <div style={styles.headerCard}>
+        <div>
+          <h1 style={styles.title}>Dossier véhicule — {unitLabel(unite)}</h1>
+          <p style={styles.subtitle}>
+            Consultation officielle : PEP / CVM, BT, rondes Cybercat et documents administratifs.
+          </p>
+        </div>
+
+        <div style={styles.headerGrid}>
+          <Info label="Plaque" value={plateLabel(unite)} />
+          <Info label="NIV" value={nivLabel(unite)} />
+          <Info label="Véhicule" value={[unite.marque, unite.modele, unite.annee].filter(Boolean).join(" ") || "—"} />
+          <Info label="KM actuel" value={kmLabel(unite.km_actuel ?? unite.odometre)} />
+          <Info label="Vignette PEP" value={unite.pep_vignette_no || "—"} />
+          <Info label="Expiration vignette PEP" value={formatDate(unite.pep_vignette_expiration)} badge={pepVignetteStatus} />
+          <Info label="Assurance" value={formatDate(lastAssurance?.date_expiration)} badge={assuranceStatus} />
+          <Info label="Immatriculation" value={formatDate(lastImmatriculation?.date_expiration)} badge={immatStatus} />
+        </div>
+      </div>
+
+      <div style={styles.tabs}>
+        {tabs.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            onClick={() => setActiveTab(t.key)}
+            style={{
+              ...styles.tab,
+              ...(activeTab === t.key ? styles.tabActive : {}),
+            }}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === "apercu" && (
+        <div style={styles.grid2}>
+          <div style={styles.card}>
+            <h2 style={styles.cardTitle}>Résumé</h2>
+            <div style={styles.summaryRows}>
+            <Summary label="Dernier PEP" value={formatDate(lastPep?.date_pep || lastPep?.created_at)} />
+              <Summary label="Vignette PEP" value={unite.pep_vignette_no || "—"} />
+              <Summary label="Expiration vignette PEP" value={formatDate(unite.pep_vignette_expiration)} />
+              <Summary label="CVM importés" value={String(cvmDocuments.length)} />
+              <Summary label="BT au dossier" value={String(bts.length)} />
+              <Summary label="Documents administratifs" value={String(adminDocuments.length)} />
+            </div>
+          </div>
+
+          <div style={styles.card}>
+            <h2 style={styles.cardTitle}>Surveillance</h2>
+            <div style={styles.summaryRows}>
+              <SummaryWithBadge label="Assurance" value={formatDate(lastAssurance?.date_expiration)} badge={assuranceStatus} />
+              <SummaryWithBadge label="Immatriculation" value={formatDate(lastImmatriculation?.date_expiration)} badge={immatStatus} />
+              <SummaryWithBadge label="Vignette PEP" value={formatDate(unite.pep_vignette_expiration)} badge={pepVignetteStatus} />
+            </div>
+          </div>
+
+          <div style={styles.card}>
+            <h2 style={styles.cardTitle}>Documents récents</h2>
+            {recentDocs.length === 0 ? (
+              <div style={styles.empty}>Aucun document importé.</div>
+            ) : (
+              recentDocs.map((doc) => (
+                <div key={doc.id} style={styles.miniRow}>
+                  <div>
+                    <strong>{documentTypeLabel(doc.type_document)}</strong>
+                    <div style={styles.muted}>{doc.nom_fichier}</div>
+                  </div>
+                  <div style={styles.muted}>{formatDate(doc.created_at)}</div>
+                </div>
+              ))
+            )}
+          </div>
+
+          <div style={styles.cardWide}>
+            <h2 style={styles.cardTitle}>BT récents</h2>
+            {recentBts.length === 0 ? (
+              <div style={styles.empty}>Aucun BT pour cette unité.</div>
+            ) : (
+              <SimpleBtTable bts={recentBts} navigate={navigate} />
+            )}
+          </div>
+        </div>
+      )}
+
+      {activeTab === "pep" && (
+        <div style={styles.card}>
+          <h2 style={styles.cardTitle}>Vignette PEP installée</h2>
+
+          <div style={styles.vignetteBox}>
+            <div style={styles.fieldGroupWide}>
+              <label style={styles.fieldLabel}>Numéro de vignette PEP</label>
+              <input
+                value={vignetteNo}
+                onChange={(e) => setVignetteNo(e.target.value)}
+                placeholder="Numéro de vignette"
+                style={styles.input}
+              />
+            </div>
+
+            <div style={styles.fieldGroup}>
+              <label style={styles.fieldLabel}>Expiration vignette PEP</label>
+              <input
+                value={vignetteExpiration}
+                onChange={(e) => setVignetteExpiration(e.target.value)}
+                type="date"
+                style={styles.input}
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={saveVignette}
+              style={styles.primaryBtn}
+              disabled={savingVignette}
+            >
+              {savingVignette ? "Sauvegarde…" : "Sauvegarder"}
+            </button>
+          </div>
+
+          <div style={{ height: 22 }} />
+
+          <h2 style={styles.cardTitle}>PEP générés par le système</h2>
+          <DataTable>
+            <thead>
+              <tr>
+                <Th>Date</Th>
+                <Th>KM</Th>
+                <Th>Mécano</Th>
+                <Th>BT lié</Th>
+                <Th>Document</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {peps.map((pep) => {
+                const linkedBt = findLinkedBtForPep(pep, bts);
+
+                return (
+                  <tr key={pep.id}>
+                    <Td>{formatDate(pep.date_pep || pep.created_at)}</Td>
+                    <Td>{kmLabel(pep.odometre)}</Td>
+                    <Td>{pep.num_mecano || "—"}</Td>
+                    <Td>
+                      {linkedBt ? (
+                        <button
+                          style={styles.linkBtn}
+                          onClick={() => navigate(`/bt/${linkedBt.id}`)}
+                          type="button"
+                        >
+                          {linkedBt.numero || "Ouvrir BT"}
+                        </button>
+                      ) : (
+                        <span style={{ color: "#9ca3af" }}>Aucun BT lié</span>
+                      )}
+                    </Td>
+                    <Td>
+                      <button style={styles.linkBtn} onClick={() => openPepArchive(pep)} type="button">
+                        Voir PEP
+                      </button>
+                    </Td>
+                  </tr>
+                );
+              })}{peps.length === 0 && <EmptyRow colSpan={5} label="Aucun PEP archivé." />}
+            </tbody>
+          </DataTable>
+
+          <div style={{ height: 22 }} />
+
+          <h2 style={styles.cardTitle}>CVM importés manuellement</h2>
+          <DocumentsTable
+            documents={cvmDocuments}
+            onOpen={openVehicleDocument}
+            onDelete={deleteDocument}
+          />
+        </div>
+      )}
+
+      {activeTab === "bt" && (
+        <div style={styles.card}>
+          <h2 style={styles.cardTitle}>Bons de travail</h2>
+          <SimpleBtTable bts={bts} navigate={navigate} />
+        </div>
+      )}
+
+      {activeTab === "rondes" && (
+        <div style={styles.card}>
+          <h2 style={styles.cardTitle}>Rondes de sécurité</h2>
+          <p style={styles.subtitle}>
+            Les rondes sont consultées dans Cybercat / Penless. Cette section sert de raccourci.
+          </p>
+
+          <button
+            type="button"
+            style={styles.primaryBtn}
+            onClick={() =>
+              window.open("https://rondedesecurite.penless.app/home", "_blank", "noopener,noreferrer")
+            }
+          >
+            Ouvrir Cybercat
+          </button>
+        </div>
+      )}
+
+      {activeTab === "documents" && (
+        <div style={styles.card}>
+          <h2 style={styles.cardTitle}>Documents administratifs</h2>
+          <p style={styles.subtitle}>
+            Import manuel seulement : immatriculation, assurance, contrat, rappel constructeur, CVM ou autre.
+            Les PEP et BT ne doivent pas être importés ici.
+          </p>
+
+          <div style={styles.uploadBox}>
+            <div style={styles.fieldGroup}>
+              <label style={styles.fieldLabel}>Type de document</label>
+              <select value={docType} onChange={(e) => setDocType(e.target.value)} style={styles.select}>
+                {DOCUMENT_TYPES.map((t) => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div style={styles.fieldGroup}>
+              <label style={styles.fieldLabel}>Expiration document</label>
+              <input
+                value={docExpiration}
+                onChange={(e) => setDocExpiration(e.target.value)}
+                type="date"
+                style={styles.input}
+                title="Date d'expiration du document"
+              />
+            </div>
+
+            <div style={styles.fieldGroupNote}>
+              <label style={styles.fieldLabel}>Note interne</label>
+              <input
+                value={docNote}
+                onChange={(e) => setDocNote(e.target.value)}
+                placeholder="Note interne optionnelle"
+                style={styles.input}
+              />
+            </div>
+
+            <div style={styles.fieldGroupFile}>
+              <label style={styles.fieldLabel}>Document</label>
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".pdf,image/*"
+                style={styles.file}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) uploadDocument(file);
+                }}
+              />
+            </div>
+
+            {uploading && <div style={styles.muted}>Téléversement en cours…</div>}
+            {requiresExpiration(docType) && (
+              <div style={styles.expirationHint}>
+                Date d'expiration requise pour ce type de document.
+              </div>
+            )}
+          </div>
+
+          <DocumentsTable
+            documents={documents}
+            onOpen={openVehicleDocument}
+            onDelete={deleteDocument}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Info({
+  label,
+  value,
+  badge,
+}: {
+  label: string;
+  value: string;
+  badge?: { label: string; style: React.CSSProperties };
+}) {
+  return (
+    <div style={styles.infoBox}>
+      <div style={styles.infoLabel}>{label}</div>
+      <div style={styles.infoValue}>{value}</div>
+      {badge && badge.label !== "—" && <span style={{ ...styles.statusBadge, ...badge.style }}>{badge.label}</span>}
+    </div>
+  );
+}
+
+function Summary({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={styles.summaryRow}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function SummaryWithBadge({
+  label,
+  value,
+  badge,
+}: {
+  label: string;
+  value: string;
+  badge: { label: string; style: React.CSSProperties };
+}) {
+  return (
+    <div style={styles.summaryRow}>
+      <span>{label}</span>
+      <span style={styles.summaryRight}>
+        <strong>{value}</strong>
+        {badge.label !== "—" && <span style={{ ...styles.statusBadge, ...badge.style }}>{badge.label}</span>}
+      </span>
+    </div>
+  );
+}
+
+function DataTable({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={styles.tableWrap}>
+      <table style={styles.table}>{children}</table>
+    </div>
+  );
+}
+
+function Th({ children }: { children: React.ReactNode }) {
+  return <th style={styles.th}>{children}</th>;
+}
+
+function Td({ children }: { children: React.ReactNode }) {
+  return <td style={styles.td}>{children}</td>;
+}
+
+function EmptyRow({ colSpan, label }: { colSpan: number; label: string }) {
+  return (
+    <tr>
+      <td colSpan={colSpan} style={styles.emptyTd}>
+        {label}
+      </td>
+    </tr>
+  );
+}
+
+function SimpleBtTable({
+  bts,
+  navigate,
+}: {
+  bts: BtRow[];
+  navigate: ReturnType<typeof useNavigate>;
+}) {
+  return (
+    <DataTable>
+      <thead>
+        <tr>
+          <Th>Numéro</Th>
+          <Th>Ouverture</Th>
+          <Th>Fermeture</Th>
+          <Th>KM</Th>
+          <Th>Statut</Th>
+          <Th>Total</Th>
+        </tr>
+      </thead>
+      <tbody>
+        {bts.map((bt) => (
+          <tr key={bt.id} onDoubleClick={() => navigate(`/bt/${bt.id}`)} style={{ cursor: "default" }}>
+            <Td>{bt.numero || "—"}</Td>
+            <Td>{formatDate(bt.date_ouverture || bt.created_at)}</Td>
+            <Td>{formatDate(bt.date_fermeture)}</Td>
+            <Td>{kmLabel(bt.km)}</Td>
+            <Td>{bt.statut || "—"}</Td>
+            <Td>{moneyLabel(bt.total_final ?? bt.total)}</Td>
+          </tr>
+        ))}
+        {bts.length === 0 && <EmptyRow colSpan={6} label="Aucun BT pour cette unité." />}
+      </tbody>
+    </DataTable>
+  );
+}
+
+function DocumentsTable({
+  documents,
+  onOpen,
+  onDelete,
+}: {
+  documents: VehicleDocumentRow[];
+  onOpen: (doc: VehicleDocumentRow) => void;
+  onDelete: (doc: VehicleDocumentRow) => void;
+}) {
+  return (
+    <DataTable>
+      <thead>
+        <tr>
+          <Th>Type</Th>
+          <Th>Fichier</Th>
+          <Th>Expiration</Th>
+          <Th>Statut</Th>
+          <Th>Date ajout</Th>
+          <Th>Taille</Th>
+          <Th>Note</Th>
+          <Th>Actions</Th>
+        </tr>
+      </thead>
+      <tbody>
+        {documents.map((doc) => {
+          const status = expirationStatus(doc.date_expiration);
+
+          return (
+            <tr key={doc.id}>
+              <Td>{documentTypeLabel(doc.type_document)}</Td>
+              <Td>{doc.nom_fichier}</Td>
+              <Td>{formatDate(doc.date_expiration)}</Td>
+              <Td>
+                {status.label === "—" ? (
+                  "—"
+                ) : (
+                  <span style={{ ...styles.statusBadge, ...status.style }}>{status.label}</span>
+                )}
+              </Td>
+              <Td>{formatDate(doc.created_at)}</Td>
+              <Td>{fileSizeLabel(doc.taille_bytes)}</Td>
+              <Td>{doc.note || "—"}</Td>
+              <Td>
+                <button type="button" style={styles.linkBtn} onClick={() => onOpen(doc)}>
+                  Ouvrir
+                </button>
+                <button type="button" style={styles.dangerBtn} onClick={() => onDelete(doc)}>
+                  Supprimer
+                </button>
+              </Td>
+            </tr>
+          );
+        })}
+        {documents.length === 0 && <EmptyRow colSpan={8} label="Aucun document importé." />}
+      </tbody>
+    </DataTable>
+  );
+}
+
+const styles: Record<string, React.CSSProperties> = {
+  page: {
+    padding: 24,
+    width: "100%",
+    maxWidth: "none",
+    margin: 0,
+  },
+  backBtn: {
+    border: "1px solid #d1d5db",
+    background: "#fff",
+    borderRadius: 10,
+    padding: "8px 12px",
+    cursor: "pointer",
+    marginBottom: 14,
+  },
+  headerCard: {
+    background: "#fff",
+    border: "1px solid #e5e7eb",
+    borderRadius: 14,
+    padding: 18,
+    marginBottom: 14,
+    boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
+  },
+  title: {
+    margin: 0,
+    fontSize: 26,
+    fontWeight: 800,
+    color: "#111827",
+  },
+  subtitle: {
+    margin: "6px 0 0",
+    color: "#6b7280",
+    fontSize: 14,
+  },
+  headerGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+    gap: 10,
+    marginTop: 16,
+  },
+  infoBox: {
+    background: "#f9fafb",
+    border: "1px solid #e5e7eb",
+    borderRadius: 12,
+    padding: 12,
+  },
+  infoLabel: {
+    fontSize: 12,
+    color: "#6b7280",
+    marginBottom: 4,
+  },
+  infoValue: {
+    fontSize: 14,
+    color: "#111827",
+    fontWeight: 800,
+    overflowWrap: "anywhere",
+  },
+  tabs: {
+    display: "flex",
+    gap: 8,
+    marginBottom: 14,
+    flexWrap: "wrap",
+  },
+  tab: {
+    border: "1px solid #d1d5db",
+    background: "#fff",
+    borderRadius: 999,
+    padding: "8px 13px",
+    cursor: "pointer",
+    fontSize: 14,
+    color: "#374151",
+  },
+  tabActive: {
+    background: "#111827",
+    borderColor: "#111827",
+    color: "#fff",
+  },
+  grid2: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: 14,
+  },
+  card: {
+    background: "#fff",
+    border: "1px solid #e5e7eb",
+    borderRadius: 14,
+    padding: 16,
+    boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
+  },
+  cardWide: {
+    background: "#fff",
+    border: "1px solid #e5e7eb",
+    borderRadius: 14,
+    padding: 16,
+    boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
+    gridColumn: "1 / -1",
+  },
+  cardTitle: {
+    margin: "0 0 12px",
+    fontSize: 18,
+    color: "#111827",
+  },
+  summaryRows: {
+    display: "grid",
+    gap: 8,
+  },
+  summaryRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 12,
+    borderBottom: "1px solid #f1f5f9",
+    padding: "8px 0",
+    color: "#374151",
+  },
+  summaryRight: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+  },
+  miniRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 12,
+    borderBottom: "1px solid #f1f5f9",
+    padding: "9px 0",
+  },
+  muted: {
+    color: "#6b7280",
+    fontSize: 13,
+  },
+  empty: {
+    color: "#6b7280",
+    padding: "8px 0",
+  },
+  tableWrap: {
+    overflowX: "auto",
+  },
+  table: {
+    width: "100%",
+    borderCollapse: "collapse",
+  },
+  th: {
+    textAlign: "left",
+    fontSize: 12,
+    textTransform: "uppercase",
+    letterSpacing: 0.04,
+    color: "#374151",
+    background: "#f3f4f6",
+    padding: "11px 12px",
+    borderBottom: "1px solid #e5e7eb",
+    fontWeight: 800,
+  },
+  td: {
+    padding: "12px",
+    borderBottom: "1px solid #f1f5f9",
+    fontSize: 14,
+    color: "#374151",
+    verticalAlign: "top",
+  },
+  emptyTd: {
+    padding: 24,
+    textAlign: "center",
+    color: "#6b7280",
+  },
+  primaryBtn: {
+    border: "1px solid #111827",
+    background: "#111827",
+    color: "#fff",
+    borderRadius: 10,
+    padding: "10px 18px",
+    height: 38,
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+  },
+  linkBtn: {
+    border: "none",
+    background: "transparent",
+    color: "#2563eb",
+    cursor: "pointer",
+    padding: "2px 6px 2px 0",
+    fontWeight: 700,
+  },
+  dangerBtn: {
+    border: "none",
+    background: "transparent",
+    color: "#dc2626",
+    cursor: "pointer",
+    padding: "2px 6px",
+    fontWeight: 700,
+  },
+  vignetteBox: {
+    display: "flex",
+    alignItems: "flex-end",
+    gap: 12,
+    padding: 12,
+    border: "1px solid #e5e7eb",
+    borderRadius: 12,
+    background: "#f9fafb",
+    flexWrap: "wrap",
+    width: "fit-content",
+    maxWidth: "100%",
+  },
+  uploadBox: {
+    display: "flex",
+    alignItems: "flex-end",
+    gap: 12,
+    margin: "16px 0",
+    padding: 12,
+    border: "1px solid #e5e7eb",
+    borderRadius: 12,
+    background: "#f9fafb",
+    flexWrap: "wrap",
+  },
+  fieldGroup: {
+    display: "grid",
+    gap: 4,
+    minWidth: 220,
+  },
+  fieldGroupWide: {
+    display: "grid",
+    gap: 4,
+    minWidth: 320,
+  },
+  fieldGroupNote: {
+    display: "grid",
+    gap: 4,
+    minWidth: 320,
+    flex: "1 1 320px",
+  },
+  fieldGroupFile: {
+    display: "grid",
+    gap: 4,
+    minWidth: 260,
+  },
+  fieldLabel: {
+    fontSize: 12,
+    fontWeight: 700,
+    color: "#6b7280",
+  },
+  select: {
+    height: 38,
+    borderRadius: 10,
+    border: "1px solid #d1d5db",
+    padding: "0 10px",
+    background: "#fff",
+  },
+  input: {
+    height: 38,
+    borderRadius: 10,
+    border: "1px solid #d1d5db",
+    padding: "0 10px",
+  },
+  file: {
+    fontSize: 13,
+    height: 38,
+    display: "flex",
+    alignItems: "center",
+  },
+  expirationHint: {
+    width: "100%",
+    color: "#92400e",
+    fontSize: 13,
+  },
+  statusBadge: {
+    display: "inline-flex",
+    alignItems: "center",
+    width: "fit-content",
+    borderRadius: 999,
+    padding: "3px 8px",
+    fontSize: 12,
+    fontWeight: 800,
+    marginTop: 6,
+  },
+  statusOk: {
+    background: "#dcfce7",
+    color: "#166534",
+  },
+  statusWarning: {
+    background: "#fef3c7",
+    color: "#92400e",
+  },
+  statusDanger: {
+    background: "#fee2e2",
+    color: "#991b1b",
+  },
+  statusNeutral: {
+    background: "#f3f4f6",
+    color: "#374151",
+  },
+};

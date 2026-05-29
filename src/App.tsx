@@ -22,10 +22,14 @@ import BonTravailMecanoPage from "./pages/BonTravailMecanoPage";
 import BtPrintPage from "./pages/BtPrintPage";
 import OperationTempsReelPage from "./pages/OperationTempsReelPage";
 import Inventaire from "./pages/Inventaire";
+import PneusPage from "./pages/PneusPage";
 import GestionAtelierPage from "./pages/GestionAtelierPage";
 import FacturationBT from "./pages/FacturationBT";
 import FacturesFournisseurs from "./pages/FacturesFournisseurs";
 import AutorisationBtClientPage from "./pages/AutorisationBtClientPage";
+
+import DossiersVehiculesPage from "./pages/admin/DossiersVehiculesPage";
+import DossierVehiculeDetailPage from "./pages/admin/DossierVehiculeDetailPage";
 
 import MobileAtelierPage from "./pages/mobile/MobileAtelierPage";
 import MobileBtPage from "./pages/mobile/MobileBtPage";
@@ -158,6 +162,10 @@ function AppShell({ onLogout }: { onLogout: () => void | Promise<void> }) {
               Inventaire
             </NavLink>
 
+            <NavLink to="/pneus" className={linkClass} onClick={onNavClick}>
+              Pneus
+            </NavLink>
+
             <NavLink to="/gestion-atelier" className={linkClass} onClick={onNavClick}>
               Gestion atelier
             </NavLink>
@@ -176,6 +184,10 @@ function AppShell({ onLogout }: { onLogout: () => void | Promise<void> }) {
 
             <NavLink to="/employes" className={linkClass} onClick={onNavClick}>
               Employés
+            </NavLink>
+
+            <NavLink to="/admin/dossiers-vehicules" className={linkClass} onClick={onNavClick}>
+              Dossiers véhicules
             </NavLink>
           </div>
 
@@ -236,6 +248,9 @@ function AppShell({ onLogout }: { onLogout: () => void | Promise<void> }) {
 
             <Route path="/employes" element={<EmployesPage />} />
 
+            <Route path="/admin/dossiers-vehicules" element={<DossiersVehiculesPage />} />
+            <Route path="/admin/dossiers-vehicules/:uniteId" element={<DossierVehiculeDetailPage />} />
+
             <Route path="/dashboard-atelier" element={<DashboardAtelier />} />
 
             <Route path="/bt" element={<BTListe />} />
@@ -244,6 +259,7 @@ function AppShell({ onLogout }: { onLogout: () => void | Promise<void> }) {
             <Route path="/bt/:id/imprimer" element={<BtPrintPage />} />
 
             <Route path="/inventaire" element={<Inventaire />} />
+            <Route path="/pneus" element={<PneusPage />} />
             <Route path="/gestion-atelier" element={<GestionAtelierPage />} />
             <Route path="/operation-temps-reel" element={<OperationTempsReelPage />} />
 
@@ -318,9 +334,7 @@ export default function App() {
       setIsAuthed(authed);
       setLoading(false);
 
-      if (pathRef.current.startsWith("/autorisation-bt/")) {
-        return;
-      }
+      if (pathRef.current.startsWith("/autorisation-bt/")) return;
 
       if (authed && pathRef.current === "/login") {
         nav("/dashboard-atelier", { replace: true });
@@ -337,9 +351,7 @@ export default function App() {
       const authed = Boolean(session);
       setIsAuthed(authed);
 
-      if (pathRef.current.startsWith("/autorisation-bt/")) {
-        return;
-      }
+      if (pathRef.current.startsWith("/autorisation-bt/")) return;
 
       if (!authed) nav("/login", { replace: true });
       else if (pathRef.current === "/login") nav("/dashboard-atelier", { replace: true });

@@ -640,8 +640,6 @@ const styles: Record<string, CSSProperties> = {
   },
 };
 
-const PEP_NOUVELLE_DRAFT_KEY = "pep_nouvelle_draft_v1";
-
 export default function PepNouvelle() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
@@ -686,66 +684,7 @@ export default function PepNouvelle() {
     gravite: "Min",
   });
 
-  const [draftHydrated, setDraftHydrated] = useState(false);
-  const clearingDraftRef = useRef(false);
-
   const comboRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(PEP_NOUVELLE_DRAFT_KEY);
-      if (!raw) {
-        setDraftHydrated(true);
-        return;
-      }
-
-      const draft = JSON.parse(raw) as {
-        form?: PepFormState;
-        unitQuery?: string;
-        measurements?: Record<string, string>;
-        defauts?: DefautItem[];
-        selectedDefautId?: string | null;
-      };
-
-      if (draft.form) setForm(draft.form);
-      if (typeof draft.unitQuery === "string") setUnitQuery(draft.unitQuery);
-      if (draft.measurements) setMeasurements(draft.measurements);
-      if (Array.isArray(draft.defauts)) setDefauts(draft.defauts);
-      if (Object.prototype.hasOwnProperty.call(draft, "selectedDefautId")) {
-        setSelectedDefautId(draft.selectedDefautId ?? null);
-      }
-    } catch (e) {
-      console.error("Erreur restauration brouillon PEP:", e);
-      localStorage.removeItem(PEP_NOUVELLE_DRAFT_KEY);
-    } finally {
-      setDraftHydrated(true);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!draftHydrated) return;
-
-    if (clearingDraftRef.current) {
-      clearingDraftRef.current = false;
-      localStorage.removeItem(PEP_NOUVELLE_DRAFT_KEY);
-      return;
-    }
-
-    try {
-      localStorage.setItem(
-        PEP_NOUVELLE_DRAFT_KEY,
-        JSON.stringify({
-          form,
-          unitQuery,
-          measurements,
-          defauts,
-          selectedDefautId,
-        })
-      );
-    } catch (e) {
-      console.error("Erreur sauvegarde brouillon PEP:", e);
-    }
-  }, [draftHydrated, form, unitQuery, measurements, defauts, selectedDefautId]);
 
   const uniteSelectionnee = useMemo(
     () => unites.find((u) => u.id === form.unite_id) ?? null,
@@ -1366,9 +1305,6 @@ if (isTrueDynamicRule) {
   }
 
   function resetForm() {
-    clearingDraftRef.current = true;
-    localStorage.removeItem(PEP_NOUVELLE_DRAFT_KEY);
-
     setForm({
       unite_id: "",
       date_inspection: todayIso(),
