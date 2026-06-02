@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
+import BtFusionModal from "../components/bt/BtFusionModal";
 
 type Unite = {
   id: string;
@@ -38,18 +39,6 @@ type BT = {
   total_general?: number | null;
 };
 
-type StatutFilter = "tous" | "ouvert" | "ferme" | "facture" | "verrouille";
-type SortKey =
-  | "numero"
-  | "unite"
-  | "client"
-  | "km"
-  | "date"
-  | "pieces"
-  | "mo"
-  | "total"
-  | "statut";
-
 function fmtDate(v: any) {
   if (!v) return "";
   const d = new Date(v);
@@ -80,6 +69,7 @@ function statutLabel(s: string) {
   if (isOpenStatut(s)) return "Ouvert";
   if (isClosedStatut(s)) return "Fermé";
   if (isFacturedStatut(s)) return "Facturé";
+  if (s === "fusionne") return "Fusionné";
   if (s === "verrouille") return "Verrouillé";
   return s || "—";
 }
@@ -99,10 +89,13 @@ function statutTone(
   if (s === "verrouille") {
     return { bg: "#fff7ed", border: "#fed7aa", color: "#c2410c" };
   }
+  if (s === "fusionne") {
+    return { bg: "#f1f5f9", border: "#cbd5e1", color: "#475569" };
+  }
   return { bg: "#f8fafc", border: "#e2e8f0", color: "#334155" };
 }
 
-function readStatutParam(value: string | null): StatutFilter {
+function readStatutParam(value: string | null): "tous" | "ouvert" | "ferme" | "facture" | "verrouille" {
   if (
     value === "tous" ||
     value === "ouvert" ||
@@ -115,7 +108,9 @@ function readStatutParam(value: string | null): StatutFilter {
   return "ouvert";
 }
 
-function readSortKeyParam(value: string | null): SortKey {
+function readSortKeyParam(
+  value: string | null
+): "numero" | "unite" | "client" | "km" | "date" | "pieces" | "mo" | "total" | "statut" {
   if (
     value === "numero" ||
     value === "unite" ||
@@ -156,13 +151,13 @@ export default function BTListe() {
   const [clientsById, setClientsById] = useState<Record<string, Client>>({});
 
   const [q, setQ] = useState(searchParams.get("q") || "");
-  const [statut, setStatut] = useState<StatutFilter>(
-    readStatutParam(searchParams.get("statut"))
-  );
+  const [statut, setStatut] = useState<
+    "tous" | "ouvert" | "ferme" | "facture" | "verrouille"
+  >(readStatutParam(searchParams.get("statut")));
 
-  const [sortKey, setSortKey] = useState<SortKey>(
-    readSortKeyParam(searchParams.get("sort"))
-  );
+  const [sortKey, setSortKey] = useState<
+    "numero" | "unite" | "client" | "km" | "date" | "pieces" | "mo" | "total" | "statut"
+  >(readSortKeyParam(searchParams.get("sort")));
   const [sortDir, setSortDir] = useState<"asc" | "desc">(
     readSortDirParam(searchParams.get("dir"))
   );
@@ -173,6 +168,7 @@ export default function BTListe() {
   );
 
   const [showNewModal, setShowNewModal] = useState(false);
+  const [showFusionModal, setShowFusionModal] = useState(false);
   const [newUniteId, setNewUniteId] = useState<string>("");
   const [creating, setCreating] = useState(false);
   const [createErr, setCreateErr] = useState<string | null>(null);
@@ -304,7 +300,9 @@ export default function BTListe() {
     return true;
   }
 
-  function handleSort(key: SortKey) {
+  function handleSort(
+    key: "numero" | "unite" | "client" | "km" | "date" | "pieces" | "mo" | "total" | "statut"
+  ) {
     if (sortKey === key) {
       setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     } else {
@@ -784,12 +782,11 @@ export default function BTListe() {
     },
 
     btLink: {
-      color: "#334155",
-      fontWeight: 600,
-      cursor: "pointer",
-      textDecoration: "none",
-    },
-
+  color: "#334155",
+  fontWeight: 600,
+  cursor: "pointer",
+  textDecoration: "none",
+},
     statusPill: {
       display: "inline-flex",
       alignItems: "center",
@@ -1005,206 +1002,211 @@ export default function BTListe() {
     },
   };
 
-  function SortArrow({ col }: { col: SortKey }) {
+  function SortArrow({ col }: { col: typeof sortKey }) {
     if (sortKey !== col) return <span style={{ opacity: 0.35 }}>▼</span>;
     return <span>{sortDir === "asc" ? "↑" : "↓"}</span>;
   }
 
-  function renderSortableHeader(label: string, key: SortKey, amount = false) {
-    return (
-      <th style={amount ? styles.thAmount : styles.thBase}>
-        <button type="button" style={styles.sortBtn} onClick={() => handleSort(key)}>
-          <span>{label}</span>
-          <SortArrow col={key} />
-        </button>
-      </th>
-    );
-  }
-
+  function renderSortableHeader(label: string, key: typeof sortKey, amount = false) {
   return (
-    <div style={styles.page}>
-      <div style={styles.topBar}>
-        <div style={styles.titleBlock}>
-          <h1 style={styles.h1}>Bons de travail</h1>
-          <div style={styles.subtitle}>Vue liste dans le style nolisé</div>
-        </div>
+    <th style={amount ? styles.thAmount : styles.thBase}>
+      <button type="button" style={styles.sortBtn} onClick={() => handleSort(key)}>
+        <span>{label}</span>
+        <SortArrow col={key} />
+      </button>
+    </th>
+  );
+}
 
-        <div style={styles.topActions}>
-          <button type="button" style={styles.primaryBtn} onClick={openNewModal}>
-            + Nouveau BT
-          </button>
-        </div>
+return (
+  <div style={styles.page}>
+    <div style={styles.topBar}>
+      <div style={styles.titleBlock}>
+        <h1 style={styles.h1}>Bons de travail</h1>
+        <div style={styles.subtitle}>Vue liste dans le style nolisé</div>
       </div>
 
-      {err ? <div style={styles.errorBox}>Erreur : {err}</div> : null}
-
-      <div style={styles.toolbarCard}>
-        <input
-          style={styles.searchInput}
-          placeholder="Recherche BT, unité, client, statut, kilométrage..."
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-        />
-
-        <select
-          style={styles.select}
-          value={statut}
-          onChange={(e) => setStatut(e.target.value as StatutFilter)}
+      <div style={styles.topActions}>
+        <button
+          type="button"
+          style={styles.ghostBtn}
+          onClick={() => setShowFusionModal(true)}
         >
-          <option value="tous">Tous les statuts</option>
-          <option value="ouvert">Ouvert</option>
-          <option value="ferme">Fermé</option>
-          <option value="facture">Facturé</option>
-          <option value="verrouille">Verrouillé</option>
-        </select>
+          Fusionner BT
+        </button>
 
-        <select
-          style={styles.select}
-          value={String(pageSize)}
-          onChange={(e) => setPageSize(Number(e.target.value))}
-        >
-          <option value="10">10 / page</option>
-          <option value="25">25 / page</option>
-          <option value="50">50 / page</option>
-          <option value="100">100 / page</option>
-        </select>
+        <button type="button" style={styles.primaryBtn} onClick={openNewModal}>
+          + Nouveau BT
+        </button>
+      </div>
+    </div>
 
-        <div style={styles.toolbarRight}>
-          <div style={styles.resultsText}>
-            {filteredSorted.length} résultat{filteredSorted.length > 1 ? "s" : ""}
-          </div>
+    {err ? <div style={styles.errorBox}>Erreur : {err}</div> : null}
+
+    <div style={styles.toolbarCard}>
+      <input
+        style={styles.searchInput}
+        placeholder="Recherche BT, unité, client, statut, kilométrage..."
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+      />
+
+      <select
+        style={styles.select}
+        value={statut}
+        onChange={(e) => setStatut(e.target.value as any)}
+      >
+        <option value="tous">Tous les statuts</option>
+        <option value="ouvert">Ouvert</option>
+        <option value="ferme">Fermé</option>
+        <option value="facture">Facturé</option>
+        <option value="verrouille">Verrouillé</option>
+      </select>
+
+      <select
+        style={styles.select}
+        value={String(pageSize)}
+        onChange={(e) => setPageSize(Number(e.target.value))}
+      >
+        <option value="10">10 / page</option>
+        <option value="25">25 / page</option>
+        <option value="50">50 / page</option>
+        <option value="100">100 / page</option>
+      </select>
+
+      <div style={styles.toolbarRight}>
+        <div style={styles.resultsText}>
+          {filteredSorted.length} résultat{filteredSorted.length > 1 ? "s" : ""}
         </div>
       </div>
+    </div>
 
-      <div style={styles.tableShell}>
-        {loading ? (
-          <div style={styles.emptyWrap}>Chargement…</div>
-        ) : (
-          <>
-            <div style={styles.tableWrap}>
-              <table style={styles.table}>
-                <thead>
-                  <tr style={styles.theadRow}>
-                    {renderSortableHeader("No BT", "numero")}
-                    {renderSortableHeader("Unité", "unite")}
-                    {renderSortableHeader("Client", "client")}
-                    {renderSortableHeader("KM", "km")}
-                    {renderSortableHeader("Date", "date")}
-                    {renderSortableHeader("Pièces + atelier", "pieces", true)}
-                    {renderSortableHeader("Main-d’œuvre", "mo", true)}
-                    {renderSortableHeader("Total", "total", true)}
-                    {renderSortableHeader("Statut", "statut")}
+    <div style={styles.tableShell}>
+      {loading ? (
+        <div style={styles.emptyWrap}>Chargement…</div>
+      ) : (
+        <>
+          <div style={styles.tableWrap}>
+            <table style={styles.table}>
+              <thead>
+                <tr style={styles.theadRow}>
+                  {renderSortableHeader("No BT", "numero")}
+                  {renderSortableHeader("Unité", "unite")}
+                  {renderSortableHeader("Client", "client")}
+                  {renderSortableHeader("KM", "km")}
+                  {renderSortableHeader("Date", "date")}
+                  {renderSortableHeader("Pièces + atelier", "pieces", true)}
+                  {renderSortableHeader("Main-d’œuvre", "mo", true)}
+                  {renderSortableHeader("Total", "total", true)}
+                  {renderSortableHeader("Statut", "statut")}
+                </tr>
+              </thead>
+
+              <tbody>
+                {paginatedRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={9}>
+                      <div style={styles.emptyWrap}>Aucun bon de travail.</div>
+                    </td>
                   </tr>
-                </thead>
+                ) : (
+                  paginatedRows.map((bt, index) => {
+                    const u = unitesById[bt.unite_id];
+                    const kmVal = (bt as any).km ?? (bt as any).kilometrage ?? null;
+                    const opened = (bt as any).date_ouverture ?? (bt as any).created_at ?? null;
+                    const client = resolveClientName(bt);
+                    const totalPiecesAtelier = resolvePiecesAtelier(bt);
+                    const totalMainOeuvre = resolveMainOeuvre(bt);
+                    const grandTotal = resolveGrandTotal(bt);
+                    const tone = statutTone(bt.statut);
+                    const rowBg = index % 2 === 0 ? "#ffffff" : "#f8fafc";
 
-                <tbody>
-                  {paginatedRows.length === 0 ? (
-                    <tr>
-                      <td colSpan={9}>
-                        <div style={styles.emptyWrap}>Aucun bon de travail.</div>
-                      </td>
-                    </tr>
-                  ) : (
-                    paginatedRows.map((bt, index) => {
-                      const u = unitesById[bt.unite_id];
-                      const kmVal = (bt as any).km ?? (bt as any).kilometrage ?? null;
-                      const opened =
-                        (bt as any).date_ouverture ?? (bt as any).created_at ?? null;
-                      const client = resolveClientName(bt);
-                      const totalPiecesAtelier = resolvePiecesAtelier(bt);
-                      const totalMainOeuvre = resolveMainOeuvre(bt);
-                      const grandTotal = resolveGrandTotal(bt);
-                      const tone = statutTone(bt.statut);
-                      const rowBg = index % 2 === 0 ? "#ffffff" : "#f8fafc";
+                    return (
+                      <tr
+                        key={bt.id}
+                        style={{
+                          background: rowBg,
+                          cursor: "default",
+                          transition: "background 0.15s ease",
+                        }}
+                        onClick={() => nav(`/bt/${bt.id}`)}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = "#eef2f7";
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = rowBg;
+                        }}
+                      >
+                        <td style={{ ...styles.td, background: "transparent" }}>
+                          <div style={styles.btLink} title="Cliquer pour ouvrir">
+                            {bt.numero || (bt as any).no_bt || "(BT)"}
+                          </div>
+                        </td>
 
-                      return (
-                        <tr
-                          key={bt.id}
-                          style={{
-                            background: rowBg,
-                            cursor: "default",
-                            transition: "background 0.15s ease",
-                          }}
-                          onClick={() => nav(`/bt/${bt.id}`)}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.background = "#eef2f7";
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.background = rowBg;
-                          }}
-                        >
-                          <td style={{ ...styles.td, background: "transparent" }}>
-                            <div style={styles.btLink} title="Cliquer pour ouvrir">
-                              {bt.numero || (bt as any).no_bt || "(BT)"}
-                            </div>
-                          </td>
+                        <td style={{ ...styles.td, background: "transparent" }}>
+                          <div
+                            style={{
+                              ...styles.cellPrimary,
+                              fontWeight: 900,
+                              fontSize: 16,
+                              letterSpacing: "0.3px",
+                            }}
+                          >
+                            {u?.no_unite ?? "—"}
+                          </div>
 
-                          <td style={{ ...styles.td, background: "transparent" }}>
-                            <div
-                              style={{
-                                ...styles.cellPrimary,
-                                fontWeight: 900,
-                                fontSize: 16,
-                                letterSpacing: "0.3px",
-                              }}
-                            >
-                              {u?.no_unite ?? "—"}
-                            </div>
+                          <div style={styles.cellMuted}>
+                            {u ? [u.marque, u.modele, u.annee].filter(Boolean).join(" ") : ""}
+                          </div>
+                        </td>
 
-                            <div style={styles.cellMuted}>
-                              {u
-                                ? [u.marque, u.modele, u.annee].filter(Boolean).join(" ")
-                                : ""}
-                            </div>
-                          </td>
+                        <td style={{ ...styles.td, background: "transparent" }} title={client}>
+                          <div style={styles.cellPrimary}>{client}</div>
+                        </td>
 
-                          <td style={{ ...styles.td, background: "transparent" }} title={client}>
-                            <div style={styles.cellPrimary}>{client}</div>
-                          </td>
+                        <td style={{ ...styles.td, background: "transparent" }}>
+                          <div style={styles.cellPrimary}>{kmVal ?? "—"}</div>
+                        </td>
 
-                          <td style={{ ...styles.td, background: "transparent" }}>
-                            <div style={styles.cellPrimary}>{kmVal ?? "—"}</div>
-                          </td>
+                        <td style={{ ...styles.td, background: "transparent" }}>
+                          <div style={styles.cellPrimary}>{fmtDate(opened)}</div>
+                        </td>
 
-                          <td style={{ ...styles.td, background: "transparent" }}>
-                            <div style={styles.cellPrimary}>{fmtDate(opened)}</div>
-                          </td>
+                        <td style={{ ...styles.tdAmount, background: "transparent" }}>
+                          {money(totalPiecesAtelier)}
+                        </td>
 
-                          <td style={{ ...styles.tdAmount, background: "transparent" }}>
-                            {money(totalPiecesAtelier)}
-                          </td>
+                        <td style={{ ...styles.tdAmount, background: "transparent" }}>
+                          {money(totalMainOeuvre)}
+                        </td>
 
-                          <td style={{ ...styles.tdAmount, background: "transparent" }}>
-                            {money(totalMainOeuvre)}
-                          </td>
+                        <td style={{ ...styles.tdAmount, background: "transparent" }}>
+                          {money(grandTotal)}
+                        </td>
 
-                          <td style={{ ...styles.tdAmount, background: "transparent" }}>
-                            {money(grandTotal)}
-                          </td>
+                        <td style={{ ...styles.td, background: "transparent" }}>
+                          <span
+                            style={{
+                              ...styles.statusPill,
+                              background: tone.bg,
+                              borderColor: tone.border,
+                              color: tone.color,
+                            }}
+                          >
+                            {statutLabel(bt.statut)}
+                          </span>
 
-                          <td style={{ ...styles.td, background: "transparent" }}>
-                            <span
-                              style={{
-                                ...styles.statusPill,
-                                background: tone.bg,
-                                borderColor: tone.border,
-                                color: tone.color,
-                              }}
-                            >
-                              {statutLabel(bt.statut)}
-                            </span>
-
-                            {Boolean(bt.verrouille) && (
-                              <span style={styles.lockPill}>Verrouillé</span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
+                          {Boolean(bt.verrouille) && (
+                            <span style={styles.lockPill}>Verrouillé</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
 
             <div style={styles.pagerWrap}>
               <div style={styles.pagerLeft}>
@@ -1258,6 +1260,16 @@ export default function BTListe() {
           </>
         )}
       </div>
+
+      <BtFusionModal
+        open={showFusionModal}
+        onClose={() => setShowFusionModal(false)}
+        bts={bts}
+        unitesById={unitesById}
+        clientsById={clientsById}
+        resolveClientName={resolveClientName}
+        onDone={loadAll}
+      />
 
       {showNewModal && (
         <div style={styles.modalOverlay} onMouseDown={closeNewModal}>
@@ -1315,9 +1327,7 @@ export default function BTListe() {
                     ) : (
                       filteredUnits.map((u) => {
                         const client = resolveUnitClientName(u);
-                        const desc = [u.marque, u.modele, u.annee]
-                          .filter(Boolean)
-                          .join(" ");
+                        const desc = [u.marque, u.modele, u.annee].filter(Boolean).join(" ");
                         const active = u.id === newUniteId;
 
                         return (
