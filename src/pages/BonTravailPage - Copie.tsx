@@ -12,6 +12,7 @@ import { type Piece } from "../components/bt/BtPiecesCard";
 import BonTravailHeaderCard from "../components/bt/BonTravailHeaderCard";
 import BonTravailOperations from "../components/bt/BonTravailOperations";
 import btPrintTemplate from "../templates/btPrintTemplate";
+import UniteView from "./UniteView";
 
 type Unite = {
   id: string;
@@ -400,6 +401,7 @@ export default function BonTravailPage() {
   const [documentsLoading, setDocumentsLoading] = useState(false);
   const [uploadingDocuments, setUploadingDocuments] = useState(false);
   const [draggingDocuments, setDraggingDocuments] = useState(false);
+  const [uniteModalOpen, setUniteModalOpen] = useState(false);
 
   const selectedIds = useMemo(() => {
     return selectedOrder.filter((id) => selected[id]);
@@ -2892,6 +2894,7 @@ ${noms}`);
                 isReadOnly={isReadOnly}
                 hasKmColumn={hasKmColumn}
                 clientNoteFacturation={clientCfg?.note_facturation}
+                onOpenUniteModal={() => setUniteModalOpen(true)}
               />
 
               <BonTravailOperations
@@ -3779,6 +3782,80 @@ ${noms}`);
           </div>
         </div>
       )}
+
+      {uniteModalOpen && unite && (
+        <div
+          className="no-print"
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(15,23,42,.55)",
+            zIndex: 10000,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 18,
+          }}
+          onClick={() => setUniteModalOpen(false)}
+        >
+          <div
+            style={{
+              width: "min(1600px, 96vw)",
+              height: "94vh",
+              background: "#fff",
+              borderRadius: 16,
+              border: "1px solid rgba(0,0,0,.10)",
+              boxShadow: "0 28px 80px rgba(0,0,0,.25)",
+              overflow: "hidden",
+              display: "flex",
+              flexDirection: "column",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
+                padding: "12px 16px",
+                borderBottom: "1px solid rgba(0,0,0,.08)",
+                background: "#fff",
+                flex: "0 0 auto",
+              }}
+            >
+              <div>
+                <div style={{ fontSize: 18, fontWeight: 950 }}>
+                  Fiche unité {unite.no_unite || ""}
+                </div>
+                <div style={{ ...styles.muted, fontSize: 13 }}>
+                  Double-clic sur l’unité depuis le BT
+                </div>
+              </div>
+
+              <button
+                type="button"
+                style={styles.iconCloseBtn}
+                onClick={() => setUniteModalOpen(false)}
+                title="Fermer"
+              >
+                ×
+              </button>
+            </div>
+
+            <div
+              style={{
+                flex: "1 1 auto",
+                overflow: "auto",
+                background: "#f8fafc",
+              }}
+            >
+              <UniteView modalMode uniteIdOverride={unite.id} />
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

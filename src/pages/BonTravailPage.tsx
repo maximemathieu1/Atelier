@@ -303,6 +303,48 @@ function formatDateOnly(value: string | null | undefined) {
   }).format(d);
 }
 
+function hideClientIframeSidebar(iframe: HTMLIFrameElement | null) {
+  if (!iframe) return;
+
+  try {
+    const doc = iframe.contentDocument || iframe.contentWindow?.document;
+    if (!doc?.head) return;
+
+    const styleId = "client-modal-hide-sidebar-style";
+    if (doc.getElementById(styleId)) return;
+
+    const style = doc.createElement("style");
+    style.id = styleId;
+    style.innerHTML = `
+      .sidebar,
+      .drawer-backdrop,
+      .mobile-topbar {
+        display: none !important;
+      }
+
+      .app-shell {
+        display: block !important;
+      }
+
+      .content,
+      main.content {
+        margin-left: 0 !important;
+        width: 100% !important;
+        max-width: none !important;
+        padding-left: 0 !important;
+      }
+
+      body {
+        overflow: auto !important;
+      }
+    `;
+
+    doc.head.appendChild(style);
+  } catch (e) {
+    console.warn("Impossible de masquer le menu dans le iframe client", e);
+  }
+}
+
 export default function BonTravailPage() {
   const { id } = useParams();
   const nav = useNavigate();
@@ -402,6 +444,7 @@ export default function BonTravailPage() {
   const [uploadingDocuments, setUploadingDocuments] = useState(false);
   const [draggingDocuments, setDraggingDocuments] = useState(false);
   const [uniteModalOpen, setUniteModalOpen] = useState(false);
+  const [clientModalOpen, setClientModalOpen] = useState(false);
 
   const selectedIds = useMemo(() => {
     return selectedOrder.filter((id) => selected[id]);
@@ -439,6 +482,11 @@ export default function BonTravailPage() {
   const snapshotClientNom = useMemo(
     () => bt?.client_nom?.trim() || client?.nom || "—",
     [bt, client],
+  );
+
+  const resolvedClientId = useMemo(
+    () => bt?.client_id || client?.id || unite?.client_id || null,
+    [bt, client, unite],
   );
 
   const dynamicTauxHoraire = useMemo(() => {
@@ -2007,6 +2055,10 @@ ${noms}`);
       setCloseDateModalOpen(false);
       setPendingCloseMode(null);
       await loadAll();
+
+      setTimeout(() => {
+        nav(-1);
+      }, 0);
     } catch (e: any) {
       alert(e?.message || "Erreur fermeture BT");
     } finally {
@@ -2895,6 +2947,9 @@ ${noms}`);
                 hasKmColumn={hasKmColumn}
                 clientNoteFacturation={clientCfg?.note_facturation}
                 onOpenUniteModal={() => setUniteModalOpen(true)}
+                onOpenClientModal={() => {
+                  if (resolvedClientId) setClientModalOpen(true);
+                }}
               />
 
               <BonTravailOperations
@@ -3851,6 +3906,89 @@ ${noms}`);
               }}
             >
               <UniteView modalMode uniteIdOverride={unite.id} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {clientModalOpen && resolvedClientId && (
+        <div
+          className="no-print"
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(15,23,42,.55)",
+            zIndex: 10000,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 18,
+          }}
+          onClick={() => setClientModalOpen(false)}
+        >
+          <div
+            style={{
+              width: "min(1500px, 94vw)",
+              height: "92vh",
+              background: "#fff",
+              borderRadius: 16,
+              border: "1px solid rgba(0,0,0,.10)",
+              boxShadow: "0 28px 80px rgba(0,0,0,.25)",
+              overflow: "hidden",
+              display: "flex",
+              flexDirection: "column",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
+                padding: "12px 16px",
+                borderBottom: "1px solid rgba(0,0,0,.08)",
+                background: "#fff",
+                flex: "0 0 auto",
+              }}
+            >
+              <div>
+                <div style={{ fontSize: 18, fontWeight: 950 }}>
+                  Fiche client {snapshotClientNom}
+                </div>
+                <div style={{ ...styles.muted, fontSize: 13 }}>
+                  Double-clic sur le client depuis le BT
+                </div>
+              </div>
+
+              <button
+                type="button"
+                style={styles.iconCloseBtn}
+                onClick={() => setClientModalOpen(false)}
+                title="Fermer"
+              >
+                ×
+              </button>
+            </div>
+
+            <div
+              style={{
+                flex: "1 1 auto",
+                overflow: "hidden",
+                background: "#f8fafc",
+              }}
+            >
+              <iframe
+                src={`/clients/${resolvedClientId}`}
+                title="Fiche client"
+                onLoad={(e) => hideClientIframeSidebar(e.currentTarget)}
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  border: "none",
+                  display: "block",
+                }}
+              />
             </div>
           </div>
         </div>
