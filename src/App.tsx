@@ -26,6 +26,7 @@ import PneusPage from "./pages/PneusPage";
 import GestionAtelierPage from "./pages/GestionAtelierPage";
 import FacturationBT from "./pages/FacturationBT";
 import FacturesFournisseurs from "./pages/FacturesFournisseurs";
+import RapportFacturationAtelier from "./pages/RapportFacturationAtelier";
 import AutorisationBtClientPage from "./pages/AutorisationBtClientPage";
 
 import DossiersVehiculesPage from "./pages/admin/DossiersVehiculesPage";
@@ -198,6 +199,10 @@ function AppShell({ onLogout }: { onLogout: () => void | Promise<void> }) {
               Facturation Client
             </NavLink>
 
+            <NavLink to="/rapport-facturation-atelier" className={linkClass} onClick={onNavClick}>
+              Rapport facturation atelier
+            </NavLink>
+
             <NavLink to="/factures-fournisseurs" className={linkClass} onClick={onNavClick}>
               Factures fournisseurs
             </NavLink>
@@ -273,6 +278,7 @@ function AppShell({ onLogout }: { onLogout: () => void | Promise<void> }) {
             <Route path="/pep/final" element={<PepFinal />} />
 
             <Route path="/facturation" element={<FacturationBT />} />
+            <Route path="/rapport-facturation-atelier" element={<RapportFacturationAtelier />} />
             <Route path="/factures-fournisseurs" element={<FacturesFournisseurs />} />
 
             <Route path="/parametres-systeme" element={<ParametresSysteme />} />
