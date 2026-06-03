@@ -73,6 +73,7 @@ type Props = {
   isReadOnly: boolean;
   hasKmColumn: boolean;
   clientNoteFacturation?: string | null;
+  onOpenUniteModal?: () => void;
 };
 
 export default function BonTravailHeaderCard({
@@ -90,6 +91,7 @@ export default function BonTravailHeaderCard({
   isReadOnly,
   hasKmColumn,
   clientNoteFacturation,
+  onOpenUniteModal,
 }: Props) {
   const niv = String(unite.niv || "");
   const nivDebut = niv.length > 8 ? niv.slice(0, niv.length - 8) : "";
@@ -156,6 +158,11 @@ export default function BonTravailHeaderCard({
       padding: "12px 14px",
       minWidth: 0,
     },
+    topMetaItemClickable: {
+      cursor: "pointer",
+      transition: "all .15s ease",
+      borderColor: "rgba(37,99,235,.22)",
+    },
     topMetaLabel: {
       fontSize: 11,
       lineHeight: 1.1,
@@ -212,7 +219,18 @@ export default function BonTravailHeaderCard({
 
       <div style={styles.cardMuted}>
         <div style={styles.topMetaGrid}>
-          <div style={styles.topMetaItem}>
+          <div
+            style={{
+              ...styles.topMetaItem,
+              ...(onOpenUniteModal ? styles.topMetaItemClickable : {}),
+            }}
+            onDoubleClick={onOpenUniteModal}
+            title={
+              onOpenUniteModal
+                ? "Double-cliquer pour ouvrir la page unité"
+                : undefined
+            }
+          >
             <div style={styles.topMetaLabel}>Unité</div>
             <div style={styles.topMetaValue}>{unite.no_unite || "—"}</div>
             <div style={styles.topMetaSub}>

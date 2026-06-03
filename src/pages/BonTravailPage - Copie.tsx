@@ -396,6 +396,7 @@ export default function BonTravailPage() {
   const [sendCommentaire, setSendCommentaire] = useState("");
   const [includeBtDocument, setIncludeBtDocument] = useState(true);
   const [includePepDocument, setIncludePepDocument] = useState(false);
+  const [sendMode, setSendMode] = useState<"documents" | "facture">("documents");
   const [documentsLoading, setDocumentsLoading] = useState(false);
   const [uploadingDocuments, setUploadingDocuments] = useState(false);
   const [draggingDocuments, setDraggingDocuments] = useState(false);
@@ -623,6 +624,10 @@ export default function BonTravailPage() {
       (d) => d?.type === "pep" || d?.source === "auto_pep",
     );
   }, [documents]);
+
+  const canSendInvoice = useMemo(() => {
+    return isFacturedStatut(bt?.statut);
+  }, [bt?.statut]);
 
   const currentHeaderSignature = useMemo(() => {
     const rawKm = kmInput.trim();
@@ -2278,8 +2283,54 @@ ${noms}`);
     );
   }
 
+  async function sendInvoiceOnlyToClient() {
+    if (!bt) return;
+
+    if (!sendToEmail.trim()) {
+      alert("Adresse courriel requise.");
+      return;
+    }
+
+    if (!isFacturedStatut(bt.statut)) {
+      alert("Ce BT n'est pas facturé. La facture ne peut pas être renvoyée.");
+      return;
+    }
+
+    setSendingDocuments(true);
+
+    try {
+      const { data, error } = await supabase.functions.invoke(
+        "send-bt-invoice-only",
+        {
+          body: {
+            bt_id: bt.id,
+            to_email: sendToEmail.trim(),
+            to_name: sendToName.trim(),
+            commentaire: sendCommentaire.trim(),
+          },
+        },
+      );
+
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+
+      alert("Facture renvoyée avec succès.");
+      setSendDocsModalOpen(false);
+      setSendCommentaire("");
+    } catch (e: any) {
+      alert(e?.message || "Erreur lors de l'envoi de la facture.");
+    } finally {
+      setSendingDocuments(false);
+    }
+  }
+
   async function sendDocumentsToClient() {
     if (!bt) return;
+
+    if (sendMode === "facture") {
+      await sendInvoiceOnlyToClient();
+      return;
+    }
 
     if (!sendToEmail.trim()) {
       alert("Adresse courriel requise.");
@@ -2718,8 +2769,14 @@ ${noms}`);
                 onClick={() => {
                   setSendToEmail("");
                   setSendToName(snapshotClientNom || "");
-                  setIncludeBtDocument(true);
-                  setIncludePepDocument(pepDocuments.length > 0);
+                  const nextMode = isFacturedStatut(bt?.statut)
+                    ? "facture"
+                    : "documents";
+                  setSendMode(nextMode);
+                  setIncludeBtDocument(nextMode === "documents");
+                  setIncludePepDocument(
+                    nextMode === "documents" && pepDocuments.length > 0,
+                  );
                   setSendCommentaire("");
                   setSelectedClientContactId("");
                   setSendDocsModalOpen(true);
@@ -2755,8 +2812,14 @@ ${noms}`);
                 onClick={() => {
                   setSendToEmail("");
                   setSendToName(snapshotClientNom || "");
-                  setIncludeBtDocument(true);
-                  setIncludePepDocument(pepDocuments.length > 0);
+                  const nextMode = isFacturedStatut(bt?.statut)
+                    ? "facture"
+                    : "documents";
+                  setSendMode(nextMode);
+                  setIncludeBtDocument(nextMode === "documents");
+                  setIncludePepDocument(
+                    nextMode === "documents" && pepDocuments.length > 0,
+                  );
                   setSendCommentaire("");
                   setSelectedClientContactId("");
                   setSendDocsModalOpen(true);
@@ -3070,7 +3133,7 @@ ${noms}`);
             onClick={(e) => e.stopPropagation()}
           >
             <div style={styles.modalHeader}>
-              <h3 style={styles.modalTitle}>Envoyer des documents</h3>
+              <h3 style={styles.modalTitle}>{sendMode === "facture" ? "Renvoyer la facture" : "Envoyer des documents"}</h3>
               <button
                 type="button"
                 style={styles.iconCloseBtn}
@@ -3163,40 +3226,105 @@ ${noms}`);
                   />
                 </div>
 
-                <div>
-                  <div style={{ fontWeight: 800, marginBottom: 8 }}>
-                    Documents à joindre
-                  </div>
+                {canSendInvoice && (
+                  <div>
+                    <div style={{ fontWeight: 800, marginBottom: 8 }}>
+                      Type d'envoi
+                    </div>
 
-                  <div
-                    style={{
-                      display: "grid",
-                      gap: 10,
-                      padding: 14,
-                      border: "1px solid rgba(0,0,0,.08)",
-                      borderRadius: 12,
-                      background: "#f8fafc",
-                    }}
-                  >
-                    <label
+                    <div
                       style={{
-                        display: "flex",
-                        alignItems: "center",
+                        display: "grid",
                         gap: 10,
-                        fontWeight: 700,
-                        cursor: sendingDocuments ? "default" : "pointer",
+                        padding: 14,
+                        border: "1px solid rgba(0,0,0,.08)",
+                        borderRadius: 12,
+                        background: "#f8fafc",
                       }}
                     >
-                      <input
-                        type="checkbox"
-                        checked={includeBtDocument}
-                        onChange={(e) => setIncludeBtDocument(e.target.checked)}
-                        disabled={sendingDocuments}
-                      />
-                      Bon de travail PDF
-                    </label>
+                      <label
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 10,
+                          fontWeight: 800,
+                          cursor: sendingDocuments ? "default" : "pointer",
+                        }}
+                      >
+                        <input
+                          type="radio"
+                          name="send-mode"
+                          checked={sendMode === "facture"}
+                          onChange={() => {
+                            setSendMode("facture");
+                            setIncludeBtDocument(false);
+                            setIncludePepDocument(false);
+                          }}
+                          disabled={sendingDocuments}
+                        />
+                        Facture client seulement
+                      </label>
 
-                    {pepDocuments.length > 0 ? (
+                      <label
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 10,
+                          fontWeight: 800,
+                          cursor: sendingDocuments ? "default" : "pointer",
+                        }}
+                      >
+                        <input
+                          type="radio"
+                          name="send-mode"
+                          checked={sendMode === "documents"}
+                          onChange={() => {
+                            setSendMode("documents");
+                            setIncludeBtDocument(true);
+                            setIncludePepDocument(pepDocuments.length > 0);
+                          }}
+                          disabled={sendingDocuments}
+                        />
+                        Documents du BT
+                      </label>
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <div style={{ fontWeight: 800, marginBottom: 8 }}>
+                    {sendMode === "facture"
+                      ? "Facture à joindre"
+                      : "Documents à joindre"}
+                  </div>
+
+                  {sendMode === "facture" ? (
+                    <div
+                      style={{
+                        display: "grid",
+                        gap: 6,
+                        padding: 14,
+                        border: "1px solid rgba(0,0,0,.08)",
+                        borderRadius: 12,
+                        background: "#f8fafc",
+                      }}
+                    >
+                      <div style={{ fontWeight: 800 }}>Facture PDF</div>
+                      <div style={{ fontSize: 13, color: "#666" }}>
+                        La facture du BT sera générée et renvoyée au client.
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      style={{
+                        display: "grid",
+                        gap: 10,
+                        padding: 14,
+                        border: "1px solid rgba(0,0,0,.08)",
+                        borderRadius: 12,
+                        background: "#f8fafc",
+                      }}
+                    >
                       <label
                         style={{
                           display: "flex",
@@ -3208,20 +3336,42 @@ ${noms}`);
                       >
                         <input
                           type="checkbox"
-                          checked={includePepDocument}
+                          checked={includeBtDocument}
                           onChange={(e) =>
-                            setIncludePepDocument(e.target.checked)
+                            setIncludeBtDocument(e.target.checked)
                           }
                           disabled={sendingDocuments}
                         />
-                        PEP PDF ({pepDocuments.length})
+                        Bon de travail PDF
                       </label>
-                    ) : (
-                      <div style={{ fontSize: 13, color: "#666" }}>
-                        Aucun PEP disponible pour ce BT.
-                      </div>
-                    )}
-                  </div>
+
+                      {pepDocuments.length > 0 ? (
+                        <label
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 10,
+                            fontWeight: 700,
+                            cursor: sendingDocuments ? "default" : "pointer",
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={includePepDocument}
+                            onChange={(e) =>
+                              setIncludePepDocument(e.target.checked)
+                            }
+                            disabled={sendingDocuments}
+                          />
+                          PEP PDF ({pepDocuments.length})
+                        </label>
+                      ) : (
+                        <div style={{ fontSize: 13, color: "#666" }}>
+                          Aucun PEP disponible pour ce BT.
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div>
@@ -3261,7 +3411,7 @@ ${noms}`);
                 onClick={sendDocumentsToClient}
                 disabled={sendingDocuments}
               >
-                {sendingDocuments ? "Envoi..." : "Envoyer"}
+                {sendingDocuments ? "Envoi..." : sendMode === "facture" ? "Renvoyer facture" : "Envoyer"}
               </button>
             </div>
           </div>

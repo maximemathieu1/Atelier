@@ -193,13 +193,25 @@ function MiniPanel({ title, children }: { title: string; children: any }) {
   );
 }
 
-export default function UniteView() {
+type UniteViewProps = {
+  modalMode?: boolean;
+  uniteIdOverride?: string;
+  onCloseModal?: () => void;
+};
+
+export default function UniteView({
+  modalMode = false,
+  uniteIdOverride,
+  onCloseModal,
+}: UniteViewProps = {}) {
   const nav = useNavigate();
-  const { id } = useParams<{ id: string }>();
+  const { id: routeId } = useParams<{ id: string }>();
+  const id = uniteIdOverride || routeId;
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [busy, setBusy] = useState(false);
   const [tab, setTab] = useState<TabKey>("infos");
+  const [modalEditMode, setModalEditMode] = useState(false);
 
   const [u, setU] = useState<Unite | null>(null);
   const [notes, setNotes] = useState<NoteMeca[]>([]);
@@ -266,7 +278,7 @@ export default function UniteView() {
   const [editingKmId, setEditingKmId] = useState<string | null>(null);
   const [editKmValue, setEditKmValue] = useState("");
 
-  const isEditMode = searchParams.get("edit") === "1";
+  const isEditMode = modalMode ? modalEditMode : searchParams.get("edit") === "1";
 
   const title = useMemo(() => {
     if (!u) return "Unité";
@@ -477,12 +489,22 @@ export default function UniteView() {
   }
 
   function openEditMode() {
+    if (modalMode) {
+      setModalEditMode(true);
+      return;
+    }
+
     const next = new URLSearchParams(searchParams);
     next.set("edit", "1");
     setSearchParams(next);
   }
 
   function closeEditMode() {
+    if (modalMode) {
+      setModalEditMode(false);
+      return;
+    }
+
     const next = new URLSearchParams(searchParams);
     next.delete("edit");
     setSearchParams(next);
@@ -594,7 +616,11 @@ export default function UniteView() {
     try {
       const { error } = await supabase.from("unites").delete().eq("id", u.id);
       if (error) throw error;
-      nav("/unites", { replace: true });
+      if (modalMode) {
+        onCloseModal?.();
+      } else {
+        nav("/unites", { replace: true });
+      }
     } catch (e: any) {
       alert(e?.message ?? String(e));
     } finally {
@@ -776,9 +802,11 @@ export default function UniteView() {
         </div>
 
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          <button className="ghost" onClick={() => nav("/unites")} disabled={busy} type="button">
-            Retour
-          </button>
+          {!modalMode && (
+            <button className="ghost" onClick={() => nav("/unites")} disabled={busy} type="button">
+              Retour
+            </button>
+          )}
 
           {!isEditMode ? (
             <button className="btn-primary" onClick={openEditMode} disabled={busy} type="button">
