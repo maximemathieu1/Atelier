@@ -12,6 +12,8 @@ type Unite = {
   km_actuel: number | null;
   statut: string;
   client_id?: string | null;
+  niv?: string | null;
+  plaque?: string | null;
 };
 
 type Client = {
@@ -203,7 +205,7 @@ export default function BTListe() {
       ] = await Promise.all([
         supabase
           .from("unites")
-          .select("id,no_unite,marque,modele,annee,km_actuel,statut,client_id")
+          .select("id,no_unite,marque,modele,annee,km_actuel,statut,client_id,niv,plaque")
           .order("no_unite", { ascending: true }),
         supabase
           .from("bons_travail")
@@ -356,6 +358,9 @@ export default function BTListe() {
         statutLabel(bt.statut || ""),
         bt.statut || "",
         u?.no_unite || "",
+        u?.niv || "",
+        u?.niv ? String(u.niv).slice(-8) : "",
+        u?.plaque || "",
         client,
         String((bt as any).km ?? (bt as any).kilometrage ?? ""),
         String(totalPiecesAtelier),
@@ -433,6 +438,9 @@ export default function BTListe() {
         const client = resolveUnitClientName(u);
         const haystack = [
           u.no_unite || "",
+          u.niv || "",
+          u.niv ? String(u.niv).slice(-8) : "",
+          u.plaque || "",
           u.marque || "",
           u.modele || "",
           u.annee ? String(u.annee) : "",
@@ -1046,7 +1054,7 @@ return (
     <div style={styles.toolbarCard}>
       <input
         style={styles.searchInput}
-        placeholder="Recherche BT, unité, client, statut, kilométrage..."
+        placeholder="Recherche BT, unité, NIV, 8 derniers série, plaque, client..."
         value={q}
         onChange={(e) => setQ(e.target.value)}
       />
