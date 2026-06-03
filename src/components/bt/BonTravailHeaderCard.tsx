@@ -91,7 +91,25 @@ export default function BonTravailHeaderCard({
   hasKmColumn,
   clientNoteFacturation,
 }: Props) {
+  const niv = String(unite.niv || "");
+  const nivDebut = niv.length > 8 ? niv.slice(0, niv.length - 8) : "";
+  const nivFin = niv.length > 8 ? niv.slice(-8) : niv;
+
   const styles: Record<string, CSSProperties> = {
+    stickyBtBar: {
+      position: "sticky",
+      top: 8,
+      zIndex: 120,
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 10,
+      background: "#fff",
+      border: "1px solid rgba(0,0,0,.10)",
+      borderRadius: 999,
+      padding: "8px 12px",
+      boxShadow: "0 6px 18px rgba(0,0,0,.08)",
+      marginBottom: 10,
+    },
     cardMuted: {
       background: "#fff",
       border: "1px solid rgba(0,0,0,.08)",
@@ -130,7 +148,6 @@ export default function BonTravailHeaderCard({
       display: "grid",
       gridTemplateColumns: "repeat(4, minmax(180px, 1fr))",
       gap: 12,
-      marginTop: 14,
     },
     topMetaItem: {
       border: "1px solid rgba(0,0,0,.06)",
@@ -182,108 +199,131 @@ export default function BonTravailHeaderCard({
   };
 
   return (
-    <div style={styles.cardMuted}>
-      <div style={{ ...styles.row, justifyContent: "space-between" }}>
-        <div style={styles.row}>
-          <div style={{ fontSize: 18, fontWeight: 950 }}>
-            {bt.numero || (bt as any).no_bt || "(BT)"}
-          </div>
-          <StatutBadge statut={bt.statut} />
-          {Boolean(bt.verrouille) && <span style={styles.pill}>Verrouillé</span>}
+    <>
+      <div className="no-print" style={styles.stickyBtBar}>
+        <div style={{ fontSize: 18, fontWeight: 950 }}>
+          {bt.numero || (bt as any).no_bt || "(BT)"}
         </div>
+
+        <StatutBadge statut={bt.statut} />
+
+        {Boolean(bt.verrouille) && <span style={styles.pill}>Verrouillé</span>}
       </div>
 
-      <div style={styles.topMetaGrid}>
-        <div style={styles.topMetaItem}>
-          <div style={styles.topMetaLabel}>Unité</div>
-          <div style={styles.topMetaValue}>{unite.no_unite || "—"}</div>
-          <div style={styles.topMetaSub}>
-            {[unite.marque, unite.modele, unite.annee].filter(Boolean).join(" ") || "—"}
+      <div style={styles.cardMuted}>
+        <div style={styles.topMetaGrid}>
+          <div style={styles.topMetaItem}>
+            <div style={styles.topMetaLabel}>Unité</div>
+            <div style={styles.topMetaValue}>{unite.no_unite || "—"}</div>
+            <div style={styles.topMetaSub}>
+              {[unite.marque, unite.modele, unite.annee]
+                .filter(Boolean)
+                .join(" ") || "—"}
+            </div>
+          </div>
+
+          <div style={styles.topMetaItem}>
+            <div style={styles.topMetaLabel}>VIN / NIV</div>
+            <div style={styles.topMetaValue}>
+              {niv ? (
+                <>
+                  <span>{nivDebut}</span>
+                  <span
+                    style={{
+                      color: "#6b7280",
+                      fontWeight: 900,
+                      letterSpacing: "0.03em",
+                    }}
+                  >
+                    {nivFin}
+                  </span>
+                </>
+              ) : (
+                "—"
+              )}
+            </div>
+          </div>
+
+          <div style={styles.topMetaItem}>
+            <div style={styles.topMetaLabel}>Plaque</div>
+            <div style={styles.topMetaValue}>{unite.plaque || "—"}</div>
+          </div>
+
+          <div style={styles.topMetaItem}>
+            <div style={styles.topMetaLabel}>Client</div>
+            <div style={styles.topMetaValue}>{snapshotClientNom}</div>
           </div>
         </div>
 
-        <div style={styles.topMetaItem}>
-          <div style={styles.topMetaLabel}>VIN / NIV</div>
-          <div style={styles.topMetaValue}>{unite.niv || "—"}</div>
-        </div>
+        <div style={styles.topFormGrid}>
+          <div style={styles.topField}>
+            <div style={styles.topFieldLabel}>Date d’ouverture</div>
+            <input
+              type="datetime-local"
+              style={{ ...styles.input, width: "100%", minWidth: 0 }}
+              value={dateOuvertureInput}
+              onChange={(e) => setDateOuvertureInput(e.target.value)}
+              disabled={isReadOnly}
+            />
+          </div>
 
-        <div style={styles.topMetaItem}>
-          <div style={styles.topMetaLabel}>Plaque</div>
-          <div style={styles.topMetaValue}>{unite.plaque || "—"}</div>
-        </div>
+          <div style={styles.topField}>
+            <div style={styles.topFieldLabel}>Date de fermeture</div>
+            <input
+              type="datetime-local"
+              style={{ ...styles.input, width: "100%", minWidth: 0 }}
+              value={dateFermetureInput}
+              onChange={(e) => setDateFermetureInput(e.target.value)}
+              disabled={isReadOnly}
+            />
+          </div>
 
-        <div style={styles.topMetaItem}>
-          <div style={styles.topMetaLabel}>Client</div>
-          <div style={styles.topMetaValue}>{snapshotClientNom}</div>
-        </div>
-      </div>
+          <div style={styles.topField}>
+            <div style={styles.topFieldLabel}>KM actuel BT</div>
+            <input
+              style={{ ...styles.input, width: "100%", minWidth: 0 }}
+              inputMode="numeric"
+              placeholder="Ex: 123456"
+              value={kmInput}
+              onChange={(e) => setKmInput(e.target.value)}
+              disabled={isReadOnly || !hasKmColumn}
+            />
+          </div>
 
-      <div style={styles.topFormGrid}>
-        <div style={styles.topField}>
-          <div style={styles.topFieldLabel}>Date d’ouverture</div>
-          <input
-            type="datetime-local"
-            style={{ ...styles.input, width: "100%", minWidth: 0 }}
-            value={dateOuvertureInput}
-            onChange={(e) => setDateOuvertureInput(e.target.value)}
-            disabled={isReadOnly}
-          />
-        </div>
-
-        <div style={styles.topField}>
-          <div style={styles.topFieldLabel}>Date de fermeture</div>
-          <input
-            type="datetime-local"
-            style={{ ...styles.input, width: "100%", minWidth: 0 }}
-            value={dateFermetureInput}
-            onChange={(e) => setDateFermetureInput(e.target.value)}
-            disabled={isReadOnly}
-          />
-        </div>
-
-        <div style={styles.topField}>
-          <div style={styles.topFieldLabel}>KM actuel BT</div>
-          <input
-            style={{ ...styles.input, width: "100%", minWidth: 0 }}
-            inputMode="numeric"
-            placeholder="Ex: 123456"
-            value={kmInput}
-            onChange={(e) => setKmInput(e.target.value)}
-            disabled={isReadOnly || !hasKmColumn}
-          />
-        </div>
-
-        <div style={styles.topField}>
-          <div style={styles.topFieldLabel}>Bon de commande / PO</div>
-          <input
-            style={{ ...styles.input, width: "100%", minWidth: 0 }}
-            placeholder="Ex: PO-12345"
-            value={poInput}
-            onChange={(e) => setPoInput(e.target.value)}
-            disabled={isReadOnly}
-          />
-        </div>
-      </div>
-
-      {clientNoteFacturation ? (
-        <div style={styles.warn}>
-          Note facturation client : <b>{clientNoteFacturation}</b>
-        </div>
-      ) : null}
-
-      {!hasKmColumn && (
-        <div style={styles.warn}>
-          ⚠️ La colonne <b>bons_travail.km</b> n’existe pas encore. Ajoute-la avec :
-          <div
-            style={{
-              marginTop: 6,
-              fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-            }}
-          >
-            alter table public.bons_travail add column if not exists km integer null;
+          <div style={styles.topField}>
+            <div style={styles.topFieldLabel}>Bon de commande / PO</div>
+            <input
+              style={{ ...styles.input, width: "100%", minWidth: 0 }}
+              placeholder="Ex: PO-12345"
+              value={poInput}
+              onChange={(e) => setPoInput(e.target.value)}
+              disabled={isReadOnly}
+            />
           </div>
         </div>
-      )}
-    </div>
+
+        {clientNoteFacturation ? (
+          <div style={styles.warn}>
+            Note facturation client : <b>{clientNoteFacturation}</b>
+          </div>
+        ) : null}
+
+        {!hasKmColumn && (
+          <div style={styles.warn}>
+            ⚠️ La colonne <b>bons_travail.km</b> n’existe pas encore. Ajoute-la
+            avec :
+            <div
+              style={{
+                marginTop: 6,
+                fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+              }}
+            >
+              alter table public.bons_travail add column if not exists km
+              integer null;
+            </div>
+          </div>
+        )}
+      </div>
+    </>
   );
 }
