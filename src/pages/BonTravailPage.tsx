@@ -33,6 +33,10 @@ type Client = {
   nom: string;
 };
 
+type UniteChoice = Unite & {
+  client_nom?: string | null;
+};
+
 type ClientContact = {
   id: string;
   nom: string | null;
@@ -84,6 +88,8 @@ type BonTravail = {
   total_tps?: number | null;
   total_tvq?: number | null;
   total_final?: number | null;
+  ancienne_unite_id?: string | null;
+  unite_change_log?: any[] | null;
 };
 
 type ParametresEntreprise = {
@@ -100,6 +106,7 @@ type NoteMeca = {
   entretien_template_item_id?: string | null;
   entretien_unite_item_id?: string | null;
   entretien_auto?: boolean | null;
+  bt_source_id?: string | null;
 };
 
 type TacheEffectuee = {
@@ -303,48 +310,6 @@ function formatDateOnly(value: string | null | undefined) {
   }).format(d);
 }
 
-function hideClientIframeSidebar(iframe: HTMLIFrameElement | null) {
-  if (!iframe) return;
-
-  try {
-    const doc = iframe.contentDocument || iframe.contentWindow?.document;
-    if (!doc?.head) return;
-
-    const styleId = "client-modal-hide-sidebar-style";
-    if (doc.getElementById(styleId)) return;
-
-    const style = doc.createElement("style");
-    style.id = styleId;
-    style.innerHTML = `
-      .sidebar,
-      .drawer-backdrop,
-      .mobile-topbar {
-        display: none !important;
-      }
-
-      .app-shell {
-        display: block !important;
-      }
-
-      .content,
-      main.content {
-        margin-left: 0 !important;
-        width: 100% !important;
-        max-width: none !important;
-        padding-left: 0 !important;
-      }
-
-      body {
-        overflow: auto !important;
-      }
-    `;
-
-    doc.head.appendChild(style);
-  } catch (e) {
-    console.warn("Impossible de masquer le menu dans le iframe client", e);
-  }
-}
-
 export default function BonTravailPage() {
   const { id } = useParams();
   const nav = useNavigate();
@@ -439,12 +404,20 @@ export default function BonTravailPage() {
   const [sendCommentaire, setSendCommentaire] = useState("");
   const [includeBtDocument, setIncludeBtDocument] = useState(true);
   const [includePepDocument, setIncludePepDocument] = useState(false);
-  const [sendMode, setSendMode] = useState<"documents" | "facture">("documents");
+  const [sendMode, setSendMode] = useState<"documents" | "facture">(
+    "documents",
+  );
   const [documentsLoading, setDocumentsLoading] = useState(false);
   const [uploadingDocuments, setUploadingDocuments] = useState(false);
   const [draggingDocuments, setDraggingDocuments] = useState(false);
   const [uniteModalOpen, setUniteModalOpen] = useState(false);
   const [clientModalOpen, setClientModalOpen] = useState(false);
+  const [changeUniteModalOpen, setChangeUniteModalOpen] = useState(false);
+  const [unitSearch, setUnitSearch] = useState("");
+  const [unitChoices, setUnitChoices] = useState<UniteChoice[]>([]);
+  const [selectedNewUniteId, setSelectedNewUniteId] = useState("");
+  const [unitSearchLoading, setUnitSearchLoading] = useState(false);
+  const [changingUnite, setChangingUnite] = useState(false);
 
   const selectedIds = useMemo(() => {
     return selectedOrder.filter((id) => selected[id]);
@@ -809,6 +782,175 @@ export default function BonTravailPage() {
     } catch (e) {
       console.error("Erreur chargement contacts client:", e);
       setClientContacts([]);
+    }
+  }
+
+  async function loadUnitChoices(searchValue = unitSearch) {
+    setUnitSearchLoading(true);
+
+    try {
+      const term = searchValue.trim();
+
+      let query = supabase
+        .from("unites")
+        .select(
+          "id,no_unite,marque,modele,annee,km_actuel,statut,niv,plaque,client_id,type_unite_id",
+        )
+        .order("no_unite", { ascending: true })
+        .limit(60);
+
+      if (term) {
+        const safe = term.replace(/[%_]/g, "");
+        query = query.or(
+          `no_unite.ilike.%${safe}%,marque.ilike.%${safe}%,modele.ilike.%${safe}%,niv.ilike.%${safe}%,plaque.ilike.%${safe}%`,
+        );
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+
+      const rawUnits = (data || []) as UniteChoice[];
+      const clientIds = Array.from(
+        new Set(rawUnits.map((u) => u.client_id).filter(Boolean) as string[]),
+      );
+
+      let clientsMap: Record<string, string> = {};
+
+      if (clientIds.length > 0) {
+        const { data: clientsData, error: clientsError } = await supabase
+          .from("clients")
+          .select("id,nom")
+          .in("id", clientIds);
+
+        if (clientsError) throw clientsError;
+
+        clientsMap = Object.fromEntries(
+          ((clientsData || []) as Client[]).map((c) => [c.id, c.nom]),
+        );
+      }
+
+      setUnitChoices(
+        rawUnits.map((u) => ({
+          ...u,
+          client_nom: u.client_id ? clientsMap[u.client_id] || null : null,
+        })),
+      );
+    } catch (e: any) {
+      alert(e?.message || "Erreur chargement des unités.");
+      setUnitChoices([]);
+    } finally {
+      setUnitSearchLoading(false);
+    }
+  }
+
+  function openChangeUniteModal() {
+    if (!bt || !unite) return;
+
+    if (isReadOnly) {
+      alert("BT fermé / verrouillé / facturé : impossible de changer l'unité.");
+      return;
+    }
+
+    setUnitSearch("");
+    setSelectedNewUniteId("");
+    setChangeUniteModalOpen(true);
+    void loadUnitChoices("");
+  }
+
+  async function confirmChangeUnite(forcedUniteId?: string) {
+    const targetUniteId = forcedUniteId || selectedNewUniteId;
+    if (!bt || !unite || !targetUniteId) return;
+
+    if (isReadOnly) {
+      alert("BT fermé / verrouillé / facturé : impossible de changer l'unité.");
+      return;
+    }
+
+    const newUnit = unitChoices.find((u) => u.id === targetUniteId);
+    if (!newUnit) {
+      alert("Sélectionne une unité.");
+      return;
+    }
+
+    if (newUnit.id === unite.id) {
+      setChangeUniteModalOpen(false);
+      return;
+    }
+
+    const ok = window.confirm(
+      `Changer l'unité de ${bt.numero || "ce BT"} ?\n\nAncienne unité : ${unite.no_unite || "—"}\nNouvelle unité : ${newUnit.no_unite || "—"}\n\nLes tâches ouvertes créées dans ce BT suivront la nouvelle unité. Les historiques et anciennes tâches resteront sur leur unité d'origine.`,
+    );
+
+    if (!ok) return;
+
+    setChangingUnite(true);
+
+    try {
+      let newClient: Client | null = null;
+
+      if (newUnit.client_id) {
+        const { data: clientData, error: clientError } = await supabase
+          .from("clients")
+          .select("id,nom")
+          .eq("id", newUnit.client_id)
+          .maybeSingle();
+
+        if (clientError) throw clientError;
+        if (clientData) newClient = clientData as Client;
+      }
+
+      const currentLog = Array.isArray(bt.unite_change_log)
+        ? bt.unite_change_log
+        : [];
+
+      const logEntry = {
+        at: new Date().toISOString(),
+        bt_id: bt.id,
+        old_unite_id: unite.id,
+        old_unite_no: unite.no_unite || null,
+        new_unite_id: newUnit.id,
+        new_unite_no: newUnit.no_unite || null,
+        old_client_id: bt.client_id || unite.client_id || null,
+        old_client_nom: bt.client_nom || client?.nom || null,
+        new_client_id: newUnit.client_id || null,
+        new_client_nom: newClient?.nom || null,
+      };
+
+      const { error: btError } = await supabase
+        .from("bons_travail")
+        .update({
+          unite_id: newUnit.id,
+          client_id: newUnit.client_id || null,
+          client_nom: newClient?.nom || null,
+          ancienne_unite_id: bt.ancienne_unite_id || unite.id,
+          unite_change_log: [...currentLog, logEntry],
+        })
+        .eq("id", bt.id);
+
+      if (btError) throw btError;
+
+      const { error: notesError } = await supabase
+        .from("unite_notes")
+        .update({ unite_id: newUnit.id })
+        .eq("bt_source_id", bt.id)
+        .eq("statut", "ouverte")
+        .is("entretien_template_item_id", null)
+        .is("entretien_unite_item_id", null);
+
+      if (notesError) throw notesError;
+
+      await Promise.allSettled([
+        supabase.rpc("sync_entretien_due_tasks", { p_unite_id: unite.id }),
+        supabase.rpc("sync_entretien_due_tasks", { p_unite_id: newUnit.id }),
+      ]);
+
+      setChangeUniteModalOpen(false);
+      setSelectedNewUniteId("");
+      await loadAll();
+    } catch (e: any) {
+      alert(e?.message || "Erreur lors du changement d'unité.");
+    } finally {
+      setChangingUnite(false);
     }
   }
 
@@ -1506,7 +1648,7 @@ export default function BonTravailPage() {
       const { data: nData, error: eN } = await supabase
         .from("unite_notes")
         .select(
-          "id,unite_id,titre,details,created_at,entretien_template_item_id,entretien_unite_item_id,entretien_auto",
+          "id,unite_id,titre,details,created_at,entretien_template_item_id,entretien_unite_item_id,entretien_auto,bt_source_id",
         )
         .eq("unite_id", btRow.unite_id)
         .order("created_at", { ascending: true });
@@ -1644,6 +1786,7 @@ export default function BonTravailPage() {
       unite_id: bt.unite_id,
       titre,
       details: null,
+      bt_source_id: bt.id,
     }));
 
     const { error } = await supabase.from("unite_notes").insert(rows);
@@ -1917,13 +2060,14 @@ export default function BonTravailPage() {
     }
 
     const { error: insErr } = await supabase.from("unite_notes").insert({
-      unite_id: t.unite_id,
-      titre: t.titre,
-      details: t.details,
-      entretien_template_item_id: t.entretien_template_item_id ?? null,
-      entretien_unite_item_id: t.entretien_unite_item_id ?? null,
-      entretien_auto: Boolean(t.entretien_auto),
-    });
+  unite_id: bt?.unite_id ?? t.unite_id,
+  titre: t.titre,
+  details: t.details,
+  entretien_template_item_id: t.entretien_template_item_id ?? null,
+  entretien_unite_item_id: t.entretien_unite_item_id ?? null,
+  entretien_auto: Boolean(t.entretien_auto),
+  bt_source_id: bt?.id ?? null,
+});
 
     if (insErr) {
       alert(insErr.message);
@@ -2055,10 +2199,6 @@ ${noms}`);
       setCloseDateModalOpen(false);
       setPendingCloseMode(null);
       await loadAll();
-
-      setTimeout(() => {
-        nav(-1);
-      }, 0);
     } catch (e: any) {
       alert(e?.message || "Erreur fermeture BT");
     } finally {
@@ -2950,6 +3090,7 @@ ${noms}`);
                 onOpenClientModal={() => {
                   if (resolvedClientId) setClientModalOpen(true);
                 }}
+                onChangeUnite={openChangeUniteModal}
               />
 
               <BonTravailOperations
@@ -3191,7 +3332,11 @@ ${noms}`);
             onClick={(e) => e.stopPropagation()}
           >
             <div style={styles.modalHeader}>
-              <h3 style={styles.modalTitle}>{sendMode === "facture" ? "Renvoyer la facture" : "Envoyer des documents"}</h3>
+              <h3 style={styles.modalTitle}>
+                {sendMode === "facture"
+                  ? "Renvoyer la facture"
+                  : "Envoyer des documents"}
+              </h3>
               <button
                 type="button"
                 style={styles.iconCloseBtn}
@@ -3469,7 +3614,11 @@ ${noms}`);
                 onClick={sendDocumentsToClient}
                 disabled={sendingDocuments}
               >
-                {sendingDocuments ? "Envoi..." : sendMode === "facture" ? "Renvoyer facture" : "Envoyer"}
+                {sendingDocuments
+                  ? "Envoi..."
+                  : sendMode === "facture"
+                    ? "Renvoyer facture"
+                    : "Envoyer"}
               </button>
             </div>
           </div>
@@ -3837,7 +3986,6 @@ ${noms}`);
           </div>
         </div>
       )}
-
       {uniteModalOpen && unite && (
         <div
           className="no-print"
@@ -3979,21 +4127,281 @@ ${noms}`);
               }}
             >
               <iframe
-                src={`/clients/${resolvedClientId}`}
-                title="Fiche client"
-                onLoad={(e) => hideClientIframeSidebar(e.currentTarget)}
-                style={{
-                  width: "100%",
-                  height: "100%",
-                  border: "none",
-                  display: "block",
-                }}
-              />
+  src={`/clients/${resolvedClientId}`}
+  title="Fiche client"
+  onLoad={(e) => {
+    try {
+      const doc = e.currentTarget.contentDocument;
+      if (!doc) return;
+
+      const style = doc.createElement("style");
+      style.innerHTML = `
+        aside,
+        nav,
+        .sidebar,
+        [data-sidebar],
+        .app-sidebar {
+          display: none !important;
+        }
+
+        main,
+        .main,
+        .content,
+        .app-content {
+          margin-left: 0 !important;
+          width: 100% !important;
+          max-width: none !important;
+        }
+      `;
+      doc.head.appendChild(style);
+    } catch {}
+  }}
+  style={{
+    width: "100%",
+    height: "100%",
+    border: "none",
+    display: "block",
+  }}
+/>
             </div>
           </div>
         </div>
       )}
 
+      {changeUniteModalOpen && bt && unite && (
+        <div
+          className="no-print"
+          style={styles.modalBackdrop}
+          onClick={() => {
+            if (!changingUnite) setChangeUniteModalOpen(false);
+          }}
+        >
+          <div
+            style={{ ...styles.modalCard, maxWidth: 920 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={styles.modalHeader}>
+              <h3 style={styles.modalTitle}>Changer l'unité du BT</h3>
+              <button
+                type="button"
+                style={styles.iconCloseBtn}
+                onClick={() => setChangeUniteModalOpen(false)}
+                disabled={changingUnite}
+              >
+                ×
+              </button>
+            </div>
+
+            <div style={styles.modalBody}>
+              <div
+                style={{
+                  background: "#f8fafc",
+                  border: "1px solid rgba(0,0,0,.08)",
+                  borderRadius: 12,
+                  padding: 12,
+                  marginBottom: 12,
+                  fontWeight: 800,
+                }}
+              >
+                BT : {bt.numero || "—"} • Unité actuelle :{" "}
+                {unite.no_unite || "—"}
+              </div>
+
+              <div style={{ ...styles.row, alignItems: "stretch" }}>
+                <input
+                  style={{ ...styles.input, flex: 1, minWidth: 260 }}
+                  placeholder="Rechercher par unité, plaque, NIV, marque..."
+                  value={unitSearch}
+                  onChange={(e) => setUnitSearch(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void loadUnitChoices(unitSearch);
+                  }}
+                  disabled={changingUnite}
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  style={styles.btnPrimary}
+                  onClick={() => void loadUnitChoices(unitSearch)}
+                  disabled={changingUnite || unitSearchLoading}
+                >
+                  {unitSearchLoading ? "Recherche..." : "Rechercher"}
+                </button>
+              </div>
+
+              <div
+                style={{
+                  marginTop: 14,
+                  border: "1px solid rgba(0,0,0,.08)",
+                  borderRadius: 12,
+                  overflow: "hidden",
+                  maxHeight: 420,
+                  overflowY: "auto",
+                }}
+              >
+                {unitChoices.length === 0 ? (
+                  <div
+                    style={{
+                      padding: 16,
+                      color: "rgba(0,0,0,.6)",
+                      fontWeight: 700,
+                    }}
+                  >
+                    Aucune unité à afficher.
+                  </div>
+                ) : (
+                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                    <thead>
+                      <tr style={{ background: "#f8fafc" }}>
+                        <th
+                          style={{
+                            textAlign: "left",
+                            padding: "10px 12px",
+                            borderBottom: "1px solid #e5e7eb",
+                          }}
+                        >
+                          Unité
+                        </th>
+                        <th
+                          style={{
+                            textAlign: "left",
+                            padding: "10px 12px",
+                            borderBottom: "1px solid #e5e7eb",
+                          }}
+                        >
+                          Véhicule
+                        </th>
+                        <th
+                          style={{
+                            textAlign: "left",
+                            padding: "10px 12px",
+                            borderBottom: "1px solid #e5e7eb",
+                          }}
+                        >
+                          Plaque / NIV
+                        </th>
+                        <th
+                          style={{
+                            textAlign: "left",
+                            padding: "10px 12px",
+                            borderBottom: "1px solid #e5e7eb",
+                          }}
+                        >
+                          Client
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {unitChoices.map((u) => {
+                        const active = selectedNewUniteId === u.id;
+                        const same = u.id === unite.id;
+
+                        return (
+                          <tr
+                            key={u.id}
+                            onClick={() => {
+                              if (!same) setSelectedNewUniteId(u.id);
+                            }}
+                            onDoubleClick={() => {
+                              if (!same) {
+                                setSelectedNewUniteId(u.id);
+                                void confirmChangeUnite(u.id);
+                              }
+                            }}
+                            style={{
+                              cursor: same ? "not-allowed" : "pointer",
+                              background: same
+                                ? "#f3f4f6"
+                                : active
+                                  ? "#eff6ff"
+                                  : "#fff",
+                              opacity: same ? 0.62 : 1,
+                            }}
+                          >
+                            <td
+                              style={{
+                                padding: "10px 12px",
+                                borderBottom: "1px solid #eef2f7",
+                                fontWeight: 950,
+                              }}
+                            >
+                              {u.no_unite || "—"}
+                              {same ? (
+                                <span
+                                  style={{
+                                    marginLeft: 8,
+                                    fontSize: 12,
+                                    color: "#64748b",
+                                  }}
+                                >
+                                  actuelle
+                                </span>
+                              ) : null}
+                            </td>
+                            <td
+                              style={{
+                                padding: "10px 12px",
+                                borderBottom: "1px solid #eef2f7",
+                              }}
+                            >
+                              {[u.marque, u.modele, u.annee]
+                                .filter(Boolean)
+                                .join(" ") || "—"}
+                            </td>
+                            <td
+                              style={{
+                                padding: "10px 12px",
+                                borderBottom: "1px solid #eef2f7",
+                              }}
+                            >
+                              <div>{u.plaque || "—"}</div>
+                              <div
+                                style={{
+                                  fontSize: 12,
+                                  color: "rgba(0,0,0,.55)",
+                                }}
+                              >
+                                {u.niv || "—"}
+                              </div>
+                            </td>
+                            <td
+                              style={{
+                                padding: "10px 12px",
+                                borderBottom: "1px solid #eef2f7",
+                              }}
+                            >
+                              {u.client_nom || "—"}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+
+            <div style={styles.modalFooter}>
+              <button
+                type="button"
+                style={styles.btnDanger}
+                onClick={() => setChangeUniteModalOpen(false)}
+                disabled={changingUnite}
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                style={styles.btnPrimary}
+                onClick={() => void confirmChangeUnite()}
+                disabled={!selectedNewUniteId || changingUnite}
+              >
+                {changingUnite ? "Changement..." : "Confirmer"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

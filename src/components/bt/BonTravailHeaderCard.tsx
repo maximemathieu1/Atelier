@@ -75,6 +75,7 @@ type Props = {
   clientNoteFacturation?: string | null;
   onOpenUniteModal?: () => void;
   onOpenClientModal?: () => void;
+  onChangeUnite?: () => void;
 };
 
 export default function BonTravailHeaderCard({
@@ -94,6 +95,7 @@ export default function BonTravailHeaderCard({
   clientNoteFacturation,
   onOpenUniteModal,
   onOpenClientModal,
+  onChangeUnite,
 }: Props) {
   const niv = String(unite.niv || "");
   const nivDebut = niv.length > 8 ? niv.slice(0, niv.length - 8) : "";
@@ -205,6 +207,16 @@ export default function BonTravailHeaderCard({
       fontWeight: 800,
       marginBottom: 8,
     },
+    changeUnitBtn: {
+      border: "none",
+      background: "transparent",
+      color: "#9ca3af",
+      fontSize: 11,
+      fontWeight: 700,
+      cursor: "pointer",
+      padding: 0,
+      lineHeight: 1,
+    },
   };
 
   return (
@@ -233,7 +245,31 @@ export default function BonTravailHeaderCard({
                 : undefined
             }
           >
-            <div style={styles.topMetaLabel}>Unité</div>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: 8,
+              }}
+            >
+              <div style={{ ...styles.topMetaLabel, marginBottom: 8 }}>Unité</div>
+
+              {!isReadOnly && onChangeUnite && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onChangeUnite();
+                  }}
+                  title="Changer l'unité"
+                  style={styles.changeUnitBtn}
+                >
+                  Changer
+                </button>
+              )}
+            </div>
+
             <div style={styles.topMetaValue}>{unite.no_unite || "—"}</div>
             <div style={styles.topMetaSub}>
               {[unite.marque, unite.modele, unite.annee]

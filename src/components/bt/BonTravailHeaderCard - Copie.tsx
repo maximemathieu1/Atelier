@@ -74,6 +74,7 @@ type Props = {
   hasKmColumn: boolean;
   clientNoteFacturation?: string | null;
   onOpenUniteModal?: () => void;
+  onOpenClientModal?: () => void;
 };
 
 export default function BonTravailHeaderCard({
@@ -92,6 +93,7 @@ export default function BonTravailHeaderCard({
   hasKmColumn,
   clientNoteFacturation,
   onOpenUniteModal,
+  onOpenClientModal,
 }: Props) {
   const niv = String(unite.niv || "");
   const nivDebut = niv.length > 8 ? niv.slice(0, niv.length - 8) : "";
@@ -160,8 +162,8 @@ export default function BonTravailHeaderCard({
     },
     topMetaItemClickable: {
       cursor: "pointer",
-      transition: "all .15s ease",
       borderColor: "rgba(37,99,235,.22)",
+      transition: "all .15s ease",
     },
     topMetaLabel: {
       fontSize: 11,
@@ -227,7 +229,7 @@ export default function BonTravailHeaderCard({
             onDoubleClick={onOpenUniteModal}
             title={
               onOpenUniteModal
-                ? "Double-cliquer pour ouvrir la page unité"
+                ? "Double-cliquer pour ouvrir la fiche unité"
                 : undefined
             }
           >
@@ -267,7 +269,18 @@ export default function BonTravailHeaderCard({
             <div style={styles.topMetaValue}>{unite.plaque || "—"}</div>
           </div>
 
-          <div style={styles.topMetaItem}>
+          <div
+            style={{
+              ...styles.topMetaItem,
+              ...(onOpenClientModal ? styles.topMetaItemClickable : {}),
+            }}
+            onDoubleClick={onOpenClientModal}
+            title={
+              onOpenClientModal
+                ? "Double-cliquer pour ouvrir la fiche client"
+                : undefined
+            }
+          >
             <div style={styles.topMetaLabel}>Client</div>
             <div style={styles.topMetaValue}>{snapshotClientNom}</div>
           </div>
