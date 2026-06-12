@@ -20,6 +20,11 @@ type UniteRow = {
   no_unite: string | null;
 };
 
+type ParametresEntrepriseRow = {
+  tps_rate: number | string | null;
+  tvq_rate: number | string | null;
+};
+
 function money(v: number) {
   return new Intl.NumberFormat("fr-CA", {
     style: "currency",
@@ -32,6 +37,11 @@ function fmtDate(v: string | null) {
   const d = new Date(v);
   if (Number.isNaN(d.getTime())) return "—";
   return d.toLocaleDateString("fr-CA");
+}
+
+function toRate(v: number | string | null | undefined, fallback: number) {
+  const n = Number(String(v ?? fallback).replace(",", "."));
+  return Number.isFinite(n) ? n : fallback;
 }
 
 function hideIframeSidebar(iframe: HTMLIFrameElement | null) {
@@ -83,6 +93,9 @@ export default function RapportFacturationAtelier() {
   const [annee, setAnnee] = useState(now.getFullYear());
   const [compagnieFilter, setCompagnieFilter] = useState("toutes");
 
+  const [tpsRate, setTpsRate] = useState(0.05);
+  const [tvqRate, setTvqRate] = useState(0.09975);
+
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [rows, setRows] = useState<BtRow[]>([]);
@@ -94,6 +107,21 @@ export default function RapportFacturationAtelier() {
     setErr(null);
 
     try {
+      const { data: paramData, error: paramError } = await supabase
+        .from("parametres_entreprise")
+        .select("tps_rate,tvq_rate")
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (paramError) throw paramError;
+
+      if (paramData) {
+        const p = paramData as ParametresEntrepriseRow;
+        setTpsRate(toRate(p.tps_rate, 0.05));
+        setTvqRate(toRate(p.tvq_rate, 0.09975));
+      }
+
       const start = `${annee}-${String(mois).padStart(2, "0")}-01T04:00:00.000Z`;
       const end = new Date(Date.UTC(annee, mois, 1, 4, 0, 0, 0)).toISOString();
 
@@ -200,6 +228,8 @@ export default function RapportFacturationAtelier() {
     );
   }, [filteredRows]);
 
+  const totalTaxesIncluses = totals.total * (1 + tpsRate + tvqRate);
+
   const styles: Record<string, CSSProperties> = {
     page: { padding: 20, background: "#f5f7fb", minHeight: "100%" },
     top: {
@@ -289,7 +319,7 @@ export default function RapportFacturationAtelier() {
       borderRadius: 18,
       padding: 18,
       display: "grid",
-      gridTemplateColumns: "repeat(3, minmax(180px, 1fr))",
+      gridTemplateColumns: "repeat(4, minmax(180px, 1fr))",
       gap: 14,
     },
     totalLabel: {
@@ -386,19 +416,18 @@ export default function RapportFacturationAtelier() {
           </select>
 
           <select
-  style={styles.select}
-  value={annee}
-  onChange={(e) => setAnnee(Number(e.target.value))}
->
-  {Array.from(
-    { length: 5 },
-    (_, i) => now.getFullYear() - 4 + i,
-  ).map((y) => (
-    <option key={y} value={y}>
-      {y}
-    </option>
-  ))}
-</select>
+            style={styles.select}
+            value={annee}
+            onChange={(e) => setAnnee(Number(e.target.value))}
+          >
+            {Array.from({ length: 5 }, (_, i) => now.getFullYear() - 4 + i).map(
+              (y) => (
+                <option key={y} value={y}>
+                  {y}
+                </option>
+              ),
+            )}
+          </select>
 
           <select
             style={styles.select}
@@ -484,9 +513,7 @@ export default function RapportFacturationAtelier() {
                             title="Double-cliquer pour ouvrir le BT"
                             onDoubleClick={() => setBtModalId(row.id)}
                           >
-                            <td style={styles.td}>
-                              {fmtDate(row.date_fermeture)}
-                            </td>
+                            <td style={styles.td}>{fmtDate(row.date_fermeture)}</td>
                             <td style={styles.td}>{row.numero || "—"}</td>
                             <td style={styles.td}>{uniteNo || "—"}</td>
                             <td style={styles.tdAmount}>{money(piecesAtelier)}</td>
@@ -525,6 +552,11 @@ export default function RapportFacturationAtelier() {
             <div>
               <div style={styles.totalLabel}>Total global</div>
               <div style={styles.totalValue}>{money(totals.total)}</div>
+            </div>
+
+            <div>
+              <div style={styles.totalLabel}>Total taxes incluses</div>
+              <div style={styles.totalValue}>{money(totalTaxesIncluses)}</div>
             </div>
           </div>
         </>

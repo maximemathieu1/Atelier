@@ -18,6 +18,11 @@ type BtFacturationRow = {
   total_tps: number | null;
   total_tvq: number | null;
   total_final: number | null;
+  taux_horaire_snapshot?: number | null;
+  marge_pieces_snapshot?: number | null;
+  frais_atelier_pct_snapshot?: number | null;
+  tps_rate_snapshot?: number | null;
+  tvq_rate_snapshot?: number | null;
   facture_email_sent_at: string | null;
   facture_email_sent_to: string | null;
   export_acomba_at: string | null;
@@ -68,6 +73,118 @@ function fmtDateTime(v: string | null | undefined) {
   const d = new Date(v);
   if (Number.isNaN(d.getTime())) return "—";
   return d.toLocaleString("fr-CA");
+}
+
+function round2(v: number) {
+  return Math.round((Number(v || 0) + Number.EPSILON) * 100) / 100;
+}
+
+function minutesFromPointage(p: any) {
+  if (p?.duration_minutes != null) return Number(p.duration_minutes || 0);
+
+  const a = new Date(p?.started_at).getTime();
+  const b = new Date(p?.ended_at || new Date().toISOString()).getTime();
+
+  if (Number.isFinite(a) && Number.isFinite(b) && b >= a) {
+    return Math.round((b - a) / 60000);
+  }
+
+  return 0;
+}
+
+async function recalcBtTotalsForFacturation(row: BtFacturationRow) {
+  const tauxHoraire = Number(row.taux_horaire_snapshot ?? 0);
+  const margePiecesPct = Number(row.marge_pieces_snapshot ?? 0);
+  const fraisAtelierPct = Number(row.frais_atelier_pct_snapshot ?? 0);
+  const tpsRate = Number(row.tps_rate_snapshot ?? 0.05);
+  const tvqRate = Number(row.tvq_rate_snapshot ?? 0.09975);
+
+  const [piecesRes, moRes, pointagesRes] = await Promise.all([
+    supabase.from("bt_pieces").select("*").eq("bt_id", row.id),
+    supabase.from("bt_main_oeuvre").select("*").eq("bt_id", row.id),
+    supabase.from("bt_pointages").select("*").eq("bt_id", row.id),
+  ]);
+
+  if (piecesRes.error) throw piecesRes.error;
+  if (moRes.error) throw moRes.error;
+  if (pointagesRes.error) throw pointagesRes.error;
+
+  const piecesRows = piecesRes.data ?? [];
+  const moRows = moRes.data ?? [];
+  const pointagesRows = pointagesRes.data ?? [];
+
+  const totalPieces = piecesRows.reduce((sum: number, p: any) => {
+    const q = Number(p.quantite || 0);
+
+    if (p.total_facture_snapshot != null) {
+      return sum + Number(p.total_facture_snapshot || 0);
+    }
+
+    const coutU = Number(p.prix_unitaire || 0);
+    const margePct =
+      p.marge_pct_snapshot != null
+        ? Number(p.marge_pct_snapshot || 0)
+        : margePiecesPct;
+
+    return sum + q * (coutU * (1 + margePct / 100));
+  }, 0);
+
+  const minutesByMecano = new Map<string, number>();
+  for (const p of pointagesRows as any[]) {
+    const nom = String(p.mecano_nom || "").trim() || "—";
+    minutesByMecano.set(nom, (minutesByMecano.get(nom) || 0) + minutesFromPointage(p));
+  }
+
+  const totalPointagesMainOeuvre = Array.from(minutesByMecano.values()).reduce(
+    (sum, minutes) => sum + (minutes / 60) * tauxHoraire,
+    0,
+  );
+
+  // IMPORTANT: ceci ajoute la main-d'œuvre manuelle bt_main_oeuvre.
+  // Fallback sur taux_horaire_snapshot si une vieille ligne manuelle a un taux vide/0.
+  const totalMainOeuvreManuelle = (moRows as any[]).reduce((sum, r) => {
+    const heures = Number(r.heures || 0);
+    const tauxLigne = Number(r.taux_horaire || 0);
+    const taux = tauxLigne > 0 ? tauxLigne : tauxHoraire;
+    return sum + heures * taux;
+  }, 0);
+
+  const totalMainOeuvre = totalPointagesMainOeuvre + totalMainOeuvreManuelle;
+  const totalFraisAtelier = totalMainOeuvre * (fraisAtelierPct / 100);
+  const totalGeneral = totalPieces + totalMainOeuvre + totalFraisAtelier;
+  const totalTps = round2(totalGeneral * tpsRate);
+  const totalTvq = round2(totalGeneral * tvqRate);
+  const totalFinal = round2(totalGeneral + totalTps + totalTvq);
+
+  const payload = {
+    total_pieces: round2(totalPieces),
+    total_main_oeuvre: round2(totalMainOeuvre),
+    total_frais_atelier: round2(totalFraisAtelier),
+    total_general: round2(totalGeneral),
+    total_tps: round2(totalTps),
+    total_tvq: round2(totalTvq),
+    total_final: round2(totalFinal),
+  };
+
+  const hasChanged =
+    round2(row.total_pieces || 0) !== payload.total_pieces ||
+    round2(row.total_main_oeuvre || 0) !== payload.total_main_oeuvre ||
+    round2(row.total_frais_atelier || 0) !== payload.total_frais_atelier ||
+    round2(row.total_general || 0) !== payload.total_general ||
+    round2(row.total_tps || 0) !== payload.total_tps ||
+    round2(row.total_tvq || 0) !== payload.total_tvq ||
+    round2(row.total_final || 0) !== payload.total_final;
+
+  if (hasChanged) {
+    const { error } = await supabase
+      .from("bons_travail")
+      .update(payload)
+      .eq("id", row.id);
+
+    if (error) throw error;
+  }
+
+  return { ...row, ...payload };
 }
 
 async function fetchClientContacts(client_id: string) {
@@ -133,6 +250,11 @@ export default function FacturationBT() {
           total_tps,
           total_tvq,
           total_final,
+          taux_horaire_snapshot,
+          marge_pieces_snapshot,
+          frais_atelier_pct_snapshot,
+          tps_rate_snapshot,
+          tvq_rate_snapshot,
           facture_email_sent_at,
           facture_email_sent_to,
           export_acomba_at
@@ -141,7 +263,13 @@ export default function FacturationBT() {
         .order("date_fermeture", { ascending: false });
 
       if (error) throw error;
-      setRows((data as BtFacturationRow[]) ?? []);
+
+      const rawRows = ((data as BtFacturationRow[]) ?? []);
+      const recalculatedRows = await Promise.all(
+        rawRows.map((row) => recalcBtTotalsForFacturation(row)),
+      );
+
+      setRows(recalculatedRows);
     } catch (e: any) {
       setErr(e?.message ?? "Erreur chargement");
       setRows([]);
