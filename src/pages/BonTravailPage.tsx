@@ -97,6 +97,8 @@ type ParametresEntreprise = {
   tvq_rate: number | null;
 };
 
+type SuiviTacheType = "a_planifier" | "urgent" | "hors_service";
+
 type NoteMeca = {
   id: string;
   unite_id: string;
@@ -107,6 +109,7 @@ type NoteMeca = {
   entretien_unite_item_id?: string | null;
   entretien_auto?: boolean | null;
   bt_source_id?: string | null;
+  suivi_type?: SuiviTacheType | null;
 };
 
 type TacheEffectuee = {
@@ -1648,7 +1651,7 @@ export default function BonTravailPage() {
       const { data: nData, error: eN } = await supabase
         .from("unite_notes")
         .select(
-          "id,unite_id,titre,details,created_at,entretien_template_item_id,entretien_unite_item_id,entretien_auto,bt_source_id",
+          "id,unite_id,titre,details,created_at,entretien_template_item_id,entretien_unite_item_id,entretien_auto,bt_source_id,suivi_type",
         )
         .eq("unite_id", btRow.unite_id)
         .order("created_at", { ascending: true });
@@ -1787,6 +1790,7 @@ export default function BonTravailPage() {
       titre,
       details: null,
       bt_source_id: bt.id,
+      suivi_type: null,
     }));
 
     const { error } = await supabase.from("unite_notes").insert(rows);
@@ -1798,6 +1802,32 @@ export default function BonTravailPage() {
 
     closeTaskModal();
     await loadAll();
+  }
+
+  async function updateNoteSuiviType(
+    noteId: string,
+    suiviType: SuiviTacheType | null,
+  ) {
+    if (!bt) return;
+
+    if (isReadOnly) {
+      alert("BT fermé / verrouillé / facturé : impossible de modifier.");
+      return;
+    }
+
+    const { error } = await supabase
+      .from("unite_notes")
+      .update({ suivi_type: suiviType })
+      .eq("id", noteId);
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    setNotes((prev) =>
+      prev.map((n) => (n.id === noteId ? { ...n, suivi_type: suiviType } : n)),
+    );
   }
 
   async function completeTaskIds(
@@ -3106,6 +3136,7 @@ ${noms}`);
                 selectedIds={selectedIds}
                 tachesEffectuees={tachesEffectuees}
                 isReadOnly={isReadOnly}
+                onUpdateNoteSuiviType={updateNoteSuiviType}
                 onOpenTaskModal={() => {
                   setTaskModalValue("");
                   setPendingTasks([]);

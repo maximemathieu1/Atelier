@@ -43,12 +43,15 @@ type ClientOption = {
   nom: string;
 };
 
+type SuiviTacheType = "a_planifier" | "urgent" | "hors_service";
+
 type NoteMeca = {
   id: string;
   unite_id: string;
   titre: string;
   details: string | null;
   created_at: string;
+  suivi_type?: SuiviTacheType | null;
 };
 
 type Option = {
@@ -271,6 +274,7 @@ export default function UniteView({
 
   const [openNoteModal, setOpenNoteModal] = useState(false);
   const [newNoteTitle, setNewNoteTitle] = useState("");
+  const [newNoteSuiviType, setNewNoteSuiviType] = useState<SuiviTacheType | "">("");
 
   const [openKmModal, setOpenKmModal] = useState(false);
   const [newKmValue, setNewKmValue] = useState("");
@@ -367,7 +371,7 @@ export default function UniteView({
 
     const { data, error } = await supabase
       .from("unite_notes")
-      .select("id,unite_id,titre,details,created_at")
+      .select("id,unite_id,titre,details,created_at,suivi_type")
       .eq("unite_id", id)
       .order("created_at", { ascending: false });
 
@@ -639,10 +643,13 @@ export default function UniteView({
         unite_id: id,
         titre,
         details: null,
+        bt_source_id: null,
+        suivi_type: newNoteSuiviType || null,
       });
       if (error) throw error;
 
       setNewNoteTitle("");
+      setNewNoteSuiviType("");
       setOpenNoteModal(false);
       await loadNotes();
     } catch (e: any) {
@@ -758,6 +765,19 @@ export default function UniteView({
     } finally {
       setBusy(false);
     }
+  }
+
+  function getSuiviBadge(suiviType: SuiviTacheType | null | undefined) {
+    if (suiviType === "hors_service") {
+      return { label: "Hors service", bg: "#fff0f0", color: "#c93f3f", border: "#f2c2c2" };
+    }
+    if (suiviType === "urgent") {
+      return { label: "Urgent", bg: "#fff6e8", color: "#b66a00", border: "#ffe2b8" };
+    }
+    if (suiviType === "a_planifier") {
+      return { label: "À planifier", bg: "#eef4ff", color: "#2159d6", border: "#cfe0ff" };
+    }
+    return null;
   }
 
   function openBt(btId: string) {
@@ -1591,6 +1611,7 @@ export default function UniteView({
                   if (busy) return;
                   setOpenNoteModal(false);
                   setNewNoteTitle("");
+                  setNewNoteSuiviType("");
                 }}
               >
                 <div
@@ -1608,6 +1629,28 @@ export default function UniteView({
                     autoFocus
                   />
 
+                  <div style={{ marginTop: 10 }}>
+                    <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 6 }}>
+                      Suivi tableau de bord
+                    </div>
+                    <select
+                      className="input"
+                      value={newNoteSuiviType}
+                      onChange={(e) =>
+                        setNewNoteSuiviType(e.target.value as SuiviTacheType | "")
+                      }
+                      style={{ width: "100%" }}
+                    >
+                      <option value="">Aucun suivi</option>
+                      <option value="a_planifier">À planifier</option>
+                      <option value="urgent">Urgent</option>
+                      <option value="hors_service">Hors service</option>
+                    </select>
+                    <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+                      Si un suivi est choisi, la tâche apparaîtra dans le tableau de bord.
+                    </div>
+                  </div>
+
                   <div className="toolbar" style={{ marginTop: 12 }}>
                     <button className="btn-primary" onClick={addNote} disabled={busy} type="button">
                       Enregistrer
@@ -1617,6 +1660,7 @@ export default function UniteView({
                       onClick={() => {
                         setOpenNoteModal(false);
                         setNewNoteTitle("");
+                        setNewNoteSuiviType("");
                       }}
                       disabled={busy}
                       type="button"
@@ -1640,7 +1684,29 @@ export default function UniteView({
                 <tbody>
                   {notes.map((n) => (
                     <tr className="row" key={n.id}>
-                      <td style={{ fontWeight: 900 }}>{n.titre}</td>
+                      <td>
+                        <div style={{ fontWeight: 900 }}>{n.titre}</div>
+                        {(() => {
+                          const badge = getSuiviBadge(n.suivi_type as SuiviTacheType | null | undefined);
+                          return badge ? (
+                            <span
+                              style={{
+                                display: "inline-flex",
+                                marginTop: 6,
+                                padding: "4px 9px",
+                                borderRadius: 999,
+                                background: badge.bg,
+                                color: badge.color,
+                                border: `1px solid ${badge.border}`,
+                                fontSize: 12,
+                                fontWeight: 900,
+                              }}
+                            >
+                              {badge.label}
+                            </span>
+                          ) : null;
+                        })()}
+                      </td>
                       <td className="muted">{fmtDateTime(n.created_at)}</td>
                       <td style={{ textAlign: "right" }}>
                         <button

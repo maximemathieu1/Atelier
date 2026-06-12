@@ -4,15 +4,12 @@ import BtPiecesCard, { type Piece } from "./BtPiecesCard";
 import BtTachePhotos from "./BtTachePhotos";
 import BtAutorisationClient from "./BtAutorisationClient";
 
-type SuiviTacheType = "a_planifier" | "urgent" | "hors_service";
-
 type NoteMeca = {
   id: string;
   unite_id: string;
   titre: string;
   details: string | null;
   created_at: string;
-  suivi_type?: SuiviTacheType | null;
 };
 
 type ClientContact = {
@@ -146,10 +143,6 @@ type Props = {
   onDeleteSelectedTasks: () => void;
   onAutoriserManuellementTache: (t: NoteMeca) => void;
   onCompleteSingleTaskFromAutorisation: (t: NoteMeca) => void;
-  onUpdateNoteSuiviType: (
-    noteId: string,
-    suiviType: SuiviTacheType | null,
-  ) => void | Promise<void>;
   onRefresh?: () => void | Promise<void>;
   onRemettreTacheOuverte: (t: TacheEffectuee) => void;
 
@@ -562,7 +555,6 @@ export default function BonTravailOperations(props: Props) {
     onCompleteSelectedTasks,
     onDeleteSelectedTasks,
     onAutoriserManuellementTache,
-    onUpdateNoteSuiviType,
     onRefresh,
     onRemettreTacheOuverte,
     pieces,
@@ -862,7 +854,6 @@ export default function BonTravailOperations(props: Props) {
                 </th>
                 <th style={styles.th}>Titre</th>
                 <th style={{ ...styles.th, width: 180 }}>Créé</th>
-                <th style={{ ...styles.th, width: 170 }}>Suivi</th>
                 <th style={styles.photoTh}>Photos</th>
               </tr>
             </thead>
@@ -870,7 +861,7 @@ export default function BonTravailOperations(props: Props) {
             <tbody>
               {notes.length === 0 ? (
                 <tr>
-                  <td style={styles.td} colSpan={5}>
+                  <td style={styles.td} colSpan={4}>
                     <span style={styles.muted}>Aucune tâche ouverte.</span>
                   </td>
                 </tr>
@@ -884,16 +875,6 @@ export default function BonTravailOperations(props: Props) {
                   const isPendingClient = decision === "attente";
                   const isRefusedClient = decision === "refuse";
                   const isADiscuterClient = decision === "a_discuter";
-                  const suiviType = t.suivi_type || null;
-
-                  const suiviBadge =
-                    suiviType === "hors_service"
-                      ? { text: "🔴 Hors service", bg: "#fee2e2", color: "#991b1b" }
-                      : suiviType === "urgent"
-                        ? { text: "🟠 Urgent", bg: "#ffedd5", color: "#9a3412" }
-                        : suiviType === "a_planifier"
-                          ? { text: "🔵 À planifier", bg: "#dbeafe", color: "#1d4ed8" }
-                          : null;
 
                   const rowStyle: CSSProperties = {
                     background: isRefusedClient
@@ -902,13 +883,7 @@ export default function BonTravailOperations(props: Props) {
                         ? "#fefce8"
                         : isADiscuterClient
                           ? "#eff6ff"
-                          : suiviType === "hors_service"
-                            ? "#fff1f2"
-                            : suiviType === "urgent"
-                              ? "#fff7ed"
-                              : suiviType === "a_planifier"
-                                ? "#eff6ff"
-                                : "transparent",
+                          : "transparent",
                     opacity: isRefusedClient
                       ? 0.62
                       : isPendingClient || isADiscuterClient
@@ -942,23 +917,6 @@ export default function BonTravailOperations(props: Props) {
                         >
                           {String(t.titre || "")}
                         </div>
-
-                        {suiviBadge && (
-                          <div
-                            style={{
-                              display: "inline-block",
-                              marginTop: 6,
-                              padding: "3px 8px",
-                              borderRadius: 999,
-                              background: suiviBadge.bg,
-                              color: suiviBadge.color,
-                              fontSize: 12,
-                              fontWeight: 900,
-                            }}
-                          >
-                            {suiviBadge.text}
-                          </div>
-                        )}
 
                         {isPendingClient && (
                           <div
@@ -1014,35 +972,6 @@ export default function BonTravailOperations(props: Props) {
 
                       <td style={styles.td}>
                         {fmtDateTimeNoSeconds(t.created_at)}
-                      </td>
-
-                      <td style={styles.td}>
-                        <select
-                          style={{
-                            ...styles.input,
-                            minWidth: 150,
-                            width: "100%",
-                            padding: "7px 9px",
-                            fontSize: 12,
-                            fontWeight: 850,
-                          }}
-                          value={t.suivi_type || ""}
-                          onChange={(e) => {
-                            const value = e.target.value as
-                              | ""
-                              | SuiviTacheType;
-                            void onUpdateNoteSuiviType(
-                              t.id,
-                              value ? value : null,
-                            );
-                          }}
-                          disabled={isReadOnly}
-                        >
-                          <option value="">Aucun</option>
-                          <option value="a_planifier">À planifier</option>
-                          <option value="urgent">Urgent</option>
-                          <option value="hors_service">Hors service</option>
-                        </select>
                       </td>
 
                       <td style={styles.photoTd}>

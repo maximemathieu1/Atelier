@@ -45,6 +45,8 @@ type ClientConfig = {
   marge_pieces: number | null;
 };
 
+type SuiviTacheType = "a_planifier" | "urgent" | "hors_service";
+
 type NoteMeca = {
   id: string;
   unite_id: string;
@@ -54,6 +56,7 @@ type NoteMeca = {
   entretien_template_item_id?: string | null;
   entretien_unite_item_id?: string | null;
   entretien_auto?: boolean | null;
+  suivi_type?: SuiviTacheType | string | null;
 };
 
 type TacheEffectuee = {
@@ -501,6 +504,16 @@ export default function BonTravailMecanoPage() {
 
   const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [pendingTasks, setPendingTasks] = useState<string[]>([]);
+  const [taskSuiviType, setTaskSuiviType] = useState<SuiviTacheType | "">("");
+
+  const [editTaskModalOpen, setEditTaskModalOpen] = useState(false);
+  const [editingTask, setEditingTask] = useState<NoteMeca | null>(null);
+  const [editTaskTitle, setEditTaskTitle] = useState("");
+  const [editTaskDetails, setEditTaskDetails] = useState("");
+  const [editTaskSuiviType, setEditTaskSuiviType] = useState<
+    SuiviTacheType | ""
+  >("");
+
   const [voiceCorrections, setVoiceCorrections] = useState<VoiceCorrection[]>(
     [],
   );
@@ -629,6 +642,7 @@ export default function BonTravailMecanoPage() {
     setTaskInterim("");
     setNewTask("");
     setPendingTasks([]);
+    setTaskSuiviType("");
     setTaskModalOpen(false);
   }
 
@@ -657,6 +671,19 @@ export default function BonTravailMecanoPage() {
     if (!interim) return newTask;
     return base ? `${base} ${interim}` : interim;
   }, [newTask, taskInterim]);
+
+  const selectedOpenTaskIds = useMemo(
+    () => Object.entries(selected).filter(([, value]) => value).map(([key]) => key),
+    [selected],
+  );
+
+  const selectedDoneTaskIds = useMemo(
+    () =>
+      Object.entries(selectedDone)
+        .filter(([, value]) => value)
+        .map(([key]) => key),
+    [selectedDone],
+  );
 
   const rows = useMemo(() => {
     const assignedSet = new Set(assignedTemplates.map((x) => x.template_id));
@@ -920,7 +947,7 @@ export default function BonTravailMecanoPage() {
         supabase
           .from("unite_notes")
           .select(
-            "id,unite_id,titre,details,created_at,entretien_template_item_id,entretien_unite_item_id,entretien_auto",
+            "id,unite_id,titre,details,created_at,entretien_template_item_id,entretien_unite_item_id,entretien_auto,suivi_type",
           )
           .eq("unite_id", btRow.unite_id)
           .order("created_at", { ascending: false }),
@@ -1149,10 +1176,14 @@ export default function BonTravailMecanoPage() {
       return;
     }
 
+    const suiviType = taskSuiviType || null;
+
     const rows = tasksToSave.map((titre) => ({
       unite_id: bt.unite_id,
       titre,
       details: null,
+      bt_source_id: bt.id,
+      suivi_type: suiviType,
     }));
 
     const { error } = await supabase.from("unite_notes").insert(rows);
@@ -1201,6 +1232,207 @@ export default function BonTravailMecanoPage() {
     }
 
     await loadAll();
+  }
+
+
+  async function updateNoteSuiviType(
+    noteId: string,
+    suiviType: SuiviTacheType | null,
+  ) {
+    if (isReadOnly) {
+      alert("BT fermé/facturé : impossible de modifier.");
+      return;
+    }
+
+    const { error } = await supabase
+      .from("unite_notes")
+      .update({ suivi_type: suiviType })
+      .eq("id", noteId);
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    setNotes((prev) =>
+      prev.map((n) => (n.id === noteId ? { ...n, suivi_type: suiviType } : n)),
+    );
+  }
+
+  function getSuiviLabel(value: string | null | undefined) {
+    if (value === "hors_service") return "Hors service";
+    if (value === "urgent") return "Urgent";
+    if (value === "a_planifier") return "À planifier";
+    return "";
+  }
+
+  function getSuiviBadgeStyle(value: string | null | undefined): CSSProperties {
+    if (value === "hors_service") {
+      return {
+        ...styles.badge,
+        color: "#991b1b",
+        background: "#fef2f2",
+        borderColor: "#fecaca",
+      };
+    }
+
+    if (value === "urgent") {
+      return {
+        ...styles.badge,
+        color: "#92400e",
+        background: "#fff7ed",
+        borderColor: "#fed7aa",
+      };
+    }
+
+    if (value === "a_planifier") {
+      return {
+        ...styles.badge,
+        color: "#1d4ed8",
+        background: "#eff6ff",
+        borderColor: "#bfdbfe",
+      };
+    }
+
+    return styles.badge;
+  }
+
+  function openEditTask(t: NoteMeca) {
+    if (isReadOnly) return;
+
+    setEditingTask(t);
+    setEditTaskTitle(t.titre || "");
+    setEditTaskDetails(t.details || "");
+    setEditTaskSuiviType((t.suivi_type as SuiviTacheType | "") || "");
+    setEditTaskModalOpen(true);
+  }
+
+  function closeEditTaskModal() {
+    setEditTaskModalOpen(false);
+    setEditingTask(null);
+    setEditTaskTitle("");
+    setEditTaskDetails("");
+    setEditTaskSuiviType("");
+  }
+
+  async function saveEditedTask() {
+    if (!editingTask || isReadOnly) return;
+
+    const titre = editTaskTitle.trim();
+    if (!titre) {
+      alert("Le titre de la tâche est obligatoire.");
+      return;
+    }
+
+    const details = editTaskDetails.trim() || null;
+    const suiviType = editTaskSuiviType || null;
+
+    const { error } = await supabase
+      .from("unite_notes")
+      .update({
+        titre,
+        details,
+        suivi_type: suiviType,
+      })
+      .eq("id", editingTask.id);
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    setNotes((prev) =>
+      prev.map((n) =>
+        n.id === editingTask.id
+          ? { ...n, titre, details, suivi_type: suiviType }
+          : n,
+      ),
+    );
+
+    closeEditTaskModal();
+  }
+
+  async function deleteOpenTask(noteId: string) {
+    if (isReadOnly) return;
+
+    const { error: photosError } = await supabase
+      .from("bt_tache_photos")
+      .delete()
+      .eq("unite_note_id", noteId);
+
+    if (photosError) {
+      alert(photosError.message);
+      return;
+    }
+
+    const { error } = await supabase.from("unite_notes").delete().eq("id", noteId);
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    setSelected((prev) => {
+      const next = { ...prev };
+      delete next[noteId];
+      return next;
+    });
+
+    setNotes((prev) => prev.filter((n) => n.id !== noteId));
+  }
+
+  async function deleteSelectedOpenTasks() {
+    if (isReadOnly || selectedOpenTaskIds.length === 0) return;
+
+    const ok = window.confirm(
+      `Supprimer ${selectedOpenTaskIds.length} tâche(s) ouverte(s) ?`,
+    );
+
+    if (!ok) return;
+
+    for (const noteId of selectedOpenTaskIds) {
+      await deleteOpenTask(noteId);
+    }
+
+    await loadAll();
+  }
+
+  async function completeSelectedOpenTasks() {
+    if (isReadOnly || selectedOpenTaskIds.length === 0) return;
+
+    const tasks = notes.filter((t) => selectedOpenTaskIds.includes(t.id));
+
+    for (const task of tasks) {
+      await completeTask(task, true);
+    }
+  }
+
+  async function reopenSelectedDoneTasks() {
+    if (isReadOnly || selectedDoneTaskIds.length === 0) return;
+
+    const tasks = tachesEffectuees.filter((t) =>
+      selectedDoneTaskIds.includes(t.id),
+    );
+
+    for (const task of tasks) {
+      await reopenCompletedTask(task, true);
+    }
+  }
+
+  async function deleteSelectedDoneTasks() {
+    if (isReadOnly || selectedDoneTaskIds.length === 0) return;
+
+    const ok = window.confirm(
+      `Supprimer ${selectedDoneTaskIds.length} tâche(s) effectuée(s) ?`,
+    );
+
+    if (!ok) return;
+
+    for (const task of tachesEffectuees.filter((t) =>
+      selectedDoneTaskIds.includes(t.id),
+    )) {
+      await deleteCompletedTask(task);
+    }
   }
 
   async function completeTask(t: NoteMeca, checked: boolean) {
@@ -1516,8 +1748,17 @@ export default function BonTravailMecanoPage() {
     btnSuccess: {
       padding: "10px 12px",
       borderRadius: 10,
-      border: "1px solid rgba(0,0,0,.14)",
-      background: "#065f46",
+      border: "1px solid #111827",
+      background: "#111827",
+      color: "#fff",
+      fontWeight: 900,
+      cursor: "pointer",
+    },
+    btnDanger: {
+      padding: "10px 12px",
+      borderRadius: 10,
+      border: "1px solid rgba(220,38,38,.25)",
+      background: "#dc2626",
       color: "#fff",
       fontWeight: 900,
       cursor: "pointer",
@@ -1540,6 +1781,15 @@ export default function BonTravailMecanoPage() {
       padding: "10px 6px",
       borderTop: "1px solid rgba(0,0,0,.08)",
       verticalAlign: "top" as const,
+    },
+    badge: {
+      display: "inline-block",
+      padding: "4px 10px",
+      borderRadius: 999,
+      fontSize: 12,
+      fontWeight: 900,
+      border: "1px solid rgba(0,0,0,.12)",
+      whiteSpace: "nowrap" as const,
     },
     warn: {
       background: "rgba(245,158,11,.10)",
@@ -1982,17 +2232,46 @@ export default function BonTravailMecanoPage() {
 
           <div style={styles.card}>
             <div style={{ ...styles.row, justifyContent: "space-between" }}>
-              <div style={{ fontSize: 16, fontWeight: 950 }}>
-                Tâches ouvertes
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 950 }}>
+                  Tâches ouvertes
+                </div>
+                <div style={{ ...styles.muted, fontSize: 12 }}>
+                  Sélectionne une ou plusieurs tâches, puis clique sur Effectuer ou Supprimer.
+                </div>
               </div>
 
-              <button
-                style={styles.btnPrimary}
-                onClick={() => setTaskModalOpen(true)}
-                disabled={isReadOnly}
-              >
-                Ajouter une tâche
-              </button>
+              <div style={styles.row}>
+                {selectedOpenTaskIds.length > 0 && (
+                  <>
+                    <button
+                      style={styles.btnSuccess}
+                      type="button"
+                      onClick={completeSelectedOpenTasks}
+                      disabled={isReadOnly}
+                    >
+                      Effectuer ({selectedOpenTaskIds.length})
+                    </button>
+
+                    <button
+                      style={styles.btnDanger}
+                      type="button"
+                      onClick={deleteSelectedOpenTasks}
+                      disabled={isReadOnly}
+                    >
+                      Supprimer
+                    </button>
+                  </>
+                )}
+
+                <button
+                  style={styles.btnPrimary}
+                  onClick={() => setTaskModalOpen(true)}
+                  disabled={isReadOnly}
+                >
+                  Ajouter une tâche
+                </button>
+              </div>
             </div>
 
             <table style={{ ...styles.table, marginTop: 10 }}>
@@ -2011,20 +2290,15 @@ export default function BonTravailMecanoPage() {
                           next[t.id] = on;
                         });
                         setSelected(next);
-
-                        if (on) {
-                          notes.forEach((t) => {
-                            completeTask(t, true);
-                          });
-                        }
                       }}
-                      disabled={isReadOnly && notes.length > 0}
+                      disabled={isReadOnly || notes.length === 0}
                     />
                   </th>
 
                   <th style={styles.th}>Titre</th>
                   <th style={{ ...styles.th, width: 140 }}>Autorisation</th>
                   <th style={{ ...styles.th, width: 180 }}>Créé</th>
+                  <th style={{ ...styles.th, width: 170 }}>Suivi</th>
                   <th style={{ ...styles.th, width: 90, textAlign: "center" }}>
                     Photos
                   </th>
@@ -2033,21 +2307,25 @@ export default function BonTravailMecanoPage() {
               <tbody>
                 {notes.length === 0 ? (
                   <tr>
-                    <td style={styles.td} colSpan={5}>
+                    <td style={styles.td} colSpan={6}>
                       <span style={styles.muted}>Aucune tâche ouverte.</span>
                     </td>
                   </tr>
                 ) : (
                   notes.map((t) => (
-                    <tr key={t.id}>
+                    <tr
+                      key={t.id}
+                      onDoubleClick={() => openEditTask(t)}
+                      title="Double-cliquer pour modifier la tâche"
+                      style={{ cursor: isReadOnly ? "default" : "pointer" }}
+                    >
                       <td style={styles.td}>
                         <input
                           type="checkbox"
                           checked={Boolean(selected[t.id])}
-                          onChange={async (e) => {
+                          onChange={(e) => {
                             const checked = e.target.checked;
                             setSelected((s) => ({ ...s, [t.id]: checked }));
-                            await completeTask(t, checked);
                           }}
                           disabled={isReadOnly}
                         />
@@ -2057,9 +2335,23 @@ export default function BonTravailMecanoPage() {
                       <td style={styles.td}>
                         <div style={{ fontWeight: 900 }}>{t.titre}</div>
 
+                        {t.details ? (
+                          <div style={{ ...styles.muted, fontSize: 12, whiteSpace: "pre-wrap" }}>
+                            {t.details}
+                          </div>
+                        ) : null}
+
                         {t.entretien_auto ? (
                           <div style={{ ...styles.muted, fontSize: 12 }}>
                             Entretien périodique
+                          </div>
+                        ) : null}
+
+                        {t.suivi_type ? (
+                          <div style={{ marginTop: 6 }}>
+                            <span style={getSuiviBadgeStyle(t.suivi_type)}>
+                              {getSuiviLabel(t.suivi_type)}
+                            </span>
                           </div>
                         ) : null}
                       </td>
@@ -2097,6 +2389,23 @@ export default function BonTravailMecanoPage() {
                       {/* Date */}
                       <td style={styles.td}>{fmtDateTime(t.created_at)}</td>
 
+                      <td style={styles.td}>
+                        <select
+                          style={{ ...styles.input, minWidth: 0, width: "100%" }}
+                          value={t.suivi_type || ""}
+                          onChange={(e) => {
+                            const value = e.target.value as "" | SuiviTacheType;
+                            void updateNoteSuiviType(t.id, value ? value : null);
+                          }}
+                          disabled={isReadOnly}
+                        >
+                          <option value="">Aucun</option>
+                          <option value="a_planifier">À planifier</option>
+                          <option value="urgent">Urgent</option>
+                          <option value="hors_service">Hors service</option>
+                        </select>
+                      </td>
+
                       <td
                         style={{
                           ...styles.td,
@@ -2127,13 +2436,42 @@ export default function BonTravailMecanoPage() {
             <div style={styles.completedBox}>
               <div
                 style={{
-                  fontSize: 15,
-                  fontWeight: 950,
+                  ...styles.row,
+                  justifyContent: "space-between",
                   marginBottom: 8,
-                  opacity: 0.8,
                 }}
               >
-                Tâches effectuées
+                <div
+                  style={{
+                    fontSize: 15,
+                    fontWeight: 950,
+                    opacity: 0.8,
+                  }}
+                >
+                  Tâches effectuées
+                </div>
+
+                {selectedDoneTaskIds.length > 0 && (
+                  <div style={styles.row}>
+                    <button
+                      style={styles.btn}
+                      type="button"
+                      onClick={reopenSelectedDoneTasks}
+                      disabled={isReadOnly}
+                    >
+                      Remettre ({selectedDoneTaskIds.length})
+                    </button>
+
+                    <button
+                      style={styles.btnDanger}
+                      type="button"
+                      onClick={deleteSelectedDoneTasks}
+                      disabled={isReadOnly}
+                    >
+                      Supprimer
+                    </button>
+                  </div>
+                )}
               </div>
 
               <table style={styles.table}>
@@ -2153,14 +2491,8 @@ export default function BonTravailMecanoPage() {
                             next[t.id] = on;
                           });
                           setSelectedDone(next);
-
-                          if (on) {
-                            tachesEffectuees.forEach((t) => {
-                              reopenCompletedTask(t, true);
-                            });
-                          }
                         }}
-                        disabled={isReadOnly && tachesEffectuees.length > 0}
+                        disabled={isReadOnly || tachesEffectuees.length === 0}
                       />
                     </th>
                     <th style={styles.th}>Titre</th>
@@ -2190,13 +2522,12 @@ export default function BonTravailMecanoPage() {
                           <input
                             type="checkbox"
                             checked={Boolean(selectedDone[t.id])}
-                            onChange={async (e) => {
+                            onChange={(e) => {
                               const checked = e.target.checked;
                               setSelectedDone((s) => ({
                                 ...s,
                                 [t.id]: checked,
                               }));
-                              await reopenCompletedTask(t, checked);
                             }}
                             disabled={isReadOnly}
                           />
@@ -2283,6 +2614,88 @@ export default function BonTravailMecanoPage() {
         </>
       )}
 
+      {editTaskModalOpen && editingTask && (
+        <div style={styles.modalBackdrop}>
+          <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
+            <div style={{ fontSize: 18, fontWeight: 950, marginBottom: 10 }}>
+              Modifier la tâche
+            </div>
+
+            <div style={{ fontSize: 13, fontWeight: 900, marginBottom: 6 }}>
+              Titre
+            </div>
+            <input
+              style={{ ...styles.input, width: "100%", boxSizing: "border-box" }}
+              value={editTaskTitle}
+              onChange={(e) => setEditTaskTitle(e.target.value)}
+              autoFocus
+            />
+
+            <div style={{ fontSize: 13, fontWeight: 900, marginTop: 12, marginBottom: 6 }}>
+              Détails
+            </div>
+            <textarea
+              style={styles.textarea}
+              value={editTaskDetails}
+              onChange={(e) => setEditTaskDetails(e.target.value)}
+              placeholder="Détails optionnels…"
+            />
+
+            <div style={{ fontSize: 13, fontWeight: 900, marginTop: 12, marginBottom: 6 }}>
+              Suivi tableau de bord
+            </div>
+            <select
+              style={{ ...styles.input, width: "100%" }}
+              value={editTaskSuiviType}
+              onChange={(e) =>
+                setEditTaskSuiviType(e.target.value as SuiviTacheType | "")
+              }
+            >
+              <option value="">Aucun suivi</option>
+              <option value="a_planifier">À planifier</option>
+              <option value="urgent">Urgent</option>
+              <option value="hors_service">Hors service</option>
+            </select>
+
+            <div style={{ ...styles.row, justifyContent: "space-between", marginTop: 14 }}>
+              <button
+                style={styles.btnDanger}
+                type="button"
+                onClick={async () => {
+                  const ok = window.confirm("Supprimer cette tâche ?");
+                  if (!ok) return;
+                  await deleteOpenTask(editingTask.id);
+                  closeEditTaskModal();
+                  await loadAll();
+                }}
+                disabled={isReadOnly}
+              >
+                Supprimer
+              </button>
+
+              <div style={styles.row}>
+                <button
+                  style={styles.btn}
+                  type="button"
+                  onClick={closeEditTaskModal}
+                >
+                  Annuler
+                </button>
+
+                <button
+                  style={styles.btnPrimary}
+                  type="button"
+                  onClick={saveEditedTask}
+                  disabled={isReadOnly || !editTaskTitle.trim()}
+                >
+                  Enregistrer
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {taskModalOpen && (
         <div style={styles.modalBackdrop}>
           <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
@@ -2339,6 +2752,27 @@ export default function BonTravailMecanoPage() {
             {speechError ? (
               <div style={styles.helperError}>{speechError}</div>
             ) : null}
+
+            <div style={{ marginTop: 12 }}>
+              <div style={{ fontSize: 13, fontWeight: 900, marginBottom: 6 }}>
+                Suivi tableau de bord
+              </div>
+              <select
+                style={{ ...styles.input, width: "100%" }}
+                value={taskSuiviType}
+                onChange={(e) =>
+                  setTaskSuiviType(e.target.value as SuiviTacheType | "")
+                }
+              >
+                <option value="">Aucun suivi</option>
+                <option value="a_planifier">À planifier</option>
+                <option value="urgent">Urgent</option>
+                <option value="hors_service">Hors service</option>
+              </select>
+              <div style={styles.helperText}>
+                Optionnel : la tâche apparaîtra dans l’onglet Suivis du tableau de bord.
+              </div>
+            </div>
 
             {pendingTasks.length > 0 ? (
               <div style={styles.pendingList}>
