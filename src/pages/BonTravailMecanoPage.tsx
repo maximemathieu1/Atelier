@@ -505,6 +505,7 @@ export default function BonTravailMecanoPage() {
   const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [pendingTasks, setPendingTasks] = useState<string[]>([]);
   const [taskSuiviType, setTaskSuiviType] = useState<SuiviTacheType | "">("");
+  const [suiviModalTask, setSuiviModalTask] = useState<NoteMeca | null>(null);
 
   const [editTaskModalOpen, setEditTaskModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<NoteMeca | null>(null);
@@ -1266,36 +1267,6 @@ export default function BonTravailMecanoPage() {
     return "";
   }
 
-  function getSuiviBadgeStyle(value: string | null | undefined): CSSProperties {
-    if (value === "hors_service") {
-      return {
-        ...styles.badge,
-        color: "#991b1b",
-        background: "#fef2f2",
-        borderColor: "#fecaca",
-      };
-    }
-
-    if (value === "urgent") {
-      return {
-        ...styles.badge,
-        color: "#92400e",
-        background: "#fff7ed",
-        borderColor: "#fed7aa",
-      };
-    }
-
-    if (value === "a_planifier") {
-      return {
-        ...styles.badge,
-        color: "#1d4ed8",
-        background: "#eff6ff",
-        borderColor: "#bfdbfe",
-      };
-    }
-
-    return styles.badge;
-  }
 
   function openEditTask(t: NoteMeca) {
     if (isReadOnly) return;
@@ -2312,116 +2283,137 @@ export default function BonTravailMecanoPage() {
                     </td>
                   </tr>
                 ) : (
-                  notes.map((t) => (
-                    <tr
-                      key={t.id}
-                      onDoubleClick={() => openEditTask(t)}
-                      title="Double-cliquer pour modifier la tâche"
-                      style={{ cursor: isReadOnly ? "default" : "pointer" }}
-                    >
-                      <td style={styles.td}>
-                        <input
-                          type="checkbox"
-                          checked={Boolean(selected[t.id])}
-                          onChange={(e) => {
-                            const checked = e.target.checked;
-                            setSelected((s) => ({ ...s, [t.id]: checked }));
-                          }}
-                          disabled={isReadOnly}
-                        />
-                      </td>
+                  notes.map((t) => {
+                    const rowStyle: CSSProperties = {
+                      background:
+                        t.suivi_type === "hors_service"
+                          ? "#fff1f2"
+                          : t.suivi_type === "urgent"
+                            ? "#fff7ed"
+                            : t.suivi_type === "a_planifier"
+                              ? "#eff6ff"
+                              : "transparent",
+                      cursor: isReadOnly ? "default" : "pointer",
+                      transition: "background .15s ease",
+                    };
 
-                      {/* Titre */}
-                      <td style={styles.td}>
-                        <div style={{ fontWeight: 900 }}>{t.titre}</div>
-
-                        {t.details ? (
-                          <div style={{ ...styles.muted, fontSize: 12, whiteSpace: "pre-wrap" }}>
-                            {t.details}
-                          </div>
-                        ) : null}
-
-                        {t.entretien_auto ? (
-                          <div style={{ ...styles.muted, fontSize: 12 }}>
-                            Entretien périodique
-                          </div>
-                        ) : null}
-
-                        {t.suivi_type ? (
-                          <div style={{ marginTop: 6 }}>
-                            <span style={getSuiviBadgeStyle(t.suivi_type)}>
-                              {getSuiviLabel(t.suivi_type)}
-                            </span>
-                          </div>
-                        ) : null}
-                      </td>
-
-                      <td style={styles.td}>
-                        {autorisationMap[t.id] ? (
-                          <>
-                            <span
-                              style={getAutorisationBadgeStyle(
-                                autorisationMap[t.id]?.decision,
-                              )}
-                            >
-                              {getAutorisationLabel(
-                                autorisationMap[t.id]?.decision,
-                              )}
-                            </span>
-                            {autorisationMap[t.id]?.note_client ? (
-                              <div
-                                style={{
-                                  ...styles.muted,
-                                  fontSize: 12,
-                                  marginTop: 4,
-                                  whiteSpace: "pre-wrap",
-                                }}
-                              >
-                                {autorisationMap[t.id]?.note_client}
-                              </div>
-                            ) : null}
-                          </>
-                        ) : (
-                          <span style={styles.muted}>—</span>
-                        )}
-                      </td>
-
-                      {/* Date */}
-                      <td style={styles.td}>{fmtDateTime(t.created_at)}</td>
-
-                      <td style={styles.td}>
-                        <select
-                          style={{ ...styles.input, minWidth: 0, width: "100%" }}
-                          value={t.suivi_type || ""}
-                          onChange={(e) => {
-                            const value = e.target.value as "" | SuiviTacheType;
-                            void updateNoteSuiviType(t.id, value ? value : null);
-                          }}
-                          disabled={isReadOnly}
-                        >
-                          <option value="">Aucun</option>
-                          <option value="a_planifier">À planifier</option>
-                          <option value="urgent">Urgent</option>
-                          <option value="hors_service">Hors service</option>
-                        </select>
-                      </td>
-
-                      <td
-                        style={{
-                          ...styles.td,
-                          textAlign: "center",
-                          verticalAlign: "middle",
-                        }}
+                    return (
+                      <tr
+                        key={t.id}
+                        onDoubleClick={() => openEditTask(t)}
+                        title="Double-cliquer pour modifier la tâche"
+                        style={rowStyle}
                       >
-                        <BtTachePhotos
-                          btId={bt.id}
-                          uniteId={bt.unite_id}
-                          uniteNoteId={t.id}
-                          isReadOnly={isReadOnly}
-                        />
-                      </td>
-                    </tr>
-                  ))
+                        <td style={styles.td}>
+                          <input
+                            type="checkbox"
+                            checked={Boolean(selected[t.id])}
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              setSelected((s) => ({ ...s, [t.id]: checked }));
+                            }}
+                            disabled={isReadOnly}
+                          />
+                        </td>
+
+                        <td style={styles.td}>
+                          <div style={{ fontWeight: 900 }}>{t.titre}</div>
+
+                          {t.details ? (
+                            <div
+                              style={{
+                                ...styles.muted,
+                                fontSize: 12,
+                                whiteSpace: "pre-wrap",
+                              }}
+                            >
+                              {t.details}
+                            </div>
+                          ) : null}
+
+                          {t.entretien_auto ? (
+                            <div style={{ ...styles.muted, fontSize: 12 }}>
+                              Entretien périodique
+                            </div>
+                          ) : null}
+                        </td>
+
+                        <td style={styles.td}>
+                          {autorisationMap[t.id] ? (
+                            <>
+                              <span
+                                style={getAutorisationBadgeStyle(
+                                  autorisationMap[t.id]?.decision,
+                                )}
+                              >
+                                {getAutorisationLabel(
+                                  autorisationMap[t.id]?.decision,
+                                )}
+                              </span>
+                              {autorisationMap[t.id]?.note_client ? (
+                                <div
+                                  style={{
+                                    ...styles.muted,
+                                    fontSize: 12,
+                                    marginTop: 4,
+                                    whiteSpace: "pre-wrap",
+                                  }}
+                                >
+                                  {autorisationMap[t.id]?.note_client}
+                                </div>
+                              ) : null}
+                            </>
+                          ) : (
+                            <span style={styles.muted}>—</span>
+                          )}
+                        </td>
+
+                        <td style={styles.td}>{fmtDateTime(t.created_at)}</td>
+
+                        <td
+                          style={{
+                            ...styles.td,
+                            textAlign: "center",
+                            verticalAlign: "middle",
+                          }}
+                        >
+                          <span
+                            onClick={() => {
+                              if (!isReadOnly) {
+                                setSuiviModalTask(t);
+                              }
+                            }}
+                            style={{
+                              cursor: isReadOnly ? "default" : "pointer",
+                              userSelect: "none",
+                              fontWeight: 400,
+                              fontSize: t.suivi_type ? 13 : 20,
+                              lineHeight: 1,
+                              color: "#111827",
+                            }}
+                            title="Modifier le suivi"
+                          >
+                            {t.suivi_type ? getSuiviLabel(t.suivi_type) : "+"}
+                          </span>
+                        </td>
+
+                        <td
+                          style={{
+                            ...styles.td,
+                            textAlign: "center",
+                            verticalAlign: "middle",
+                          }}
+                        >
+                          <BtTachePhotos
+                            btId={bt.id}
+                            uniteId={bt.unite_id}
+                            uniteNoteId={t.id}
+                            isReadOnly={isReadOnly}
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
@@ -2833,6 +2825,83 @@ export default function BonTravailMecanoPage() {
                 onClick={savePendingTasks}
               >
                 Enregistrer tout
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+
+      {suiviModalTask && (
+        <div
+          style={styles.modalBackdrop}
+          onClick={() => setSuiviModalTask(null)}
+        >
+          <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
+            <div style={{ fontSize: 18, fontWeight: 950, marginBottom: 6 }}>
+              Suivi de la tâche
+            </div>
+
+            <div style={{ ...styles.muted, fontSize: 13, marginBottom: 14 }}>
+              {suiviModalTask.titre}
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {([
+                {
+                  value: null,
+                  label: "Aucun",
+                  bg: "#f3f4f6",
+                  color: "#374151",
+                  border: "#e5e7eb",
+                },
+                {
+                  value: "a_planifier",
+                  label: "🔵 À planifier",
+                  bg: "#dbeafe",
+                  color: "#1d4ed8",
+                  border: "#bfdbfe",
+                },
+                {
+                  value: "urgent",
+                  label: "🟠 Urgent",
+                  bg: "#ffedd5",
+                  color: "#9a3412",
+                  border: "#fed7aa",
+                },
+                {
+                  value: "hors_service",
+                  label: "🔴 Hors service",
+                  bg: "#fee2e2",
+                  color: "#991b1b",
+                  border: "#fecaca",
+                },
+              ] as const).map((option) => (
+                <button
+                  key={option.value || "aucun"}
+                  type="button"
+                  style={{
+                    ...styles.btn,
+                    background: option.bg,
+                    color: option.color,
+                    border: `1px solid ${option.border}`,
+                    textAlign: "left",
+                  }}
+                  onClick={async () => {
+                    await updateNoteSuiviType(suiviModalTask.id, option.value);
+                    setSuiviModalTask(null);
+                  }}
+                >
+                  {option.label}
+                </button>
+              ))}
+
+              <button
+                type="button"
+                style={styles.btn}
+                onClick={() => setSuiviModalTask(null)}
+              >
+                Annuler
               </button>
             </div>
           </div>

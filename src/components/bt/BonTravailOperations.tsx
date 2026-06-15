@@ -204,6 +204,7 @@ type Props = {
 
 export default function BonTravailOperations(props: Props) {
   const [showPointageDetails, setShowPointageDetails] = useState(false);
+  const [suiviModalTask, setSuiviModalTask] = useState<NoteMeca | null>(null);
 
   const initialUniteNo = String(props.uniteNo || "").trim();
   const initialVehicleReadyMessage = initialUniteNo
@@ -886,14 +887,7 @@ export default function BonTravailOperations(props: Props) {
                   const isADiscuterClient = decision === "a_discuter";
                   const suiviType = t.suivi_type || null;
 
-                  const suiviBadge =
-                    suiviType === "hors_service"
-                      ? { text: "🔴 Hors service", bg: "#fee2e2", color: "#991b1b" }
-                      : suiviType === "urgent"
-                        ? { text: "🟠 Urgent", bg: "#ffedd5", color: "#9a3412" }
-                        : suiviType === "a_planifier"
-                          ? { text: "🔵 À planifier", bg: "#dbeafe", color: "#1d4ed8" }
-                          : null;
+                  
 
                   const rowStyle: CSSProperties = {
                     background: isRefusedClient
@@ -942,23 +936,6 @@ export default function BonTravailOperations(props: Props) {
                         >
                           {String(t.titre || "")}
                         </div>
-
-                        {suiviBadge && (
-                          <div
-                            style={{
-                              display: "inline-block",
-                              marginTop: 6,
-                              padding: "3px 8px",
-                              borderRadius: 999,
-                              background: suiviBadge.bg,
-                              color: suiviBadge.color,
-                              fontSize: 12,
-                              fontWeight: 900,
-                            }}
-                          >
-                            {suiviBadge.text}
-                          </div>
-                        )}
 
                         {isPendingClient && (
                           <div
@@ -1017,32 +994,23 @@ export default function BonTravailOperations(props: Props) {
                       </td>
 
                       <td style={styles.td}>
-                        <select
-                          style={{
-                            ...styles.input,
-                            minWidth: 150,
-                            width: "100%",
-                            padding: "7px 9px",
-                            fontSize: 12,
-                            fontWeight: 850,
-                          }}
-                          value={t.suivi_type || ""}
-                          onChange={(e) => {
-                            const value = e.target.value as
-                              | ""
-                              | SuiviTacheType;
-                            void onUpdateNoteSuiviType(
-                              t.id,
-                              value ? value : null,
-                            );
-                          }}
-                          disabled={isReadOnly}
-                        >
-                          <option value="">Aucun</option>
-                          <option value="a_planifier">À planifier</option>
-                          <option value="urgent">Urgent</option>
-                          <option value="hors_service">Hors service</option>
-                        </select>
+                       <button
+  type="button"
+  disabled={isReadOnly}
+  onClick={() => setSuiviModalTask(t)}
+  style={{
+    border: "none",
+    background: "transparent",
+    padding: 0,
+    fontWeight: 400,
+    cursor: isReadOnly ? "default" : "pointer",
+    color: "#111827",
+    fontSize: 18,
+    lineHeight: 1,
+  }}
+>
+  +
+</button>
                       </td>
 
                       <td style={styles.photoTd}>
@@ -1909,6 +1877,89 @@ export default function BonTravailOperations(props: Props) {
           </div>
         </div>
       )}
+
+      {suiviModalTask && (
+        <div
+          style={styles.modalBackdrop}
+          onClick={() => setSuiviModalTask(null)}
+        >
+          <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              style={styles.modalClose}
+              onClick={() => setSuiviModalTask(null)}
+            >
+              ×
+            </button>
+
+            <div style={styles.modalTitle}>Suivi de la tâche</div>
+            <div style={styles.modalText}>{suiviModalTask.titre}</div>
+
+            <div style={styles.modalActionsColumn}>
+              {([
+                {
+                  value: null,
+                  label: "Aucun",
+                  bg: "#f3f4f6",
+                  color: "#374151",
+                  border: "#e5e7eb",
+                },
+                {
+                  value: "a_planifier",
+                  label: "🔵 À planifier",
+                  bg: "#dbeafe",
+                  color: "#1d4ed8",
+                  border: "#bfdbfe",
+                },
+                {
+                  value: "urgent",
+                  label: "🟠 Urgent",
+                  bg: "#ffedd5",
+                  color: "#9a3412",
+                  border: "#fed7aa",
+                },
+                {
+                  value: "hors_service",
+                  label: "🔴 Hors service",
+                  bg: "#fee2e2",
+                  color: "#991b1b",
+                  border: "#fecaca",
+                },
+              ] as const).map((option) => (
+                <button
+                  key={option.value || "aucun"}
+                  type="button"
+                  style={{
+                    ...styles.btn,
+                    background: option.bg,
+                    color: option.color,
+                    border: `1px solid ${option.border}`,
+                    textAlign: "left",
+                  }}
+                  onClick={async () => {
+                    await onUpdateNoteSuiviType(
+                      suiviModalTask.id,
+                      option.value,
+                    );
+                    setSuiviModalTask(null);
+                  }}
+                >
+                  {option.label}
+                </button>
+              ))}
+
+              <button
+                type="button"
+                style={styles.btn}
+                onClick={() => setSuiviModalTask(null)}
+              >
+                Annuler
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </>
   );
 }
