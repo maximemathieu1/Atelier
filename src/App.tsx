@@ -51,6 +51,8 @@ import PepAdmin from "./pages/pep/PepAdmin";
 import { supabase } from "./lib/supabaseClient";
 import "./styles.css";
 
+const SUITE_GB_URL = "https://suite.groupebreton.com";
+
 function useIsMobile(bp = 900) {
   const [isMobile, setIsMobile] = useState(() =>
     typeof window !== "undefined" ? window.innerWidth < bp : false
@@ -137,7 +139,15 @@ function AppShell({ onLogout }: { onLogout: () => void | Promise<void> }) {
           }
         >
           <div className="brand">
-            <img src="/logo-groupe-breton.png" className="brand-logo" />
+            <img
+              src="/logo-gb-suite.svg"
+              className="brand-logo"
+              alt="Suite GB"
+              title="Retour au portail Suite GB"
+              onClick={() => {
+                window.location.href = SUITE_GB_URL;
+              }}
+            />
           </div>
 
           <div className="section">
@@ -254,7 +264,10 @@ function AppShell({ onLogout }: { onLogout: () => void | Promise<void> }) {
             <Route path="/employes" element={<EmployesPage />} />
 
             <Route path="/admin/dossiers-vehicules" element={<DossiersVehiculesPage />} />
-            <Route path="/admin/dossiers-vehicules/:uniteId" element={<DossierVehiculeDetailPage />} />
+            <Route
+              path="/admin/dossiers-vehicules/:uniteId"
+              element={<DossierVehiculeDetailPage />}
+            />
 
             <Route path="/dashboard-atelier" element={<DashboardAtelier />} />
 
@@ -317,10 +330,28 @@ export default function App() {
 
   const pathRef = useRef(loc.pathname);
   const isPublicAutorisationRoute = loc.pathname.startsWith("/autorisation-bt/");
+  const isBackupLoginRoute = loc.pathname === "/login";
 
   useEffect(() => {
     pathRef.current = loc.pathname;
   }, [loc.pathname]);
+
+  async function checkAtelierAccess(userId: string) {
+    const { data, error } = await supabase
+      .from("gb_user_module_access")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("module_key", "atelier")
+      .eq("can_access", true)
+      .maybeSingle();
+
+    if (error) {
+      console.error("Erreur validation accès Atelier:", error);
+      return false;
+    }
+
+    return Boolean(data);
+  }
 
   useEffect(() => {
     let alive = true;
@@ -330,37 +361,69 @@ export default function App() {
 
       if (!alive) return;
 
-      if (error) {
+      if (error || !data.session) {
         setIsAuthed(false);
         setLoading(false);
+
+        if (
+          !pathRef.current.startsWith("/autorisation-bt/") &&
+          pathRef.current !== "/login"
+        ) {
+          window.location.href = SUITE_GB_URL;
+        }
+
         return;
       }
 
-      const authed = Boolean(data.session);
-      setIsAuthed(authed);
+      const hasAccess = await checkAtelierAccess(data.session.user.id);
+
+      if (!alive) return;
+
+      if (!hasAccess) {
+        setIsAuthed(false);
+        setLoading(false);
+        window.location.href = SUITE_GB_URL;
+        return;
+      }
+
+      setIsAuthed(true);
       setLoading(false);
 
       if (pathRef.current.startsWith("/autorisation-bt/")) return;
 
-      if (authed && pathRef.current === "/login") {
+      if (pathRef.current === "/login") {
         nav("/dashboard-atelier", { replace: true });
-      }
-
-      if (!authed && pathRef.current !== "/login") {
-        nav("/login", { replace: true });
       }
     }
 
     init();
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-      const authed = Boolean(session);
-      setIsAuthed(authed);
-
+    const { data: sub } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (pathRef.current.startsWith("/autorisation-bt/")) return;
 
-      if (!authed) nav("/login", { replace: true });
-      else if (pathRef.current === "/login") nav("/dashboard-atelier", { replace: true });
+      if (!session) {
+        setIsAuthed(false);
+
+        if (pathRef.current !== "/login") {
+          window.location.href = SUITE_GB_URL;
+        }
+
+        return;
+      }
+
+      const hasAccess = await checkAtelierAccess(session.user.id);
+
+      if (!hasAccess) {
+        setIsAuthed(false);
+        window.location.href = SUITE_GB_URL;
+        return;
+      }
+
+      setIsAuthed(true);
+
+      if (pathRef.current === "/login") {
+        nav("/dashboard-atelier", { replace: true });
+      }
     });
 
     return () => {
@@ -371,7 +434,7 @@ export default function App() {
 
   async function logout() {
     await supabase.auth.signOut();
-    nav("/login", { replace: true });
+    window.location.href = SUITE_GB_URL;
   }
 
   if (isPublicAutorisationRoute) {
@@ -385,7 +448,7 @@ export default function App() {
 
   if (loading) return <div style={{ padding: 16 }}>Chargement…</div>;
 
-  if (!isAuthed) {
+  if (!isAuthed && isBackupLoginRoute) {
     return (
       <Routes>
         <Route
@@ -395,6 +458,11 @@ export default function App() {
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     );
+  }
+
+  if (!isAuthed) {
+    window.location.href = SUITE_GB_URL;
+    return null;
   }
 
   return <AppShell onLogout={logout} />;
