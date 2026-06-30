@@ -336,23 +336,6 @@ export default function App() {
     pathRef.current = loc.pathname;
   }, [loc.pathname]);
 
-  async function checkAtelierAccess(userId: string) {
-    const { data, error } = await supabase
-      .from("gb_user_module_access")
-      .select("id")
-      .eq("user_id", userId)
-      .eq("module_key", "atelier")
-      .eq("can_access", true)
-      .maybeSingle();
-
-    if (error) {
-      console.error("Erreur validation accès Atelier:", error);
-      return false;
-    }
-
-    return Boolean(data);
-  }
-
   useEffect(() => {
     let alive = true;
 
@@ -375,17 +358,6 @@ export default function App() {
         return;
       }
 
-      const hasAccess = await checkAtelierAccess(data.session.user.id);
-
-      if (!alive) return;
-
-      if (!hasAccess) {
-        setIsAuthed(false);
-        setLoading(false);
-        window.location.href = SUITE_GB_URL;
-        return;
-      }
-
       setIsAuthed(true);
       setLoading(false);
 
@@ -398,7 +370,7 @@ export default function App() {
 
     init();
 
-    const { data: sub } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
       if (pathRef.current.startsWith("/autorisation-bt/")) return;
 
       if (!session) {
@@ -408,14 +380,6 @@ export default function App() {
           window.location.href = SUITE_GB_URL;
         }
 
-        return;
-      }
-
-      const hasAccess = await checkAtelierAccess(session.user.id);
-
-      if (!hasAccess) {
-        setIsAuthed(false);
-        window.location.href = SUITE_GB_URL;
         return;
       }
 
