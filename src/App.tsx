@@ -53,6 +53,29 @@ import "./styles.css";
 
 const SUITE_GB_URL = "https://suite.groupebreton.com";
 
+async function restoreSessionFromHash() {
+  const hash = window.location.hash;
+
+  if (!hash.includes("access_token") || !hash.includes("refresh_token")) {
+    return;
+  }
+
+  const params = new URLSearchParams(hash.replace("#", ""));
+  const accessToken = params.get("access_token");
+  const refreshToken = params.get("refresh_token");
+
+  if (!accessToken || !refreshToken) {
+    return;
+  }
+
+  await supabase.auth.setSession({
+    access_token: decodeURIComponent(accessToken),
+    refresh_token: decodeURIComponent(refreshToken),
+  });
+
+  window.history.replaceState(null, "", window.location.pathname);
+}
+
 function useIsMobile(bp = 900) {
   const [isMobile, setIsMobile] = useState(() =>
     typeof window !== "undefined" ? window.innerWidth < bp : false
@@ -340,6 +363,8 @@ export default function App() {
     let alive = true;
 
     async function init() {
+      await restoreSessionFromHash();
+
       const { data, error } = await supabase.auth.getSession();
 
       if (!alive) return;
