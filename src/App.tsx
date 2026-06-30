@@ -363,13 +363,42 @@ export default function App() {
     let alive = true;
 
     async function init() {
-      await restoreSessionFromHash();
+      try {
+        await restoreSessionFromHash();
 
-      const { data, error } = await supabase.auth.getSession();
+        await new Promise((resolve) => setTimeout(resolve, 300));
 
-      if (!alive) return;
+        const { data, error } = await supabase.auth.getSession();
 
-      if (error || !data.session) {
+        if (!alive) return;
+
+        if (error || !data.session) {
+          setIsAuthed(false);
+          setLoading(false);
+
+          if (
+            !pathRef.current.startsWith("/autorisation-bt/") &&
+            pathRef.current !== "/login"
+          ) {
+            setTimeout(() => {
+              window.location.href = SUITE_GB_URL;
+            }, 500);
+          }
+
+          return;
+        }
+
+        setIsAuthed(true);
+        setLoading(false);
+
+        if (pathRef.current.startsWith("/autorisation-bt/")) return;
+
+        if (pathRef.current === "/login") {
+          nav("/dashboard-atelier", { replace: true });
+        }
+      } catch {
+        if (!alive) return;
+
         setIsAuthed(false);
         setLoading(false);
 
@@ -377,19 +406,10 @@ export default function App() {
           !pathRef.current.startsWith("/autorisation-bt/") &&
           pathRef.current !== "/login"
         ) {
-          window.location.href = SUITE_GB_URL;
+          setTimeout(() => {
+            window.location.href = SUITE_GB_URL;
+          }, 500);
         }
-
-        return;
-      }
-
-      setIsAuthed(true);
-      setLoading(false);
-
-      if (pathRef.current.startsWith("/autorisation-bt/")) return;
-
-      if (pathRef.current === "/login") {
-        nav("/dashboard-atelier", { replace: true });
       }
     }
 
@@ -400,15 +420,11 @@ export default function App() {
 
       if (!session) {
         setIsAuthed(false);
-
-        if (pathRef.current !== "/login") {
-          window.location.href = SUITE_GB_URL;
-        }
-
         return;
       }
 
       setIsAuthed(true);
+      setLoading(false);
 
       if (pathRef.current === "/login") {
         nav("/dashboard-atelier", { replace: true });
@@ -435,7 +451,7 @@ export default function App() {
     );
   }
 
-  if (loading) return <div style={{ padding: 16 }}>Chargement…</div>;
+  if (loading) return <div style={{ padding: 16 }}>Connexion en cours…</div>;
 
   if (!isAuthed && isBackupLoginRoute) {
     return (
@@ -450,8 +466,7 @@ export default function App() {
   }
 
   if (!isAuthed) {
-    window.location.href = SUITE_GB_URL;
-    return null;
+    return <div style={{ padding: 16 }}>Redirection vers Suite GB…</div>;
   }
 
   return <AppShell onLogout={logout} />;
