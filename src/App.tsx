@@ -52,28 +52,56 @@ import { supabase } from "./lib/supabaseClient";
 import "./styles.css";
 
 const SUITE_GB_URL = "https://suite.groupebreton.com";
+const SUITE_SUPABASE_URL =
+  import.meta.env.VITE_SUITE_SUPABASE_URL ||
+  "https://zvzehhzjoaehlvoraatt.supabase.co";
 
-async function restoreSessionFromHash() {
-  const hash = window.location.hash;
+type AtelierSsoUser = {
+  suite_user_id: string;
+  email: string;
+  nom: string;
+  role_module: string;
+};
 
-  if (!hash.includes("access_token") || !hash.includes("refresh_token")) {
-    return;
+function getStoredSsoUser(): AtelierSsoUser | null {
+  try {
+    const raw = localStorage.getItem("atelier_sso_user");
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function setStoredSsoUser(user: AtelierSsoUser) {
+  localStorage.setItem("atelier_sso_user", JSON.stringify(user));
+}
+
+function clearStoredSsoUser() {
+  localStorage.removeItem("atelier_sso_user");
+}
+
+async function validateSsoTicket(ticket: string): Promise<AtelierSsoUser> {
+  const response = await fetch(
+    `${SUITE_SUPABASE_URL}/functions/v1/validate-sso-ticket`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        ticket,
+        module_key: "atelier",
+      }),
+    }
+  );
+
+  const data = await response.json();
+
+  if (!response.ok || data?.success === false) {
+    throw new Error(data?.error || "Ticket SSO invalide.");
   }
 
-  const params = new URLSearchParams(hash.replace("#", ""));
-  const accessToken = params.get("access_token");
-  const refreshToken = params.get("refresh_token");
-
-  if (!accessToken || !refreshToken) {
-    return;
-  }
-
-  await supabase.auth.setSession({
-    access_token: decodeURIComponent(accessToken),
-    refresh_token: decodeURIComponent(refreshToken),
-  });
-
-  window.history.replaceState(null, "", window.location.pathname);
+  return data.user as AtelierSsoUser;
 }
 
 function useIsMobile(bp = 900) {
@@ -350,6 +378,7 @@ export default function App() {
 
   const [loading, setLoading] = useState(true);
   const [isAuthed, setIsAuthed] = useState(false);
+  const [ssoError, setSsoError] = useState("");
 
   const pathRef = useRef(loc.pathname);
   const isPublicAutorisationRoute = loc.pathname.startsWith("/autorisation-bt/");
@@ -364,9 +393,30 @@ export default function App() {
 
     async function init() {
       try {
-        await restoreSessionFromHash();
+        const params = new URLSearchParams(window.location.search);
+        const ssoTicket = params.get("sso");
 
-        await new Promise((resolve) => setTimeout(resolve, 300));
+        if (ssoTicket) {
+          const user = await validateSsoTicket(ssoTicket);
+
+          if (!alive) return;
+
+          setStoredSsoUser(user);
+          setIsAuthed(true);
+          setLoading(false);
+
+          window.history.replaceState(null, "", "/dashboard-atelier");
+          nav("/dashboard-atelier", { replace: true });
+          return;
+        }
+
+        const storedSsoUser = getStoredSsoUser();
+
+        if (storedSsoUser) {
+          setIsAuthed(true);
+          setLoading(false);
+          return;
+        }
 
         const { data, error } = await supabase.auth.getSession();
 
@@ -396,9 +446,17 @@ export default function App() {
         if (pathRef.current === "/login") {
           nav("/dashboard-atelier", { replace: true });
         }
-      } catch {
+      } catch (error) {
+        console.error(error);
+
         if (!alive) return;
 
+        clearStoredSsoUser();
+        setSsoError(
+          error instanceof Error
+            ? error.message
+            : "Connexion SSO impossible."
+        );
         setIsAuthed(false);
         setLoading(false);
 
@@ -408,7 +466,7 @@ export default function App() {
         ) {
           setTimeout(() => {
             window.location.href = SUITE_GB_URL;
-          }, 500);
+          }, 1800);
         }
       }
     }
@@ -418,7 +476,7 @@ export default function App() {
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
       if (pathRef.current.startsWith("/autorisation-bt/")) return;
 
-      if (!session) {
+      if (!session && !getStoredSsoUser()) {
         setIsAuthed(false);
         return;
       }
@@ -438,6 +496,7 @@ export default function App() {
   }, [nav]);
 
   async function logout() {
+    clearStoredSsoUser();
     await supabase.auth.signOut();
     window.location.href = SUITE_GB_URL;
   }
@@ -466,7 +525,11 @@ export default function App() {
   }
 
   if (!isAuthed) {
-    return <div style={{ padding: 16 }}>Redirection vers Suite GB…</div>;
+    return (
+      <div style={{ padding: 16 }}>
+        {ssoError || "Redirection vers Suite GB…"}
+      </div>
+    );
   }
 
   return <AppShell onLogout={logout} />;
