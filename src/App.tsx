@@ -52,6 +52,44 @@ import { supabase } from "./lib/supabaseClient";
 import "./styles.css";
 
 const SUITE_GB_URL = "https://suite.groupebreton.com";
+const SUITE_SUPABASE_URL =
+  import.meta.env.VITE_SUITE_SUPABASE_URL ||
+  "https://zvzehhzjoaehlvoraatt.supabase.co";
+
+async function connectWithSsoTicket(ticket: string) {
+  const response = await fetch(
+    `${SUITE_SUPABASE_URL}/functions/v1/validate-sso-ticket`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        ticket,
+        module_key: "atelier",
+      }),
+    }
+  );
+
+  const data = await response.json();
+
+  if (!response.ok || data?.success === false) {
+    throw new Error(data?.error || "Ticket SSO invalide.");
+  }
+
+  if (!data.access_token || !data.refresh_token) {
+    throw new Error("Session SSO manquante.");
+  }
+
+  const { error } = await supabase.auth.setSession({
+    access_token: data.access_token,
+    refresh_token: data.refresh_token,
+  });
+
+  if (error) {
+    throw error;
+  }
+}
 
 async function restoreSessionFromHash() {
   const hash = window.location.hash;
@@ -74,25 +112,6 @@ async function restoreSessionFromHash() {
   });
 
   window.history.replaceState(null, "", window.location.pathname);
-}
-
-async function exchangeSuiteSso(ticket: string) {
-  const { data, error } = await supabase.functions.invoke("exchange-suite-sso", {
-    body: {
-      ticket,
-      redirectTo: "https://atelier.groupebreton.com/dashboard-atelier",
-    },
-  });
-
-  if (error || data?.success === false) {
-    throw new Error(data?.error || error?.message || "SSO Atelier impossible.");
-  }
-
-  if (!data?.action_link) {
-    throw new Error("Lien de connexion Atelier manquant.");
-  }
-
-  window.location.href = data.action_link;
 }
 
 function useIsMobile(bp = 900) {
@@ -388,7 +407,15 @@ export default function App() {
         const ssoTicket = params.get("sso");
 
         if (ssoTicket) {
-          await exchangeSuiteSso(ssoTicket);
+          await connectWithSsoTicket(ssoTicket);
+
+          if (!alive) return;
+
+          window.history.replaceState(null, "", "/dashboard-atelier");
+          nav("/dashboard-atelier", { replace: true });
+
+          setIsAuthed(true);
+          setLoading(false);
           return;
         }
 
