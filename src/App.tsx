@@ -52,56 +52,47 @@ import { supabase } from "./lib/supabaseClient";
 import "./styles.css";
 
 const SUITE_GB_URL = "https://suite.groupebreton.com";
-const SUITE_SUPABASE_URL =
-  import.meta.env.VITE_SUITE_SUPABASE_URL ||
-  "https://zvzehhzjoaehlvoraatt.supabase.co";
 
-type AtelierSsoUser = {
-  suite_user_id: string;
-  email: string;
-  nom: string;
-  role_module: string;
-};
+async function restoreSessionFromHash() {
+  const hash = window.location.hash;
 
-function getStoredSsoUser(): AtelierSsoUser | null {
-  try {
-    const raw = localStorage.getItem("atelier_sso_user");
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-}
-
-function setStoredSsoUser(user: AtelierSsoUser) {
-  localStorage.setItem("atelier_sso_user", JSON.stringify(user));
-}
-
-function clearStoredSsoUser() {
-  localStorage.removeItem("atelier_sso_user");
-}
-
-async function validateSsoTicket(ticket: string): Promise<AtelierSsoUser> {
-  const response = await fetch(
-    `${SUITE_SUPABASE_URL}/functions/v1/validate-sso-ticket`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        ticket,
-        module_key: "atelier",
-      }),
-    }
-  );
-
-  const data = await response.json();
-
-  if (!response.ok || data?.success === false) {
-    throw new Error(data?.error || "Ticket SSO invalide.");
+  if (!hash.includes("access_token") || !hash.includes("refresh_token")) {
+    return;
   }
 
-  return data.user as AtelierSsoUser;
+  const params = new URLSearchParams(hash.replace("#", ""));
+  const accessToken = params.get("access_token");
+  const refreshToken = params.get("refresh_token");
+
+  if (!accessToken || !refreshToken) {
+    return;
+  }
+
+  await supabase.auth.setSession({
+    access_token: decodeURIComponent(accessToken),
+    refresh_token: decodeURIComponent(refreshToken),
+  });
+
+  window.history.replaceState(null, "", window.location.pathname);
+}
+
+async function exchangeSuiteSso(ticket: string) {
+  const { data, error } = await supabase.functions.invoke("exchange-suite-sso", {
+    body: {
+      ticket,
+      redirectTo: "https://atelier.groupebreton.com/dashboard-atelier",
+    },
+  });
+
+  if (error || data?.success === false) {
+    throw new Error(data?.error || error?.message || "SSO Atelier impossible.");
+  }
+
+  if (!data?.action_link) {
+    throw new Error("Lien de connexion Atelier manquant.");
+  }
+
+  window.location.href = data.action_link;
 }
 
 function useIsMobile(bp = 900) {
@@ -397,26 +388,13 @@ export default function App() {
         const ssoTicket = params.get("sso");
 
         if (ssoTicket) {
-          const user = await validateSsoTicket(ssoTicket);
-
-          if (!alive) return;
-
-          setStoredSsoUser(user);
-          setIsAuthed(true);
-          setLoading(false);
-
-          window.history.replaceState(null, "", "/dashboard-atelier");
-          nav("/dashboard-atelier", { replace: true });
+          await exchangeSuiteSso(ssoTicket);
           return;
         }
 
-        const storedSsoUser = getStoredSsoUser();
+        await restoreSessionFromHash();
 
-        if (storedSsoUser) {
-          setIsAuthed(true);
-          setLoading(false);
-          return;
-        }
+        await new Promise((resolve) => setTimeout(resolve, 300));
 
         const { data, error } = await supabase.auth.getSession();
 
@@ -451,7 +429,6 @@ export default function App() {
 
         if (!alive) return;
 
-        clearStoredSsoUser();
         setSsoError(
           error instanceof Error
             ? error.message
@@ -476,7 +453,7 @@ export default function App() {
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
       if (pathRef.current.startsWith("/autorisation-bt/")) return;
 
-      if (!session && !getStoredSsoUser()) {
+      if (!session) {
         setIsAuthed(false);
         return;
       }
@@ -496,7 +473,6 @@ export default function App() {
   }, [nav]);
 
   async function logout() {
-    clearStoredSsoUser();
     await supabase.auth.signOut();
     window.location.href = SUITE_GB_URL;
   }
