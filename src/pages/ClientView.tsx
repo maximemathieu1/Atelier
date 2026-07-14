@@ -22,6 +22,8 @@ type Client = {
   adresse_pays: string | null;
 
   note_generale: string | null;
+  est_fabricant: boolean;
+  fabricant: "Lion" | "Girardin" | "Thomas" | null;
 };
 
 type ClientContact = {
@@ -258,6 +260,8 @@ export default function ClientView() {
           "adresse_code_postal",
           "adresse_pays",
           "note_generale",
+          "est_fabricant",
+          "fabricant",
         ].join(",")
       )
       .eq("id", id)
@@ -455,6 +459,8 @@ export default function ClientView() {
         adresse_code_postal: client.adresse_code_postal?.trim() || null,
         adresse_pays: client.adresse_pays?.trim() || null,
         note_generale: client.note_generale ?? null,
+        est_fabricant: Boolean(client.est_fabricant),
+        fabricant: client.est_fabricant ? client.fabricant : null,
       };
 
       const { error } = await supabase.from("clients").update(payload).eq("id", client.id);
@@ -1084,6 +1090,52 @@ export default function ClientView() {
                     Actif
                   </label>
                 </Row>
+
+                <div style={{ height: 2, background: "var(--border)", margin: "6px 0" }} />
+
+                <div>
+                  <div style={{ fontWeight: 900, fontSize: 16 }}>Centre de service</div>
+                  <div className="muted">Associe ce client à un fabricant utilisé pour la facturation des garanties.</div>
+                </div>
+
+                <Row label="Client fabricant" hint="Payeur fabricant dans Centre de service">
+                  <label style={{ display: "inline-flex", gap: 8, alignItems: "center", fontWeight: 800 }}>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(client.est_fabricant)}
+                      onChange={(e) =>
+                        setClient({
+                          ...client,
+                          est_fabricant: e.target.checked,
+                          fabricant: e.target.checked ? client.fabricant || "Lion" : null,
+                        })
+                      }
+                      disabled={!isEditMode}
+                    />
+                    Ce client représente un fabricant
+                  </label>
+                </Row>
+
+                <Row label="Fabricant">
+                  <select
+                    className="input"
+                    value={client.fabricant ?? ""}
+                    onChange={(e) =>
+                      setClient({
+                        ...client,
+                        fabricant: (e.target.value || null) as Client["fabricant"],
+                      })
+                    }
+                    disabled={!isEditMode || !client.est_fabricant}
+                  >
+                    <option value="">Choisir...</option>
+                    <option value="Lion">Lion</option>
+                    <option value="Girardin">Girardin</option>
+                    <option value="Thomas">Thomas</option>
+                  </select>
+                </Row>
+
+                <div style={{ height: 2, background: "var(--border)", margin: "6px 0" }} />
 
                 <Row label="Taux horaire (défaut)" hint="Main-d’œuvre">
                   <input

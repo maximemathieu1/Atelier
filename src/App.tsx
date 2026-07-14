@@ -17,6 +17,7 @@ import EmployesPage from "./pages/EmployesPage";
 
 import DashboardAtelier from "./pages/DashboardAtelier";
 import BTListe from "./pages/BTListe";
+import CentreServicePage from "./pages/CentreServicePage";
 import BonTravailPage from "./pages/BonTravailPage";
 import BonTravailMecanoPage from "./pages/BonTravailMecanoPage";
 import BtPrintPage from "./pages/BtPrintPage";
@@ -222,6 +223,10 @@ function AppShell({ onLogout }: { onLogout: () => void | Promise<void> }) {
               Bon Travail
             </NavLink>
 
+            <NavLink to="/centre-service" className={linkClass} onClick={onNavClick}>
+              Centre de service
+            </NavLink>
+
             <NavLink to="/operation-temps-reel" className={linkClass} onClick={onNavClick}>
               Opération Temps réel
             </NavLink>
@@ -333,6 +338,7 @@ function AppShell({ onLogout }: { onLogout: () => void | Promise<void> }) {
             <Route path="/dashboard-atelier" element={<DashboardAtelier />} />
 
             <Route path="/bt" element={<BTListe />} />
+            <Route path="/centre-service" element={<CentreServicePage />} />
             <Route path="/bt/:id" element={<BonTravailPage />} />
             <Route path="/bt-mecano/:id" element={<BonTravailMecanoPage />} />
             <Route path="/bt/:id/imprimer" element={<BtPrintPage />} />
@@ -393,6 +399,11 @@ export default function App() {
   const pathRef = useRef(loc.pathname);
   const isPublicAutorisationRoute = loc.pathname.startsWith("/autorisation-bt/");
   const isBackupLoginRoute = loc.pathname === "/login";
+
+  // Mode développement : bypass complet de l’authentification
+  const DEV_BYPASS =
+    import.meta.env.DEV &&
+    import.meta.env.VITE_DEV_BYPASS === "true";
 
   useEffect(() => {
     pathRef.current = loc.pathname;
@@ -513,7 +524,13 @@ export default function App() {
     );
   }
 
-  if (loading) return <div style={{ padding: 16 }}>Connexion en cours…</div>;
+  if (DEV_BYPASS) {
+    return <AppShell onLogout={() => {}} />;
+  }
+
+  if (loading) {
+    return <div style={{ padding: 16 }}>Connexion en cours…</div>;
+  }
 
   if (!isAuthed && isBackupLoginRoute) {
     return (

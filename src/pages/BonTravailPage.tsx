@@ -6,13 +6,14 @@ import {
   type CSSProperties,
   type SetStateAction,
 } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import { type Piece } from "../components/bt/BtPiecesCard";
 import BonTravailHeaderCard from "../components/bt/BonTravailHeaderCard";
 import BonTravailOperations from "../components/bt/BonTravailOperations";
 import btPrintTemplate from "../templates/btPrintTemplate";
 import UniteView from "./UniteView";
+import BtCentreServiceCard from "../components/bt/BtCentreServiceCard";
 
 type Unite = {
   id: string;
@@ -316,6 +317,7 @@ function formatDateOnly(value: string | null | undefined) {
 export default function BonTravailPage() {
   const { id } = useParams();
   const nav = useNavigate();
+  const location = useLocation();
 
   const [loading, setLoading] = useState(true);
   const [bt, setBt] = useState<BonTravail | null>(null);
@@ -393,10 +395,13 @@ export default function BonTravailPage() {
   >(null);
   const [savingTerminer, setSavingTerminer] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<"details" | "documents">(
-    "details",
-  );
+  const [activeTab, setActiveTab] = useState<
+    "details" | "documents" | "centre_service"
+  >("details");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
+  const galleryInputRef = useRef<HTMLInputElement | null>(null);
+  const documentInputRef = useRef<HTMLInputElement | null>(null);
   const [documents, setDocuments] = useState<any[]>([]);
   const [clientContacts, setClientContacts] = useState<ClientContact[]>([]);
   const [selectedClientContactId, setSelectedClientContactId] = useState("");
@@ -1074,6 +1079,9 @@ export default function BonTravailPage() {
       setUploadingDocuments(false);
       setDraggingDocuments(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
+      if (cameraInputRef.current) cameraInputRef.current.value = "";
+      if (galleryInputRef.current) galleryInputRef.current.value = "";
+      if (documentInputRef.current) documentInputRef.current.value = "";
     }
   }
 
@@ -1696,6 +1704,13 @@ export default function BonTravailPage() {
     loadAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get("centreService") === "1") {
+      setActiveTab("centre_service");
+    }
+  }, [location.search]);
 
   async function saveBTHeaderSilently() {
     if (!bt || !hasKmColumn || loading || isReadOnly) return false;
@@ -3097,6 +3112,17 @@ ${noms}`);
             >
               Documents ({documents.length})
             </button>
+            <button
+              type="button"
+              style={
+                activeTab === "centre_service"
+                  ? styles.tabBtnActive
+                  : styles.tabBtn
+              }
+              onClick={() => setActiveTab("centre_service")}
+            >
+              Centre de service
+            </button>
           </div>
 
           {activeTab === "details" ? (
@@ -3202,7 +3228,7 @@ ${noms}`);
                 effectiveTvqRate={effectiveTvqRate}
               />
             </>
-          ) : (
+          ) : activeTab === "documents" ? (
             <div style={styles.card}>
               <div
                 style={{
@@ -3219,6 +3245,44 @@ ${noms}`);
                 </div>
               </div>
 
+              {!isReadOnly && (
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 8,
+                    flexWrap: "wrap",
+                    marginBottom: 12,
+                  }}
+                >
+                  <button
+                    type="button"
+                    style={styles.btnPrimary}
+                    onClick={() => cameraInputRef.current?.click()}
+                    disabled={uploadingDocuments}
+                  >
+                    Prendre une photo
+                  </button>
+
+                  <button
+                    type="button"
+                    style={styles.btn}
+                    onClick={() => galleryInputRef.current?.click()}
+                    disabled={uploadingDocuments}
+                  >
+                    Choisir dans la galerie
+                  </button>
+
+                  <button
+                    type="button"
+                    style={styles.btn}
+                    onClick={() => documentInputRef.current?.click()}
+                    disabled={uploadingDocuments}
+                  >
+                    Ajouter PDF ou document
+                  </button>
+                </div>
+              )}
+
               <div
                 onDragOver={(e) => {
                   e.preventDefault();
@@ -3232,7 +3296,7 @@ ${noms}`);
                 }}
                 onDrop={onDocumentsDrop}
                 onClick={() => {
-                  if (!isReadOnly) fileInputRef.current?.click();
+                  if (!isReadOnly) documentInputRef.current?.click();
                 }}
                 style={{
                   ...styles.dropZone,
@@ -3274,13 +3338,53 @@ ${noms}`);
               </div>
 
               <input
+                ref={cameraInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                style={{ display: "none" }}
+                onChange={(e) => {
+                  if (e.target.files?.length) {
+                    void handleUploadDocuments(e.target.files);
+                  }
+                }}
+              />
+
+              <input
+                ref={galleryInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                style={{ display: "none" }}
+                onChange={(e) => {
+                  if (e.target.files?.length) {
+                    void handleUploadDocuments(e.target.files);
+                  }
+                }}
+              />
+
+              <input
+                ref={documentInputRef}
+                type="file"
+                accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,application/pdf"
+                multiple
+                style={{ display: "none" }}
+                onChange={(e) => {
+                  if (e.target.files?.length) {
+                    void handleUploadDocuments(e.target.files);
+                  }
+                }}
+              />
+
+              <input
                 ref={fileInputRef}
                 type="file"
                 multiple
                 style={{ display: "none" }}
                 onChange={(e) => {
-                  if (e.target.files?.length)
+                  if (e.target.files?.length) {
                     void handleUploadDocuments(e.target.files);
+                  }
                 }}
               />
 
@@ -3347,6 +3451,16 @@ ${noms}`);
                 )}
               </div>
             </div>
+          ) : (
+            <BtCentreServiceCard
+              btId={bt.id}
+              pieces={pieces as any[]}
+              mainOeuvre={mainOeuvre}
+              pointages={pointages}
+              isReadOnly={isReadOnly}
+              documents={documents}
+              onDocumentGenerated={() => loadDocuments(bt.id)}
+            />
           )}
         </>
       )}

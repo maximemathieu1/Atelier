@@ -7,13 +7,15 @@ type Client = {
   nom: string;
   courriel: string | null;
   telephone: string | null;
+  est_fabricant: boolean;
+  fabricant: "Lion" | "Girardin" | "Thomas" | null;
 };
 
 type ClientRow = Client & {
   nb_unites: number;
 };
 
-type SortKey = "nom" | "courriel" | "telephone" | "nb_unites";
+type SortKey = "nom" | "courriel" | "telephone" | "nb_unites" | "fabricant";
 type SortDir = "asc" | "desc";
 
 export default function ClientsListe() {
@@ -32,7 +34,7 @@ export default function ClientsListe() {
   async function load() {
     const [{ data: clients, error: clientsError }, { data: unites, error: unitesError }] =
       await Promise.all([
-        supabase.from("clients").select("id, nom, courriel, telephone").order("nom"),
+        supabase.from("clients").select("id, nom, courriel, telephone, est_fabricant, fabricant").order("nom"),
         supabase.from("unites").select("client_id").not("client_id", "is", null),
       ]);
 
@@ -106,6 +108,8 @@ export default function ClientsListe() {
         return row.telephone ?? "";
       case "nb_unites":
         return row.nb_unites ?? 0;
+      case "fabricant":
+        return row.est_fabricant ? row.fabricant ?? "" : "";
       default:
         return "";
     }
@@ -116,7 +120,7 @@ export default function ClientsListe() {
     if (!q) return rows;
 
     return rows.filter((c) => {
-      const haystack = [c.nom, c.courriel ?? "", c.telephone ?? "", String(c.nb_unites)]
+      const haystack = [c.nom, c.courriel ?? "", c.telephone ?? "", String(c.nb_unites), c.fabricant ?? ""]
         .join(" ")
         .toLowerCase();
 
@@ -231,6 +235,7 @@ export default function ClientsListe() {
                 {renderSortableHeader("Client", "nom")}
                 {renderSortableHeader("Téléphone", "telephone")}
                 {renderSortableHeader("Courriel", "courriel")}
+                {renderSortableHeader("Centre de service", "fabricant")}
                 {renderSortableHeader("Unités", "nb_unites", true)}
               </tr>
             </thead>
@@ -238,7 +243,7 @@ export default function ClientsListe() {
             <tbody>
               {paginatedRows.length === 0 ? (
                 <tr>
-                  <td colSpan={4}>
+                  <td colSpan={5}>
                     <div style={styles.emptyWrap}>
                       {rows.length === 0 ? "Aucun client." : "Aucun résultat."}
                     </div>
@@ -264,6 +269,12 @@ export default function ClientsListe() {
 
                       <td style={{ ...styles.td, background: rowBg }}>
                         <div style={styles.cellPrimary}>{c.courriel || "—"}</div>
+                      </td>
+
+                      <td style={{ ...styles.td, background: rowBg }}>
+                        <div style={styles.cellPrimary}>
+                          {c.est_fabricant && c.fabricant ? c.fabricant : "—"}
+                        </div>
                       </td>
 
                       <td style={{ ...styles.tdRight, background: rowBg }}>
