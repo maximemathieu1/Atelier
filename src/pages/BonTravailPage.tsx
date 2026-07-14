@@ -2954,6 +2954,16 @@ ${noms}`);
     <div style={styles.page}>
       <style>
         {`
+          .mobile-gallery-action {
+            display: none !important;
+          }
+
+          @media (max-width: 767px) {
+            .mobile-gallery-action {
+              display: inline-flex !important;
+            }
+          }
+
           @media print {
             @page {
               size: auto;
@@ -3262,16 +3272,15 @@ ${noms}`);
                   >
                     Prendre une photo
                   </button>
-
                   <button
                     type="button"
+                    className="mobile-gallery-action"
                     style={styles.btn}
                     onClick={() => galleryInputRef.current?.click()}
                     disabled={uploadingDocuments}
                   >
                     Choisir dans la galerie
                   </button>
-
                   <button
                     type="button"
                     style={styles.btn}
