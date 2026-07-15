@@ -776,6 +776,7 @@ Merci.`);
         {
           body: {
             bt_id: btId,
+            to_email: claimRecipientEmail.trim(),
             include_bt: includeBtInClaim,
             document_ids: documentIds,
             subject: claimSubject.trim(),
@@ -799,7 +800,9 @@ Merci.`);
       setClaimHistory(history || []);
 
       alert(
-        `Claim envoyé à ${data?.to_email || claimRecipientEmail}.`,
+        Number(data?.email_count || 1) > 1
+          ? `Claim envoyé à ${data?.to_email || claimRecipientEmail} en ${data.email_count} courriels.`
+          : `Claim envoyé à ${data?.to_email || claimRecipientEmail}.`,
       );
     } catch (e: any) {
       setError(e?.message || "Erreur pendant l'envoi du claim.");

@@ -75,6 +75,12 @@ type UniteOption = {
   actif: boolean;
 };
 
+type PieceCategoryOption = {
+  value: string;
+  label: string;
+  count: number;
+};
+
 type UniteRow = {
   id: string;
   client_id?: string | null;
@@ -221,6 +227,8 @@ export default function ClientView() {
 
   const [tauxMO, setTauxMO] = useState<TauxMO[]>([]);
   const [marges, setMarges] = useState<MargePiece[]>([]);
+  const [pieceCategories, setPieceCategories] = useState<PieceCategoryOption[]>([]);
+  const [pieceCategoriesError, setPieceCategoriesError] = useState("");
 
   const [units, setUnits] = useState<UniteRow[]>([]);
   const [unitsError, setUnitsError] = useState<string>("");
@@ -235,6 +243,18 @@ export default function ClientView() {
     for (const o of opts) m.set(o.id, o.libelle);
     return m;
   }, [opts]);
+
+  const availablePieceCategories = useMemo(() => {
+    const used = new Set(
+      marges
+        .map((row) => String(row.categorie ?? "").trim().toLocaleLowerCase("fr"))
+        .filter(Boolean)
+    );
+
+    return pieceCategories.filter(
+      (category) => !used.has(category.value.trim().toLocaleLowerCase("fr"))
+    );
+  }, [pieceCategories, marges]);
 
   const title = useMemo(() => {
     if (!client) return "Client";
@@ -371,6 +391,72 @@ export default function ClientView() {
     }
   }
 
+  async function loadPieceCategories() {
+    setPieceCategoriesError("");
+
+    const candidates = [
+      { table: "pieces", column: "categorie" },
+      { table: "pieces", column: "categorie_piece" },
+      { table: "inventaire", column: "categorie" },
+      { table: "inventaire_pieces", column: "categorie" },
+    ] as const;
+
+    let rows: Array<Record<string, any>> | null = null;
+    let selectedColumn = "";
+    let lastError = "";
+
+    for (const candidate of candidates) {
+      const { data, error } = await supabase
+        .from(candidate.table)
+        .select(candidate.column)
+        .not(candidate.column, "is", null)
+        .limit(10000);
+
+      if (!error) {
+        rows = (data as Array<Record<string, any>> | null) ?? [];
+        selectedColumn = candidate.column;
+        break;
+      }
+
+      lastError = error.message;
+    }
+
+    if (!rows || !selectedColumn) {
+      console.warn("Catégories de pièces:", lastError);
+      setPieceCategories([]);
+      setPieceCategoriesError(
+        "Impossible de lire les catégories existantes dans l’inventaire."
+      );
+      return;
+    }
+
+    const counts = new Map<string, { label: string; count: number }>();
+
+    for (const row of rows) {
+      const label = String(row[selectedColumn] ?? "").trim();
+      if (!label) continue;
+
+      const key = label.toLocaleLowerCase("fr");
+      const current = counts.get(key);
+
+      if (current) {
+        current.count += 1;
+      } else {
+        counts.set(key, { label, count: 1 });
+      }
+    }
+
+    const categories = Array.from(counts.values())
+      .sort((a, b) => a.label.localeCompare(b.label, "fr"))
+      .map((category) => ({
+        value: category.label,
+        label: category.label,
+        count: category.count,
+      }));
+
+    setPieceCategories(categories);
+  }
+
   async function loadUnits() {
     if (!id) return;
 
@@ -411,6 +497,7 @@ export default function ClientView() {
       loadContacts(),
       ensureConfigRow(),
       loadOverrides(),
+      loadPieceCategories(),
       loadUnits(),
     ]);
   }
@@ -1284,12 +1371,20 @@ export default function ClientView() {
 
               {isEditMode && (
                 <div className="toolbar" style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap" }}>
-                  <input
+                  <select
                     className="input"
                     value={newCatPiece}
                     onChange={(e) => setNewCatPiece(e.target.value)}
-                    placeholder="Catégorie (ex: Freins)"
-                  />
+                    style={{ minWidth: 280 }}
+                  >
+                    <option value="">Choisir une catégorie…</option>
+                    {availablePieceCategories.map((category) => (
+                      <option key={category.value} value={category.value}>
+                        {category.label}
+                        {category.count > 0 ? ` (${category.count} pièce${category.count > 1 ? "s" : ""})` : ""}
+                      </option>
+                    ))}
+                  </select>
                   <input
                     className="input"
                     value={newMargePiece}
@@ -1354,7 +1449,16 @@ export default function ClientView() {
                 </table>
               </div>
 
-              <div className="hint">Les catégories sont libres pour l’instant. Si tu veux, on pourra normaliser ça plus tard.</div>
+              {pieceCategoriesError ? (
+                <div className="hint" style={{ color: "#991b1b" }}>
+                  {pieceCategoriesError}
+                </div>
+              ) : (
+                <div className="hint">
+                  Les catégories proviennent automatiquement de l’inventaire. Une catégorie déjà configurée
+                  disparaît du menu pour éviter les doublons.
+                </div>
+              )}
             </div>
           </div>
         </div>
