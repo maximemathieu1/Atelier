@@ -14,6 +14,7 @@ import BonTravailOperations from "../components/bt/BonTravailOperations";
 import btPrintTemplate from "../templates/btPrintTemplate";
 import UniteView from "./UniteView";
 import BtCentreServiceCard from "../components/bt/BtCentreServiceCard";
+import JSZip from "jszip";
 
 type Unite = {
   id: string;
@@ -403,6 +404,10 @@ export default function BonTravailPage() {
   const galleryInputRef = useRef<HTMLInputElement | null>(null);
   const documentInputRef = useRef<HTMLInputElement | null>(null);
   const [documents, setDocuments] = useState<any[]>([]);
+  const [selectedDocumentIds, setSelectedDocumentIds] = useState<
+    Record<string, boolean>
+  >({});
+  const [downloadingDocuments, setDownloadingDocuments] = useState(false);
   const [clientContacts, setClientContacts] = useState<ClientContact[]>([]);
   const [selectedClientContactId, setSelectedClientContactId] = useState("");
   const [sendDocsModalOpen, setSendDocsModalOpen] = useState(false);
@@ -657,6 +662,18 @@ export default function BonTravailPage() {
     );
   }, [documents]);
 
+  const selectedDocuments = useMemo(
+    () => documents.filter((doc) => selectedDocumentIds[String(doc.id)]),
+    [documents, selectedDocumentIds],
+  );
+
+  const allDocumentsSelected = useMemo(
+    () =>
+      documents.length > 0 &&
+      documents.every((doc) => selectedDocumentIds[String(doc.id)]),
+    [documents, selectedDocumentIds],
+  );
+
   const canSendInvoice = useMemo(() => {
     return isFacturedStatut(bt?.statut);
   }, [bt?.statut]);
@@ -762,9 +779,19 @@ export default function BonTravailPage() {
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-      setDocuments(data || []);
+      const nextDocuments = data || [];
+      setDocuments(nextDocuments);
+      setSelectedDocumentIds((prev) => {
+        const validIds = new Set(nextDocuments.map((doc) => String(doc.id)));
+        return Object.fromEntries(
+          Object.entries(prev).filter(([docId, checked]) =>
+            checked && validIds.has(docId),
+          ),
+        );
+      });
     } catch {
       setDocuments([]);
+      setSelectedDocumentIds({});
     } finally {
       setDocumentsLoading(false);
     }
@@ -1030,6 +1057,129 @@ export default function BonTravailPage() {
       if (data?.signedUrl) window.open(data.signedUrl, "_blank");
     } catch (e: any) {
       alert(e?.message || "Impossible d'ouvrir le document.");
+    }
+  }
+
+  function sanitizeDownloadFileName(value: unknown, fallback = "document") {
+    const name = String(value || fallback)
+      .trim()
+      .replace(/[\\/:*?"<>|]+/g, "-")
+      .replace(/\s+/g, " ");
+    return name || fallback;
+  }
+
+  function downloadBlob(blob: Blob, fileName: string) {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = fileName;
+    link.style.display = "none";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1500);
+  }
+
+  async function getDocumentDownload(doc: any) {
+    const storagePath = String(doc?.storage_path || "").trim();
+    let fileName = sanitizeDownloadFileName(
+      doc?.nom_fichier,
+      `document-${String(doc?.id || Date.now())}`,
+    );
+
+    if (storagePath && !storagePath.startsWith("pep_archive:")) {
+      const { data, error } = await supabase.storage
+        .from("bt-documents")
+        .createSignedUrl(storagePath, 300);
+
+      if (error) throw error;
+      if (!data?.signedUrl) throw new Error(`Lien indisponible pour ${fileName}.`);
+
+      const response = await fetch(data.signedUrl);
+      if (!response.ok) {
+        throw new Error(`Téléchargement impossible pour ${fileName}.`);
+      }
+
+      return { fileName, blob: await response.blob() };
+    }
+
+    if ((doc?.type === "pep" || doc?.source === "auto_pep") && doc?.pep_id) {
+      const { data, error } = await supabase
+        .from("pep_archives")
+        .select("html_complet")
+        .eq("id", doc.pep_id)
+        .maybeSingle();
+
+      if (error) throw error;
+      if (!data?.html_complet) {
+        throw new Error(`Archive PEP indisponible pour ${fileName}.`);
+      }
+
+      fileName = fileName.replace(/\.pdf$/i, ".html");
+      if (!/\.[a-z0-9]{2,8}$/i.test(fileName)) fileName += ".html";
+
+      return {
+        fileName,
+        blob: new Blob([String(data.html_complet)], {
+          type: "text/html;charset=utf-8",
+        }),
+      };
+    }
+
+    throw new Error(`Aucun fichier téléchargeable pour ${fileName}.`);
+  }
+
+  function toggleAllDocuments() {
+    if (allDocumentsSelected) {
+      setSelectedDocumentIds({});
+      return;
+    }
+
+    setSelectedDocumentIds(
+      Object.fromEntries(documents.map((doc) => [String(doc.id), true])),
+    );
+  }
+
+  async function downloadSelectedDocuments() {
+    if (selectedDocuments.length === 0 || downloadingDocuments) return;
+
+    setDownloadingDocuments(true);
+
+    try {
+      if (selectedDocuments.length === 1) {
+        const downloaded = await getDocumentDownload(selectedDocuments[0]);
+        downloadBlob(downloaded.blob, downloaded.fileName);
+        return;
+      }
+
+      const zip = new JSZip();
+      const usedNames = new Set<string>();
+
+      for (const doc of selectedDocuments) {
+        const downloaded = await getDocumentDownload(doc);
+        const originalName = downloaded.fileName;
+        const dotIndex = originalName.lastIndexOf(".");
+        const baseName = dotIndex > 0 ? originalName.slice(0, dotIndex) : originalName;
+        const extension = dotIndex > 0 ? originalName.slice(dotIndex) : "";
+
+        let uniqueName = originalName;
+        let index = 2;
+        while (usedNames.has(uniqueName.toLowerCase())) {
+          uniqueName = `${baseName} (${index})${extension}`;
+          index += 1;
+        }
+
+        usedNames.add(uniqueName.toLowerCase());
+        zip.file(uniqueName, downloaded.blob);
+      }
+
+      const zipBlob = await zip.generateAsync({ type: "blob" });
+      const btNumber = sanitizeDownloadFileName(bt?.numero || bt?.id || "BT");
+      downloadBlob(zipBlob, `${btNumber}-Documents.zip`);
+    } catch (e: any) {
+      alert(e?.message || "Erreur lors du téléchargement des documents.");
+    } finally {
+      setDownloadingDocuments(false);
     }
   }
 
@@ -3006,6 +3156,26 @@ ${noms}`);
       background: "#fff",
       marginBottom: 8,
     },
+    documentsToolbar: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 10,
+      flexWrap: "wrap",
+      marginTop: 16,
+      marginBottom: 10,
+      padding: "10px 12px",
+      border: "1px solid rgba(0,0,0,.08)",
+      borderRadius: 12,
+      background: "#f8fafc",
+    },
+    documentCheckbox: {
+      width: 18,
+      height: 18,
+      flex: "0 0 auto",
+      cursor: "pointer",
+      accentColor: "#0f172a",
+    },
     docBadge: {
       display: "inline-flex",
       alignItems: "center",
@@ -3394,7 +3564,47 @@ ${noms}`);
                 }}
               />
 
-              <div style={{ marginTop: 16 }}>
+              {documents.length > 0 && !documentsLoading && (
+                <div style={styles.documentsToolbar}>
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 9,
+                      fontWeight: 800,
+                      cursor: "pointer",
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={allDocumentsSelected}
+                      onChange={toggleAllDocuments}
+                      style={styles.documentCheckbox}
+                    />
+                    {allDocumentsSelected
+                      ? "Tout désélectionner"
+                      : "Tout sélectionner"}
+                  </label>
+
+                  {selectedDocuments.length > 0 && (
+                    <button
+                      type="button"
+                      style={{
+                        ...styles.tabBtnActive,
+                        opacity: downloadingDocuments ? 0.65 : 1,
+                      }}
+                      onClick={() => void downloadSelectedDocuments()}
+                      disabled={downloadingDocuments}
+                    >
+                      {downloadingDocuments
+                        ? "Préparation..."
+                        : `Télécharger la sélection (${selectedDocuments.length})`}
+                    </button>
+                  )}
+                </div>
+              )}
+
+              <div style={{ marginTop: documents.length > 0 ? 0 : 16 }}>
                 {documentsLoading ? (
                   <div style={styles.muted}>Chargement des documents…</div>
                 ) : documents.length === 0 ? (
@@ -3407,7 +3617,21 @@ ${noms}`);
                       doc.type === "pep" || doc.source === "auto_pep";
                     return (
                       <div key={doc.id} style={styles.docRow}>
-                        <div style={{ minWidth: 0 }}>
+                        <input
+                          type="checkbox"
+                          aria-label={`Sélectionner ${String(doc.nom_fichier || "Document")}`}
+                          checked={Boolean(selectedDocumentIds[String(doc.id)])}
+                          onChange={(e) => {
+                            const checked = e.target.checked;
+                            setSelectedDocumentIds((prev) => ({
+                              ...prev,
+                              [String(doc.id)]: checked,
+                            }));
+                          }}
+                          style={styles.documentCheckbox}
+                        />
+
+                        <div style={{ minWidth: 0, flex: "1 1 auto" }}>
                           <div
                             style={{ fontWeight: 800, wordBreak: "break-word" }}
                           >
