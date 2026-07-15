@@ -332,6 +332,16 @@ export default function BtCentreServiceCard({
   }, [btId]);
 
   useEffect(() => {
+    const eventName = `open-centre-service-claim-${btId}`;
+    const handler = () => {
+      void openSendClaim();
+    };
+
+    window.addEventListener(eventName, handler);
+    return () => window.removeEventListener(eventName, handler);
+  });
+
+  useEffect(() => {
     if (statut === "Fermé" && !dateFermeture) setDateFermeture(todayDate());
   }, [statut, dateFermeture]);
 

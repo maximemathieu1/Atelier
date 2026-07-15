@@ -2611,6 +2611,36 @@ ${noms}`);
     }
   }
 
+  function openPrincipalSend() {
+    const hasClaimAvailable = documents.some(
+      (doc) =>
+        doc?.source === "centre_service_lion" ||
+        String(doc?.nom_fichier || "").toLowerCase().includes("claim"),
+    );
+
+    if (hasClaimAvailable) {
+      setActiveTab("centre_service");
+      window.setTimeout(() => {
+        window.dispatchEvent(
+          new Event(`open-centre-service-claim-${bt?.id || id}`),
+        );
+      }, 50);
+      return;
+    }
+
+    setSendToEmail("");
+    setSendToName(snapshotClientNom || "");
+    const nextMode = isFacturedStatut(bt?.statut) ? "facture" : "documents";
+    setSendMode(nextMode);
+    setIncludeBtDocument(nextMode === "documents");
+    setIncludePepDocument(
+      nextMode === "documents" && pepDocuments.length > 0,
+    );
+    setSendCommentaire("");
+    setSelectedClientContactId("");
+    setSendDocsModalOpen(true);
+  }
+
   function handlePrint() {
     if (!bt || !unite) return;
 
@@ -2954,16 +2984,6 @@ ${noms}`);
     <div style={styles.page}>
       <style>
         {`
-          .mobile-gallery-action {
-            display: none !important;
-          }
-
-          @media (max-width: 767px) {
-            .mobile-gallery-action {
-              display: inline-flex !important;
-            }
-          }
-
           @media print {
             @page {
               size: auto;
@@ -3015,21 +3035,7 @@ ${noms}`);
               </button>
               <button
                 style={styles.btn}
-                onClick={() => {
-                  setSendToEmail("");
-                  setSendToName(snapshotClientNom || "");
-                  const nextMode = isFacturedStatut(bt?.statut)
-                    ? "facture"
-                    : "documents";
-                  setSendMode(nextMode);
-                  setIncludeBtDocument(nextMode === "documents");
-                  setIncludePepDocument(
-                    nextMode === "documents" && pepDocuments.length > 0,
-                  );
-                  setSendCommentaire("");
-                  setSelectedClientContactId("");
-                  setSendDocsModalOpen(true);
-                }}
+                onClick={openPrincipalSend}
                 disabled={loading}
               >
                 Envoyer
@@ -3058,21 +3064,7 @@ ${noms}`);
               </button>
               <button
                 style={styles.btn}
-                onClick={() => {
-                  setSendToEmail("");
-                  setSendToName(snapshotClientNom || "");
-                  const nextMode = isFacturedStatut(bt?.statut)
-                    ? "facture"
-                    : "documents";
-                  setSendMode(nextMode);
-                  setIncludeBtDocument(nextMode === "documents");
-                  setIncludePepDocument(
-                    nextMode === "documents" && pepDocuments.length > 0,
-                  );
-                  setSendCommentaire("");
-                  setSelectedClientContactId("");
-                  setSendDocsModalOpen(true);
-                }}
+                onClick={openPrincipalSend}
                 disabled={loading}
               >
                 Envoyer
@@ -3254,43 +3246,6 @@ ${noms}`);
                   </div>
                 </div>
               </div>
-
-              {!isReadOnly && (
-                <div
-                  style={{
-                    display: "flex",
-                    gap: 8,
-                    flexWrap: "wrap",
-                    marginBottom: 12,
-                  }}
-                >
-                  <button
-                    type="button"
-                    style={styles.btnPrimary}
-                    onClick={() => cameraInputRef.current?.click()}
-                    disabled={uploadingDocuments}
-                  >
-                    Prendre une photo
-                  </button>
-                  <button
-                    type="button"
-                    className="mobile-gallery-action"
-                    style={styles.btn}
-                    onClick={() => galleryInputRef.current?.click()}
-                    disabled={uploadingDocuments}
-                  >
-                    Choisir dans la galerie
-                  </button>
-                  <button
-                    type="button"
-                    style={styles.btn}
-                    onClick={() => documentInputRef.current?.click()}
-                    disabled={uploadingDocuments}
-                  >
-                    Ajouter PDF ou document
-                  </button>
-                </div>
-              )}
 
               <div
                 onDragOver={(e) => {
