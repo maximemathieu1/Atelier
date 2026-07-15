@@ -104,6 +104,7 @@ type Props = {
   pointages: PointageRow[];
   isReadOnly: boolean;
   documents: BtDocumentRow[];
+  btKm?: number | string | null;
   onDocumentGenerated?: () => void | Promise<void>;
 };
 
@@ -182,6 +183,7 @@ export default function BtCentreServiceCard({
   pointages,
   isReadOnly,
   documents,
+  btKm,
   onDocumentGenerated,
 }: Props) {
   const [loading, setLoading] = useState(true);
@@ -199,8 +201,8 @@ export default function BtCentreServiceCard({
   const [commentaires, setCommentaires] = useState("");
   const [repartition, setRepartition] = useState<Repartition>(EMPTY_REPARTITION);
   const [travauxCentreService, setTravauxCentreService] = useState(true);
-  const [pieceAcheteeLion, setPieceAcheteeLion] = useState<boolean | null>(null);
-  const [composantImportant, setComposantImportant] = useState<boolean | null>(null);
+  const [pieceAcheteeLion, setPieceAcheteeLion] = useState<boolean | null>(true);
+  const [composantImportant, setComposantImportant] = useState<boolean | null>(false);
   const [remplacementApprouve, setRemplacementApprouve] = useState<boolean | null>(null);
   const [plainte, setPlainte] = useState("");
   const [cause, setCause] = useState("");
@@ -209,10 +211,11 @@ export default function BtCentreServiceCard({
   const [seriePieceRemplacement, setSeriePieceRemplacement] = useState("");
   const [dateAchat1, setDateAchat1] = useState("");
   const [factureAchat1, setFactureAchat1] = useState("");
-  const [kmAchat1, setKmAchat1] = useState("");
   const [dateAchat2, setDateAchat2] = useState("");
   const [factureAchat2, setFactureAchat2] = useState("");
-  const [kmAchat2, setKmAchat2] = useState("");
+  const [kilometrage, setKilometrage] = useState("");
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [invoiceCount, setInvoiceCount] = useState(0);
   const [signatureDemandeur, setSignatureDemandeur] = useState("");
   const [claimPdfGeneratedAt, setClaimPdfGeneratedAt] = useState("");
   const [generatingClaim, setGeneratingClaim] = useState(false);
@@ -260,8 +263,8 @@ export default function BtCentreServiceCard({
         setCommentaires("");
         setRepartition(EMPTY_REPARTITION);
         setTravauxCentreService(true);
-        setPieceAcheteeLion(null);
-        setComposantImportant(null);
+        setPieceAcheteeLion(true);
+        setComposantImportant(false);
         setRemplacementApprouve(null);
         setPlainte("");
         setCause("");
@@ -270,10 +273,11 @@ export default function BtCentreServiceCard({
         setSeriePieceRemplacement("");
         setDateAchat1("");
         setFactureAchat1("");
-        setKmAchat1("");
         setDateAchat2("");
         setFactureAchat2("");
-        setKmAchat2("");
+        setKilometrage(btKm == null ? "" : String(btKm));
+        setInvoiceCount(0);
+        setDetailsOpen(false);
         setSignatureDemandeur("");
         setClaimPdfGeneratedAt("");
         setMainOeuvreClaim([]);
@@ -293,8 +297,8 @@ export default function BtCentreServiceCard({
       setCommentaires(row.commentaires || "");
       setRepartition(normalizeRepartition(row.repartition));
       setTravauxCentreService(row.travaux_centre_service !== false);
-      setPieceAcheteeLion(row.piece_achetee_lion ?? null);
-      setComposantImportant(row.composant_important ?? null);
+      setPieceAcheteeLion(row.piece_achetee_lion ?? true);
+      setComposantImportant(row.composant_important ?? false);
       setRemplacementApprouve(row.remplacement_approuve ?? null);
       setPlainte(row.plainte || "");
       setCause(row.cause || "");
@@ -303,10 +307,18 @@ export default function BtCentreServiceCard({
       setSeriePieceRemplacement(row.serie_piece_remplacement || "");
       setDateAchat1(row.date_achat_1 || "");
       setFactureAchat1(row.facture_achat_1 || "");
-      setKmAchat1(row.km_achat_1 == null ? "" : String(row.km_achat_1));
       setDateAchat2(row.date_achat_2 || "");
       setFactureAchat2(row.facture_achat_2 || "");
-      setKmAchat2(row.km_achat_2 == null ? "" : String(row.km_achat_2));
+      const loadedKm =
+        row.km_achat_1 ?? row.km_achat_2 ?? btKm ?? "";
+      setKilometrage(loadedKm === "" ? "" : String(loadedKm));
+      setInvoiceCount(
+        row.date_achat_2 || row.facture_achat_2
+          ? 2
+          : row.date_achat_1 || row.facture_achat_1
+            ? 1
+            : 0,
+      );
       setSignatureDemandeur(row.signature_demandeur || "");
       setClaimPdfGeneratedAt(row.claim_pdf_generated_at || "");
       const loadedLabor = normalizeClaimLabor(row.main_oeuvre_claim);
@@ -352,6 +364,51 @@ export default function BtCentreServiceCard({
   useEffect(() => {
     if (statut === "Fermé" && !dateFermeture) setDateFermeture(todayDate());
   }, [statut, dateFermeture]);
+
+  useEffect(() => {
+    if (!kilometrage && btKm != null && String(btKm).trim() !== "") {
+      setKilometrage(String(btKm));
+    }
+  }, [btKm, kilometrage]);
+
+  const totalMainOeuvreBt = useMemo(() => {
+    const manuel = mainOeuvre.reduce(
+      (total, row) => total + (Number(String(row.heures ?? 0).replace(",", ".")) || 0),
+      0,
+    );
+    const pointee = pointages.reduce(
+      (total, row) => total + (Number(row.duration_minutes || 0) / 60),
+      0,
+    );
+    return manuel + pointee;
+  }, [mainOeuvre, pointages]);
+
+  const totalDiagnostic = useMemo(
+    () =>
+      mainOeuvreClaim
+        .filter((row) => row.type === "diagnostic")
+        .reduce(
+          (total, row) =>
+            total + (Number(String(row.heures ?? 0).replace(",", ".")) || 0),
+          0,
+        ),
+    [mainOeuvreClaim],
+  );
+
+  const totalSrt = useMemo(
+    () =>
+      mainOeuvreClaim
+        .filter((row) => row.type === "srt")
+        .reduce(
+          (total, row) =>
+            total + (Number(String(row.heures ?? 0).replace(",", ".")) || 0),
+          0,
+        ),
+    [mainOeuvreClaim],
+  );
+
+  const totalReclame = totalDiagnostic + totalSrt;
+  const ecartMainOeuvre = totalReclame - totalMainOeuvreBt;
 
   const repartitionComplete = useMemo(() => {
     if (payeur !== "partage") return true;
@@ -408,12 +465,18 @@ export default function BtCentreServiceCard({
         correction: correction.trim() || null,
         serie_piece_defectueuse: seriePieceDefectueuse.trim() || null,
         serie_piece_remplacement: seriePieceRemplacement.trim() || null,
-        date_achat_1: dateAchat1 || null,
-        facture_achat_1: factureAchat1.trim() || null,
-        km_achat_1: kmAchat1.trim() ? Number(kmAchat1.replace(",", ".")) : null,
-        date_achat_2: dateAchat2 || null,
-        facture_achat_2: factureAchat2.trim() || null,
-        km_achat_2: kmAchat2.trim() ? Number(kmAchat2.replace(",", ".")) : null,
+        date_achat_1: invoiceCount >= 1 ? dateAchat1 || null : null,
+        facture_achat_1:
+          invoiceCount >= 1 ? factureAchat1.trim() || null : null,
+        km_achat_1: kilometrage.trim()
+          ? Number(kilometrage.replace(",", "."))
+          : null,
+        date_achat_2: invoiceCount >= 2 ? dateAchat2 || null : null,
+        facture_achat_2:
+          invoiceCount >= 2 ? factureAchat2.trim() || null : null,
+        km_achat_2: kilometrage.trim()
+          ? Number(kilometrage.replace(",", "."))
+          : null,
         signature_demandeur: signatureDemandeur.trim() || null,
         main_oeuvre_claim: mainOeuvreClaim.map((row) => ({
           ...row,
@@ -967,6 +1030,34 @@ Merci.`);
       borderRadius: 10,
       marginBottom: 8,
     },
+    summaryGrid: {
+      display: "grid",
+      gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+      gap: 10,
+      marginTop: 12,
+    },
+    summaryCard: {
+      padding: 12,
+      border: "1px solid #e2e8f0",
+      borderRadius: 10,
+      background: "#f8fafc",
+    },
+    detailToggle: {
+      marginTop: 12,
+      border: 0,
+      background: "transparent",
+      color: "#334155",
+      fontWeight: 900,
+      cursor: "pointer",
+      padding: 0,
+    },
+    invoiceBox: {
+      marginTop: 12,
+      padding: 12,
+      border: "1px solid #e2e8f0",
+      borderRadius: 12,
+      background: "#f8fafc",
+    },
     payerSelect: {
       width: 150,
       height: 36,
@@ -1001,59 +1092,84 @@ Merci.`);
 
         <label style={styles.field}>
           <span style={styles.label}>Numéro de case</span>
-          <input style={styles.input} value={numeroCase} onChange={(e) => setNumeroCase(e.target.value)} disabled={isReadOnly || saving} />
-        </label>
-
-        <label style={styles.field}>
-          <span style={styles.label}>Numéro de réclamation</span>
-          <input style={styles.input} value={numeroReclamation} onChange={(e) => setNumeroReclamation(e.target.value)} disabled={isReadOnly || saving} />
-        </label>
-
-        <label style={styles.field}>
-          <span style={styles.label}>Préautorisation</span>
-          <input style={styles.input} value={preautorisation} onChange={(e) => setPreautorisation(e.target.value)} disabled={isReadOnly || saving} />
-        </label>
-
-        <label style={styles.field}>
-          <span style={styles.label}>Statut</span>
-          <select style={styles.input} value={statut} onChange={(e) => setStatut(e.target.value)} disabled={isReadOnly || saving}>
-            {STATUTS.map((item) => <option key={item}>{item}</option>)}
-          </select>
-        </label>
-
-        <label style={styles.field}>
-          <span style={styles.label}>Payeur</span>
-          <select
+          <input
             style={styles.input}
-            value={payeur}
-            onChange={(e) => {
-              const next = e.target.value as CentreServicePayeur;
-              if (next === "partage") initializeSharedFrom(payeur);
-              setPayeur(next);
-            }}
+            value={numeroCase}
+            onChange={(e) => setNumeroCase(e.target.value)}
             disabled={isReadOnly || saving}
-          >
-            <option value="client">Client</option>
-            <option value="fabricant">Fabricant</option>
-            <option value="partage">Partagé</option>
-          </select>
+          />
         </label>
 
         <label style={styles.field}>
           <span style={styles.label}>Date d'ouverture</span>
-          <input type="date" style={styles.input} value={dateOuverture} onChange={(e) => setDateOuverture(e.target.value)} disabled={isReadOnly || saving} />
-        </label>
-
-        <label style={styles.field}>
-          <span style={styles.label}>Date de fermeture</span>
-          <input type="date" style={styles.input} value={dateFermeture} onChange={(e) => setDateFermeture(e.target.value)} disabled={isReadOnly || saving} />
+          <input
+            type="date"
+            style={styles.input}
+            value={dateOuverture}
+            onChange={(e) => setDateOuverture(e.target.value)}
+            disabled={isReadOnly || saving}
+          />
         </label>
       </div>
 
-      <label style={{ ...styles.field, marginTop: 14 }}>
-        <span style={styles.label}>Commentaires</span>
-        <textarea style={styles.textarea} value={commentaires} onChange={(e) => setCommentaires(e.target.value)} disabled={isReadOnly || saving} />
-      </label>
+      <button
+        type="button"
+        style={styles.detailToggle}
+        onClick={() => setDetailsOpen((open) => !open)}
+      >
+        {detailsOpen ? "▲ Masquer les détails" : "▼ Voir les détails"}
+      </button>
+
+      {detailsOpen && (
+        <>
+          <div style={styles.grid}>
+            <label style={styles.field}>
+              <span style={styles.label}>Numéro de réclamation</span>
+              <input style={styles.input} value={numeroReclamation} onChange={(e) => setNumeroReclamation(e.target.value)} disabled={isReadOnly || saving} />
+            </label>
+
+            <label style={styles.field}>
+              <span style={styles.label}>Préautorisation</span>
+              <input style={styles.input} value={preautorisation} onChange={(e) => setPreautorisation(e.target.value)} disabled={isReadOnly || saving} />
+            </label>
+
+            <label style={styles.field}>
+              <span style={styles.label}>Statut</span>
+              <select style={styles.input} value={statut} onChange={(e) => setStatut(e.target.value)} disabled={isReadOnly || saving}>
+                {STATUTS.map((item) => <option key={item}>{item}</option>)}
+              </select>
+            </label>
+
+            <label style={styles.field}>
+              <span style={styles.label}>Payeur</span>
+              <select
+                style={styles.input}
+                value={payeur}
+                onChange={(e) => {
+                  const next = e.target.value as CentreServicePayeur;
+                  if (next === "partage") initializeSharedFrom(payeur);
+                  setPayeur(next);
+                }}
+                disabled={isReadOnly || saving}
+              >
+                <option value="client">Client</option>
+                <option value="fabricant">Fabricant</option>
+                <option value="partage">Partagé</option>
+              </select>
+            </label>
+
+            <label style={styles.field}>
+              <span style={styles.label}>Date de fermeture</span>
+              <input type="date" style={styles.input} value={dateFermeture} onChange={(e) => setDateFermeture(e.target.value)} disabled={isReadOnly || saving} />
+            </label>
+          </div>
+
+          <label style={{ ...styles.field, marginTop: 14 }}>
+            <span style={styles.label}>Commentaires</span>
+            <textarea style={styles.textarea} value={commentaires} onChange={(e) => setCommentaires(e.target.value)} disabled={isReadOnly || saving} />
+          </label>
+        </>
+      )}
 
       {fabricant === "Lion" && (
         <div style={styles.claimSection}>
@@ -1080,15 +1196,10 @@ Merci.`);
               <span style={styles.label}>Pièce de rechange achetée chez Lion</span>
               <select
                 style={styles.input}
-                value={pieceAcheteeLion === null ? "" : pieceAcheteeLion ? "oui" : "non"}
-                onChange={(e) =>
-                  setPieceAcheteeLion(
-                    e.target.value === "" ? null : e.target.value === "oui",
-                  )
-                }
+                value={pieceAcheteeLion === false ? "non" : "oui"}
+                onChange={(e) => setPieceAcheteeLion(e.target.value === "oui")}
                 disabled={isReadOnly || saving}
               >
-                <option value="">À déterminer</option>
                 <option value="oui">Oui</option>
                 <option value="non">Non</option>
               </select>
@@ -1098,78 +1209,150 @@ Merci.`);
               <span style={styles.label}>Composant important</span>
               <select
                 style={styles.input}
-                value={composantImportant === null ? "" : composantImportant ? "oui" : "non"}
-                onChange={(e) =>
-                  setComposantImportant(
-                    e.target.value === "" ? null : e.target.value === "oui",
-                  )
-                }
+                value={composantImportant ? "oui" : "non"}
+                onChange={(e) => {
+                  const important = e.target.value === "oui";
+                  setComposantImportant(important);
+                  if (!important) {
+                    setRemplacementApprouve(null);
+                    setSeriePieceDefectueuse("");
+                    setSeriePieceRemplacement("");
+                  }
+                }}
                 disabled={isReadOnly || saving}
               >
-                <option value="">À déterminer</option>
-                <option value="oui">Oui</option>
                 <option value="non">Non</option>
+                <option value="oui">Oui</option>
               </select>
             </label>
 
             <label style={styles.field}>
-              <span style={styles.label}>Remplacement approuvé par Lion</span>
-              <select
+              <span style={styles.label}>Kilométrage</span>
+              <input
+                inputMode="numeric"
                 style={styles.input}
-                value={remplacementApprouve === null ? "" : remplacementApprouve ? "oui" : "non"}
-                onChange={(e) =>
-                  setRemplacementApprouve(
-                    e.target.value === "" ? null : e.target.value === "oui",
-                  )
-                }
+                value={kilometrage}
+                onChange={(e) => setKilometrage(e.target.value)}
+                disabled={isReadOnly || saving}
+                placeholder="Kilométrage du BT"
+              />
+            </label>
+          </div>
+
+          {composantImportant && (
+            <div style={styles.claimGrid}>
+              <label style={styles.field}>
+                <span style={styles.label}>Remplacement approuvé par Lion</span>
+                <select
+                  style={styles.input}
+                  value={remplacementApprouve === null ? "" : remplacementApprouve ? "oui" : "non"}
+                  onChange={(e) =>
+                    setRemplacementApprouve(
+                      e.target.value === "" ? null : e.target.value === "oui",
+                    )
+                  }
+                  disabled={isReadOnly || saving}
+                >
+                  <option value="">À déterminer</option>
+                  <option value="oui">Oui</option>
+                  <option value="non">Non</option>
+                </select>
+              </label>
+
+              <label style={styles.field}>
+                <span style={styles.label}>No série pièce défectueuse</span>
+                <input style={styles.input} value={seriePieceDefectueuse} onChange={(e) => setSeriePieceDefectueuse(e.target.value)} disabled={isReadOnly || saving} />
+              </label>
+
+              <label style={styles.field}>
+                <span style={styles.label}>No série pièce de remplacement</span>
+                <input style={styles.input} value={seriePieceRemplacement} onChange={(e) => setSeriePieceRemplacement(e.target.value)} disabled={isReadOnly || saving} />
+              </label>
+            </div>
+          )}
+
+          <div style={{ marginTop: 14 }}>
+            {invoiceCount === 0 && (
+              <button
+                type="button"
+                style={styles.btn}
+                onClick={() => setInvoiceCount(1)}
                 disabled={isReadOnly || saving}
               >
-                <option value="">À déterminer</option>
-                <option value="oui">Oui</option>
-                <option value="non">Non</option>
-              </select>
-            </label>
+                + Ajouter une facture
+              </button>
+            )}
 
-            <label style={styles.field}>
-              <span style={styles.label}>Date d'achat nº 1</span>
-              <input type="date" style={styles.input} value={dateAchat1} onChange={(e) => setDateAchat1(e.target.value)} disabled={isReadOnly || saving} />
-            </label>
+            {invoiceCount >= 1 && (
+              <div style={styles.invoiceBox}>
+                <div style={{ fontWeight: 900, marginBottom: 10 }}>Facture 1</div>
+                <div style={styles.claimGrid}>
+                  <label style={styles.field}>
+                    <span style={styles.label}>Date d'achat</span>
+                    <input type="date" style={styles.input} value={dateAchat1} onChange={(e) => setDateAchat1(e.target.value)} disabled={isReadOnly || saving} />
+                  </label>
+                  <label style={styles.field}>
+                    <span style={styles.label}>Numéro de facture</span>
+                    <input style={styles.input} value={factureAchat1} onChange={(e) => setFactureAchat1(e.target.value)} disabled={isReadOnly || saving} />
+                  </label>
+                </div>
+                {!isReadOnly && (
+                  <button
+                    type="button"
+                    style={{ ...styles.btn, marginTop: 10 }}
+                    onClick={() => {
+                      setInvoiceCount(0);
+                      setDateAchat1("");
+                      setFactureAchat1("");
+                    }}
+                    disabled={saving}
+                  >
+                    Retirer la facture
+                  </button>
+                )}
+              </div>
+            )}
 
-            <label style={styles.field}>
-              <span style={styles.label}>Facture d'achat nº 1</span>
-              <input style={styles.input} value={factureAchat1} onChange={(e) => setFactureAchat1(e.target.value)} disabled={isReadOnly || saving} />
-            </label>
+            {invoiceCount >= 2 && (
+              <div style={styles.invoiceBox}>
+                <div style={{ fontWeight: 900, marginBottom: 10 }}>Facture 2</div>
+                <div style={styles.claimGrid}>
+                  <label style={styles.field}>
+                    <span style={styles.label}>Date d'achat</span>
+                    <input type="date" style={styles.input} value={dateAchat2} onChange={(e) => setDateAchat2(e.target.value)} disabled={isReadOnly || saving} />
+                  </label>
+                  <label style={styles.field}>
+                    <span style={styles.label}>Numéro de facture</span>
+                    <input style={styles.input} value={factureAchat2} onChange={(e) => setFactureAchat2(e.target.value)} disabled={isReadOnly || saving} />
+                  </label>
+                </div>
+                {!isReadOnly && (
+                  <button
+                    type="button"
+                    style={{ ...styles.btn, marginTop: 10 }}
+                    onClick={() => {
+                      setInvoiceCount(1);
+                      setDateAchat2("");
+                      setFactureAchat2("");
+                    }}
+                    disabled={saving}
+                  >
+                    Retirer la facture 2
+                  </button>
+                )}
+              </div>
+            )}
 
-            <label style={styles.field}>
-              <span style={styles.label}>Kilométrage à l'achat nº 1</span>
-              <input inputMode="numeric" style={styles.input} value={kmAchat1} onChange={(e) => setKmAchat1(e.target.value)} disabled={isReadOnly || saving} />
-            </label>
-
-            <label style={styles.field}>
-              <span style={styles.label}>Date d'achat nº 2</span>
-              <input type="date" style={styles.input} value={dateAchat2} onChange={(e) => setDateAchat2(e.target.value)} disabled={isReadOnly || saving} />
-            </label>
-
-            <label style={styles.field}>
-              <span style={styles.label}>Facture d'achat nº 2</span>
-              <input style={styles.input} value={factureAchat2} onChange={(e) => setFactureAchat2(e.target.value)} disabled={isReadOnly || saving} />
-            </label>
-
-            <label style={styles.field}>
-              <span style={styles.label}>Kilométrage à l'achat nº 2</span>
-              <input inputMode="numeric" style={styles.input} value={kmAchat2} onChange={(e) => setKmAchat2(e.target.value)} disabled={isReadOnly || saving} />
-            </label>
-
-            <label style={styles.field}>
-              <span style={styles.label}>No série pièce défectueuse</span>
-              <input style={styles.input} value={seriePieceDefectueuse} onChange={(e) => setSeriePieceDefectueuse(e.target.value)} disabled={isReadOnly || saving} />
-            </label>
-
-            <label style={styles.field}>
-              <span style={styles.label}>No série pièce de remplacement</span>
-              <input style={styles.input} value={seriePieceRemplacement} onChange={(e) => setSeriePieceRemplacement(e.target.value)} disabled={isReadOnly || saving} />
-            </label>
-
+            {invoiceCount === 1 && (
+              <button
+                type="button"
+                style={{ ...styles.btn, marginTop: 10 }}
+                onClick={() => setInvoiceCount(2)}
+                disabled={isReadOnly || saving}
+              >
+                + Ajouter une autre facture
+              </button>
+            )}
           </div>
 
           <div style={{ marginTop: 16 }}>
@@ -1179,6 +1362,67 @@ Merci.`);
               Pour une réparation SRT, commence à taper la description de la composante.
               Le code et les heures se remplissent automatiquement. Tu peux aussi saisir
               manuellement un code de bulletin de service et le temps autorisé.
+            </div>
+
+            <div style={styles.summaryGrid}>
+              <div style={styles.summaryCard}>
+                <div style={styles.muted}>Main-d’œuvre réelle du BT</div>
+                <div style={{ fontSize: 20, fontWeight: 900 }}>
+                  {totalMainOeuvreBt.toFixed(2)} h
+                </div>
+              </div>
+              <div style={styles.summaryCard}>
+                <div style={styles.muted}>Diagnostic</div>
+                <div style={{ fontSize: 20, fontWeight: 900 }}>
+                  {totalDiagnostic.toFixed(2)} h
+                </div>
+              </div>
+              <div style={styles.summaryCard}>
+                <div style={styles.muted}>SRT</div>
+                <div style={{ fontSize: 20, fontWeight: 900 }}>
+                  {totalSrt.toFixed(2)} h
+                </div>
+              </div>
+              <div style={styles.summaryCard}>
+                <div style={styles.muted}>Total réclamé</div>
+                <div style={{ fontSize: 20, fontWeight: 900 }}>
+                  {totalReclame.toFixed(2)} h
+                </div>
+              </div>
+              <div
+                style={{
+                  ...styles.summaryCard,
+                  borderColor:
+                    ecartMainOeuvre > 0
+                      ? "#86efac"
+                      : ecartMainOeuvre < 0
+                        ? "#fca5a5"
+                        : "#cbd5e1",
+                  background:
+                    ecartMainOeuvre > 0
+                      ? "#f0fdf4"
+                      : ecartMainOeuvre < 0
+                        ? "#fef2f2"
+                        : "#f8fafc",
+                }}
+              >
+                <div style={styles.muted}>Écart</div>
+                <div
+                  style={{
+                    fontSize: 20,
+                    fontWeight: 900,
+                    color:
+                      ecartMainOeuvre > 0
+                        ? "#15803d"
+                        : ecartMainOeuvre < 0
+                          ? "#b91c1c"
+                          : "#334155",
+                  }}
+                >
+                  {ecartMainOeuvre > 0 ? "+" : ""}
+                  {ecartMainOeuvre.toFixed(2)} h
+                </div>
+              </div>
             </div>
 
             <div style={styles.laborBox}>
