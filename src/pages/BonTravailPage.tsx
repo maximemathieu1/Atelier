@@ -406,6 +406,7 @@ export default function BonTravailPage() {
   const [clientContacts, setClientContacts] = useState<ClientContact[]>([]);
   const [selectedClientContactId, setSelectedClientContactId] = useState("");
   const [sendDocsModalOpen, setSendDocsModalOpen] = useState(false);
+  const [sendChoiceModalOpen, setSendChoiceModalOpen] = useState(false);
   const [sendingDocuments, setSendingDocuments] = useState(false);
   const [sendToEmail, setSendToEmail] = useState("");
   const [sendToName, setSendToName] = useState("");
@@ -1082,6 +1083,36 @@ export default function BonTravailPage() {
       if (cameraInputRef.current) cameraInputRef.current.value = "";
       if (galleryInputRef.current) galleryInputRef.current.value = "";
       if (documentInputRef.current) documentInputRef.current.value = "";
+    }
+  }
+
+  async function renameDocument(doc: any) {
+    if (!bt?.id) return;
+
+    const currentName = String(doc?.nom_fichier || "Document");
+    const nextName = window.prompt("Nouveau nom du document :", currentName);
+
+    if (nextName === null) return;
+
+    const cleanName = nextName.trim();
+    if (!cleanName || cleanName === currentName) return;
+
+    try {
+      const { error } = await supabase
+        .from("bt_documents")
+        .update({ nom_fichier: cleanName })
+        .eq("id", doc.id)
+        .eq("bt_id", bt.id);
+
+      if (error) throw error;
+
+      setDocuments((rows) =>
+        rows.map((row) =>
+          row.id === doc.id ? { ...row, nom_fichier: cleanName } : row,
+        ),
+      );
+    } catch (e: any) {
+      alert(e?.message || "Impossible de renommer le document.");
     }
   }
 
@@ -2611,23 +2642,8 @@ ${noms}`);
     }
   }
 
-  function openPrincipalSend() {
-    const hasClaimAvailable = documents.some(
-      (doc) =>
-        doc?.source === "centre_service_lion" ||
-        String(doc?.nom_fichier || "").toLowerCase().includes("claim"),
-    );
-
-    if (hasClaimAvailable) {
-      setActiveTab("centre_service");
-      window.setTimeout(() => {
-        window.dispatchEvent(
-          new Event(`open-centre-service-claim-${bt?.id || id}`),
-        );
-      }, 50);
-      return;
-    }
-
+  function openNormalSend() {
+    setSendChoiceModalOpen(false);
     setSendToEmail("");
     setSendToName(snapshotClientNom || "");
     const nextMode = isFacturedStatut(bt?.statut) ? "facture" : "documents";
@@ -2639,6 +2655,32 @@ ${noms}`);
     setSendCommentaire("");
     setSelectedClientContactId("");
     setSendDocsModalOpen(true);
+  }
+
+  function openClaimSend() {
+    setSendChoiceModalOpen(false);
+    setActiveTab("centre_service");
+
+    window.setTimeout(() => {
+      window.dispatchEvent(
+        new Event(`open-centre-service-claim-${bt?.id || id}`),
+      );
+    }, 50);
+  }
+
+  function openPrincipalSend() {
+    const hasClaimAvailable = documents.some(
+      (doc) =>
+        doc?.source === "centre_service_lion" ||
+        String(doc?.nom_fichier || "").toLowerCase().includes("claim"),
+    );
+
+    if (hasClaimAvailable) {
+      setSendChoiceModalOpen(true);
+      return;
+    }
+
+    openNormalSend();
   }
 
   function handlePrint() {
@@ -3400,13 +3442,22 @@ ${noms}`);
                             Ouvrir
                           </button>
                           {!isReadOnly && (
-                            <button
-                              type="button"
-                              style={styles.btnDanger}
-                              onClick={() => void deleteDocument(doc)}
-                            >
-                              Supprimer
-                            </button>
+                            <>
+                              <button
+                                type="button"
+                                style={styles.btn}
+                                onClick={() => void renameDocument(doc)}
+                              >
+                                Renommer
+                              </button>
+                              <button
+                                type="button"
+                                style={styles.btnDanger}
+                                onClick={() => void deleteDocument(doc)}
+                              >
+                                Supprimer
+                              </button>
+                            </>
                           )}
                         </div>
                       </div>
@@ -3427,6 +3478,57 @@ ${noms}`);
             />
           )}
         </>
+      )}
+
+      {sendChoiceModalOpen && (
+        <div
+          style={styles.modalBackdrop}
+          onClick={() => setSendChoiceModalOpen(false)}
+        >
+          <div
+            style={{ ...styles.modalCard, maxWidth: 520 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={styles.modalHeader}>
+              <h3 style={styles.modalTitle}>Que veux-tu envoyer?</h3>
+              <button
+                type="button"
+                style={styles.iconCloseBtn}
+                onClick={() => setSendChoiceModalOpen(false)}
+              >
+                ×
+              </button>
+            </div>
+
+            <div style={{ ...styles.modalBody, display: "grid", gap: 12 }}>
+              <button
+                type="button"
+                style={{
+                  ...styles.btnPrimary,
+                  width: "100%",
+                  minHeight: 54,
+                  textAlign: "left",
+                }}
+                onClick={openClaimSend}
+              >
+                Réclamation au fabricant
+              </button>
+
+              <button
+                type="button"
+                style={{
+                  ...styles.btn,
+                  width: "100%",
+                  minHeight: 54,
+                  textAlign: "left",
+                }}
+                onClick={openNormalSend}
+              >
+                Envoi normal au client
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {sendDocsModalOpen && (

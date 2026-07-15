@@ -339,7 +339,7 @@ export default function BtCentreServiceCard({
 
     window.addEventListener(eventName, handler);
     return () => window.removeEventListener(eventName, handler);
-  });
+  }, [btId]);
 
   useEffect(() => {
     if (statut === "Fermé" && !dateFermeture) setDateFermeture(todayDate());

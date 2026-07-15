@@ -15,12 +15,8 @@ export default function MobileBtPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [documents, setDocuments] = useState<any[]>([]);
   const [uploadingDocument, setUploadingDocument] = useState(false);
-  const [unitSearch, setUnitSearch] = useState("");
-  const [unitResults, setUnitResults] = useState<any[]>([]);
-  const [unitSearchBusy, setUnitSearchBusy] = useState(false);
   const cameraDocumentRef = useRef<HTMLInputElement | null>(null);
   const galleryDocumentRef = useRef<HTMLInputElement | null>(null);
-  const fileDocumentRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     void load();
@@ -118,59 +114,6 @@ export default function MobileBtPage() {
     }
   }
 
-  async function searchUnit() {
-    const term = unitSearch.trim();
-    if (!term) {
-      setUnitResults([]);
-      return;
-    }
-
-    setUnitSearchBusy(true);
-
-    try {
-      const safe = term.replace(/[%_,()]/g, "");
-      const { data: units, error: unitsError } = await supabase
-        .from("unites")
-        .select("id,no_unite,marque,modele,niv,plaque")
-        .or(
-          `no_unite.ilike.%${safe}%,niv.ilike.%${safe}%,plaque.ilike.%${safe}%,marque.ilike.%${safe}%,modele.ilike.%${safe}%`,
-        )
-        .limit(20);
-
-      if (unitsError) throw unitsError;
-
-      const unitIds = (units || []).map((u: any) => u.id);
-      if (unitIds.length === 0) {
-        setUnitResults([]);
-        return;
-      }
-
-      const { data: bts, error: btSearchError } = await supabase
-        .from("bons_travail")
-        .select("id,numero,statut,unite_id,client_nom,date_ouverture")
-        .in("unite_id", unitIds)
-        .in("statut", ["ouvert", "a_faire", "en_cours"])
-        .order("date_ouverture", { ascending: false });
-
-      if (btSearchError) throw btSearchError;
-
-      const unitsById = Object.fromEntries(
-        (units || []).map((u: any) => [u.id, u]),
-      );
-
-      setUnitResults(
-        (bts || []).map((row: any) => ({
-          ...row,
-          unite: unitsById[row.unite_id],
-        })),
-      );
-    } catch (e: any) {
-      alert(e?.message || "Impossible de rechercher l'unité.");
-    } finally {
-      setUnitSearchBusy(false);
-    }
-  }
-
   async function uploadBtDocument(files: FileList | File[]) {
     if (!bt?.id) return;
 
@@ -218,7 +161,6 @@ export default function MobileBtPage() {
       setUploadingDocument(false);
       if (cameraDocumentRef.current) cameraDocumentRef.current.value = "";
       if (galleryDocumentRef.current) galleryDocumentRef.current.value = "";
-      if (fileDocumentRef.current) fileDocumentRef.current.value = "";
     }
   }
 
@@ -232,6 +174,34 @@ export default function MobileBtPage() {
       if (data?.signedUrl) window.open(data.signedUrl, "_blank");
     } catch (e: any) {
       alert(e?.message || "Impossible d'ouvrir le document.");
+    }
+  }
+
+  async function renameBtDocument(doc: any) {
+    const currentName = String(doc?.nom_fichier || "Document");
+    const nextName = window.prompt("Nouveau nom du document :", currentName);
+
+    if (nextName === null) return;
+
+    const cleanName = nextName.trim();
+    if (!cleanName || cleanName === currentName) return;
+
+    try {
+      const { error } = await supabase
+        .from("bt_documents")
+        .update({ nom_fichier: cleanName })
+        .eq("id", doc.id)
+        .eq("bt_id", bt.id);
+
+      if (error) throw error;
+
+      setDocuments((rows) =>
+        rows.map((row) =>
+          row.id === doc.id ? { ...row, nom_fichier: cleanName } : row,
+        ),
+      );
+    } catch (e: any) {
+      alert(e?.message || "Impossible de renommer le document.");
     }
   }
 
@@ -384,47 +354,6 @@ export default function MobileBtPage() {
         ← Retour aux BT
       </button>
 
-      <div style={styles.searchCard}>
-        <div style={styles.searchTitle}>Rechercher une unité</div>
-        <div style={styles.searchRow}>
-          <input
-            value={unitSearch}
-            onChange={(e) => setUnitSearch(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void searchUnit();
-            }}
-            placeholder="Unité, plaque ou NIV"
-            style={styles.searchInput}
-          />
-          <button
-            type="button"
-            onClick={() => void searchUnit()}
-            disabled={unitSearchBusy}
-            style={styles.searchButton}
-          >
-            {unitSearchBusy ? "..." : "Rechercher"}
-          </button>
-        </div>
-
-        {unitResults.length > 0 && (
-          <div style={styles.searchResults}>
-            {unitResults.map((result) => (
-              <button
-                key={result.id}
-                type="button"
-                style={styles.searchResult}
-                onClick={() => nav(`/mobile/bt/${result.id}`)}
-              >
-                <b>Unité {result.unite?.no_unite || "—"}</b>
-                <span>
-                  BT {result.numero || "—"} — {result.client_nom || "—"}
-                </span>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-
       <div style={styles.headerCard}>
         <div style={styles.kicker}>Bon de travail</div>
         <div style={styles.title}>BT {bt?.numero || "—"}</div>
@@ -461,15 +390,6 @@ export default function MobileBtPage() {
           >
             Choisir dans la galerie
           </button>
-
-          <button
-            type="button"
-            style={styles.secondaryBtn}
-            onClick={() => fileDocumentRef.current?.click()}
-            disabled={uploadingDocument}
-          >
-            Ajouter PDF ou document
-          </button>
         </div>
 
         <input
@@ -498,38 +418,34 @@ export default function MobileBtPage() {
           }}
         />
 
-        <input
-          ref={fileDocumentRef}
-          type="file"
-          accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,application/pdf"
-          multiple
-          style={{ display: "none" }}
-          onChange={(e) => {
-            if (e.target.files?.length) {
-              void uploadBtDocument(e.target.files);
-            }
-          }}
-        />
-
         {uploadingDocument ? (
           <div style={styles.empty}>Ajout en cours…</div>
         ) : documents.length === 0 ? (
           <div style={styles.empty}>Aucun document lié au BT.</div>
         ) : (
           documents.map((doc) => (
-            <button
-              key={doc.id}
-              type="button"
-              style={styles.documentRow}
-              onClick={() => void openBtDocument(doc)}
-            >
-              <span style={styles.documentName}>
-                {doc.nom_fichier || "Document"}
-              </span>
-              <span style={styles.documentType}>
-                {doc.type === "photo" ? "Photo" : "Document"}
-              </span>
-            </button>
+            <div key={doc.id} style={styles.documentRow}>
+              <button
+                type="button"
+                style={styles.documentOpen}
+                onClick={() => void openBtDocument(doc)}
+              >
+                <span style={styles.documentName}>
+                  {doc.nom_fichier || "Document"}
+                </span>
+                <span style={styles.documentType}>
+                  {doc.type === "photo" ? "Photo" : "Document"}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                style={styles.documentRename}
+                onClick={() => void renameBtDocument(doc)}
+              >
+                Renommer
+              </button>
+            </div>
           ))
         )}
       </section>
@@ -681,54 +597,6 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 800,
     textAlign: "left",
   },
-  searchCard: {
-    background: "#fff",
-    border: "1px solid #e5e7eb",
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 12,
-  },
-  searchTitle: {
-    fontSize: 15,
-    fontWeight: 950,
-    marginBottom: 8,
-    color: "#111827",
-  },
-  searchRow: {
-    display: "grid",
-    gridTemplateColumns: "1fr auto",
-    gap: 8,
-  },
-  searchInput: {
-    minWidth: 0,
-    padding: "12px 11px",
-    borderRadius: 12,
-    border: "1px solid #d1d5db",
-    fontSize: 16,
-  },
-  searchButton: {
-    padding: "12px 13px",
-    borderRadius: 12,
-    border: "1px solid #111827",
-    background: "#111827",
-    color: "#fff",
-    fontWeight: 900,
-  },
-  searchResults: {
-    display: "grid",
-    gap: 7,
-    marginTop: 10,
-  },
-  searchResult: {
-    display: "grid",
-    gap: 3,
-    textAlign: "left",
-    padding: 11,
-    borderRadius: 11,
-    border: "1px solid #e5e7eb",
-    background: "#f8fafc",
-    color: "#111827",
-  },
   documentActions: {
     display: "grid",
     gap: 8,
@@ -736,16 +604,34 @@ const styles: Record<string, React.CSSProperties> = {
   },
   documentRow: {
     width: "100%",
-    display: "flex",
-    justifyContent: "space-between",
+    display: "grid",
+    gridTemplateColumns: "1fr auto",
     alignItems: "center",
-    gap: 10,
-    padding: 12,
+    gap: 8,
+    padding: 8,
     marginBottom: 8,
     borderRadius: 12,
     border: "1px solid #e5e7eb",
     background: "#fff",
+  },
+  documentOpen: {
+    minWidth: 0,
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 10,
+    padding: 8,
+    border: 0,
+    background: "transparent",
     textAlign: "left",
+  },
+  documentRename: {
+    padding: "9px 10px",
+    borderRadius: 10,
+    border: "1px solid #d1d5db",
+    background: "#f8fafc",
+    color: "#111827",
+    fontWeight: 850,
   },
   documentName: {
     minWidth: 0,

@@ -7,6 +7,7 @@ export default function MobileAtelierPage() {
 
   const [bts, setBts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
 
   useEffect(() => {
     void load();
@@ -46,6 +47,25 @@ export default function MobileAtelierPage() {
     }
   }
 
+  const filteredBts = bts.filter((bt) => {
+    const needle = search.trim().toLocaleLowerCase("fr-CA");
+    if (!needle) return true;
+
+    const haystack = [
+      bt.numero,
+      bt.client_nom,
+      bt.unite?.no_unite,
+      bt.unite?.marque,
+      bt.unite?.modele,
+      bt.unite?.plaque,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLocaleLowerCase("fr-CA");
+
+    return haystack.includes(needle);
+  });
+
   return (
     <div style={styles.page}>
       <div style={styles.header}>
@@ -59,13 +79,24 @@ export default function MobileAtelierPage() {
         </button>
       </div>
 
+      <div style={styles.searchCard}>
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Rechercher BT, unité, client ou plaque"
+          style={styles.searchInput}
+        />
+      </div>
+
       {loading ? (
         <div style={styles.empty}>Chargement…</div>
       ) : bts.length === 0 ? (
         <div style={styles.empty}>Aucun BT ouvert.</div>
+      ) : filteredBts.length === 0 ? (
+        <div style={styles.empty}>Aucun résultat.</div>
       ) : (
         <div style={styles.list}>
-          {bts.map((bt) => {
+          {filteredBts.map((bt) => {
             const uniteNo =
               bt.unite?.no_unite ||
               bt.unite_id ||
@@ -145,6 +176,18 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 12,
     border: "1px solid #d1d5db",
     background: "#fff",
+  },
+  searchCard: {
+    marginBottom: 12,
+  },
+  searchInput: {
+    width: "100%",
+    boxSizing: "border-box",
+    padding: "13px 14px",
+    borderRadius: 14,
+    border: "1px solid #d1d5db",
+    background: "#fff",
+    fontSize: 16,
   },
   list: {
     display: "grid",
