@@ -242,13 +242,29 @@ export default function BtCentreServiceCard({
     setError("");
 
     try {
-      const { data, error: queryError } = await supabase
-        .from("bt_garanties")
-        .select("*")
-        .eq("bt_id", btId)
-        .maybeSingle();
+      const [
+        { data, error: queryError },
+        { data: btData, error: btError },
+      ] = await Promise.all([
+        supabase
+          .from("bt_garanties")
+          .select("*")
+          .eq("bt_id", btId)
+          .maybeSingle(),
+        supabase
+          .from("bons_travail")
+          .select("km")
+          .eq("id", btId)
+          .maybeSingle(),
+      ]);
 
       if (queryError) throw queryError;
+      if (btError) throw btError;
+
+      const resolvedBtKm =
+        btKm != null && String(btKm).trim() !== ""
+          ? btKm
+          : btData?.km ?? "";
 
       if (!data) {
         setRowId(null);
@@ -275,7 +291,9 @@ export default function BtCentreServiceCard({
         setFactureAchat1("");
         setDateAchat2("");
         setFactureAchat2("");
-        setKilometrage(btKm == null ? "" : String(btKm));
+        setKilometrage(
+          resolvedBtKm === "" ? "" : String(resolvedBtKm),
+        );
         setInvoiceCount(0);
         setDetailsOpen(false);
         setSignatureDemandeur("");
@@ -310,7 +328,7 @@ export default function BtCentreServiceCard({
       setDateAchat2(row.date_achat_2 || "");
       setFactureAchat2(row.facture_achat_2 || "");
       const loadedKm =
-        row.km_achat_1 ?? row.km_achat_2 ?? btKm ?? "";
+        row.km_achat_1 ?? row.km_achat_2 ?? resolvedBtKm ?? "";
       setKilometrage(loadedKm === "" ? "" : String(loadedKm));
       setInvoiceCount(
         row.date_achat_2 || row.facture_achat_2
@@ -366,9 +384,8 @@ export default function BtCentreServiceCard({
   }, [statut, dateFermeture]);
 
   useEffect(() => {
-    if (!kilometrage && btKm != null && String(btKm).trim() !== "") {
-      setKilometrage(String(btKm));
-    }
+    if (kilometrage || btKm == null || String(btKm).trim() === "") return;
+    setKilometrage(String(btKm));
   }, [btKm, kilometrage]);
 
   const totalMainOeuvreBt = useMemo(() => {
