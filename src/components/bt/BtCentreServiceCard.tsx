@@ -1346,14 +1346,6 @@ Merci.`);
             >
               {generatingClaim ? "Génération du PDF…" : "Générer le claim PDF"}
             </button>
-            <button
-              type="button"
-              style={styles.btn}
-              onClick={() => void openSendClaim()}
-              disabled={saving || generatingClaim}
-            >
-              Envoyer le claim
-            </button>
           </div>
         </div>
       )}
