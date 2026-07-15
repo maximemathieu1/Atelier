@@ -92,6 +92,11 @@ type BtDocumentRow = {
   created_at?: string | null;
 };
 
+type ClaimEmailOption = {
+  value: string;
+  label: string;
+};
+
 type Props = {
   btId: string;
   pieces: PieceRow[];
@@ -216,6 +221,9 @@ export default function BtCentreServiceCard({
   const [sendingClaim, setSendingClaim] = useState(false);
   const [claimRecipientEmail, setClaimRecipientEmail] = useState("");
   const [claimRecipientName, setClaimRecipientName] = useState("");
+  const [claimEmailOptions, setClaimEmailOptions] = useState<ClaimEmailOption[]>(
+    [],
+  );
   const [claimSubject, setClaimSubject] = useState("");
   const [claimMessage, setClaimMessage] = useState("");
   const [includeBtInClaim, setIncludeBtInClaim] = useState(true);
@@ -524,21 +532,89 @@ export default function BtCentreServiceCard({
     setError("");
 
     try {
-      const { data: manufacturer, error: manufacturerError } = await supabase
-        .from("clients")
-        .select("id,nom,courriel")
-        .eq("est_fabricant", true)
-        .eq("fabricant", fabricant)
-        .maybeSingle();
+      const [
+        { data: freshGuarantee, error: guaranteeError },
+        { data: manufacturer, error: manufacturerError },
+      ] = await Promise.all([
+        supabase
+          .from("bt_garanties")
+          .select("numero_case,numero_reclamation,fabricant")
+          .eq("bt_id", btId)
+          .maybeSingle(),
+        supabase
+          .from("clients")
+          .select("id,nom,courriel")
+          .eq("est_fabricant", true)
+          .eq("fabricant", fabricant)
+          .maybeSingle(),
+      ]);
 
+      if (guaranteeError) throw guaranteeError;
       if (manufacturerError) throw manufacturerError;
+
       if (!manufacturer) {
         throw new Error(`Aucune fiche client fabricant ${fabricant}.`);
       }
-      if (!String(manufacturer.courriel || "").trim()) {
-        throw new Error(
-          `Aucun courriel n'est enregistré dans la fiche du fabricant ${fabricant}.`,
+
+      const { data: contacts, error: contactsError } = await supabase
+        .from("client_contacts")
+        .select("id,nom,courriel,principal,type_facturation")
+        .eq("client_id", manufacturer.id)
+        .order("principal", { ascending: false })
+        .order("type_facturation", { ascending: false })
+        .order("nom", { ascending: true });
+
+      if (contactsError) throw contactsError;
+
+      const emailOptions: ClaimEmailOption[] = [];
+      const seen = new Set<string>();
+
+      const addEmailOption = (email: unknown, label: string) => {
+        const value = String(email || "").trim();
+        if (!value) return;
+
+        const key = value.toLocaleLowerCase("fr-CA");
+        if (seen.has(key)) return;
+
+        seen.add(key);
+        emailOptions.push({ value, label });
+      };
+
+      addEmailOption(
+        manufacturer.courriel,
+        `${manufacturer.nom || fabricant} — Courriel principal`,
+      );
+
+      for (const contact of contacts || []) {
+        const suffix = contact.principal
+          ? " — Contact principal"
+          : contact.type_facturation
+            ? " — Facturation"
+            : "";
+
+        addEmailOption(
+          contact.courriel,
+          `${contact.nom || contact.courriel || "Contact"}${suffix}`,
         );
+      }
+
+      if (emailOptions.length === 0) {
+        throw new Error(
+          `Aucun courriel n'est enregistré dans la fiche du fabricant ${fabricant} ni dans ses contacts.`,
+        );
+      }
+
+      const resolvedCase =
+        String(freshGuarantee?.numero_case || "").trim() ||
+        numeroCase.trim();
+
+      const resolvedClaim =
+        String(freshGuarantee?.numero_reclamation || "").trim() ||
+        numeroReclamation.trim();
+
+      if (resolvedCase !== numeroCase) setNumeroCase(resolvedCase);
+      if (resolvedClaim !== numeroReclamation) {
+        setNumeroReclamation(resolvedClaim);
       }
 
       const latestClaim = documents
@@ -554,23 +630,27 @@ export default function BtCentreServiceCard({
       const selected: Record<string, boolean> = {};
       if (latestClaim?.id) selected[latestClaim.id] = true;
 
-      setClaimRecipientEmail(String(manufacturer.courriel || ""));
+      setClaimEmailOptions(emailOptions);
+      setClaimRecipientEmail(emailOptions[0].value);
       setClaimRecipientName(String(manufacturer.nom || fabricant));
       setIncludeBtInClaim(true);
       setSelectedClaimDocumentIds(selected);
+
+      const caseForMessage = resolvedCase || resolvedClaim || "sans numéro";
+
       setClaimSubject(
-        `Réclamation de garantie ${fabricant} - ${
-          numeroCase || numeroReclamation || "sans numéro"
-        }`,
+        `Réclamation de garantie ${fabricant} - ${caseForMessage}`,
       );
+
       setClaimMessage(`Bonjour,
 
 Veuillez trouver ci-joint les documents concernant notre réclamation de garantie.
 
 Fabricant : ${fabricant}
-Numéro de case : ${numeroCase || numeroReclamation || "—"}
+Numéro de case : ${resolvedCase || resolvedClaim || "—"}
 
 Merci.`);
+
       setSendClaimOpen(true);
 
       const { data: history } = await supabase
@@ -1392,11 +1472,18 @@ Merci.`);
                 </label>
                 <label style={styles.field}>
                   <span style={styles.label}>Courriel</span>
-                  <input
+                  <select
                     style={styles.input}
                     value={claimRecipientEmail}
-                    readOnly
-                  />
+                    onChange={(e) => setClaimRecipientEmail(e.target.value)}
+                    disabled={sendingClaim}
+                  >
+                    {claimEmailOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label} — {option.value}
+                      </option>
+                    ))}
+                  </select>
                 </label>
               </div>
 
