@@ -3698,6 +3698,8 @@ ${noms}`);
               pointages={pointages}
               isReadOnly={isReadOnly}
               documents={documents}
+              btKm={bt.km}
+              vehiculeNiv={unite.niv}
               onDocumentGenerated={() => loadDocuments(bt.id)}
             />
           )}
