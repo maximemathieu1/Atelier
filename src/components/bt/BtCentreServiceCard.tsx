@@ -108,6 +108,58 @@ type Props = {
   onDocumentGenerated?: () => void | Promise<void>;
 };
 
+const SMARTSHEET_LION_FORM_URL =
+  "https://app.smartsheet.com/b/form/4e19e8b9a45944458f9f6913603d4c06";
+
+const GROUPE_BRETON_INFO = {
+  businessName: "Groupe Breton",
+  address: "1700 98e rue",
+  city: "St-Georges",
+  province: "Québec",
+  email: "maxime@groupebreton.com",
+  phone: "418-957-5921",
+};
+
+type SmartsheetPrefillData = {
+  km?: number | string | null;
+  dateReparation?: string | null;
+  plainte?: string | null;
+  correction?: string | null;
+  numeroPieceLion?: string | null;
+  descriptionPiece?: string | null;
+  coutsPieces?: number | string | null;
+  numeroFacture?: string | null;
+};
+
+function buildSmartsheetPrefillUrl(row: SmartsheetPrefillData) {
+  const params: Record<string, string> = {
+    "Nom de l’entreprise / Business name": GROUPE_BRETON_INFO.businessName,
+    "Adresse / Address": GROUPE_BRETON_INFO.address,
+    "Ville / City": GROUPE_BRETON_INFO.city,
+    "Province / Province": GROUPE_BRETON_INFO.province,
+    "Courriel / Email": GROUPE_BRETON_INFO.email,
+    "N° de téléphone / Phone number": GROUPE_BRETON_INFO.phone,
+  };
+
+  const addParam = (key: string, value: unknown) => {
+    if (value == null) return;
+    const normalized = String(value).trim();
+    if (normalized) params[key] = normalized;
+  };
+
+  addParam("Kilométrage (km) / Mileage (mi)", row.km);
+  addParam("Date de réparation / Repair date", row.dateReparation);
+  addParam("Description du problème / Problem description", row.plainte);
+  addParam("Correction / Correction", row.correction);
+  addParam("Numéro de pièce Lion / Lion part number", row.numeroPieceLion);
+  addParam("Description de la pièce / Part description", row.descriptionPiece);
+  addParam("Coûts total (pièces) / Total cost (parts)", row.coutsPieces);
+  addParam("Numéro de facture / Invoice number", row.numeroFacture);
+
+  const query = new URLSearchParams(params).toString();
+  return `${SMARTSHEET_LION_FORM_URL}?${query}`;
+}
+
 const FABRICANTS: CentreServiceFabricant[] = ["Lion", "Girardin", "Thomas"];
 const STATUTS = [
   "Diagnostic",
@@ -559,6 +611,37 @@ export default function BtCentreServiceCard({
       description: item.descriptionFr,
       heures: item.heures,
     });
+  }
+
+  function ouvrirFormulaireSmartsheetPreRempli() {
+    if (fabricant !== "Lion") {
+      setError("Le formulaire Smartsheet est disponible seulement pour Lion.");
+      return;
+    }
+
+    const firstPiece = pieces[0];
+    const numeroPieceLion =
+      String(firstPiece?.sku || firstPiece?.code || "").trim() || null;
+    const descriptionPiece =
+      pieces
+        .map((piece) =>
+          String(piece.description || piece.nom || piece.titre || "").trim(),
+        )
+        .filter(Boolean)
+        .join("; ") || null;
+
+    const url = buildSmartsheetPrefillUrl({
+      km: kilometrage || btKm,
+      dateReparation: dateFermeture || dateOuverture,
+      plainte,
+      correction,
+      numeroPieceLion,
+      descriptionPiece,
+      coutsPieces: null,
+      numeroFacture: factureAchat1,
+    });
+
+    window.open(url, "_blank", "noopener,noreferrer");
   }
 
   async function generateLionClaim() {
@@ -1609,6 +1692,15 @@ Merci.`);
               disabled={generatingClaim || saving}
             >
               {generatingClaim ? "Génération du PDF…" : "Générer le claim PDF"}
+            </button>
+
+            <button
+              type="button"
+              style={styles.btn}
+              onClick={ouvrirFormulaireSmartsheetPreRempli}
+              disabled={isReadOnly || saving}
+            >
+              Ouvrir le formulaire Lion pré-rempli
             </button>
           </div>
         </div>
