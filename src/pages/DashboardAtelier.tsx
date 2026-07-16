@@ -251,6 +251,9 @@ export default function DashboardAtelier() {
 
   const [openTasks, setOpenTasks] = useState<UniteNoteRow[]>([]);
   const [btModalId, setBtModalId] = useState<string | null>(null);
+  const [expandedSuiviGroups, setExpandedSuiviGroups] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   const horsServiceTasks = useMemo(
     () => openTasks.filter((task) => task.suivi_type === "hors_service"),
@@ -1315,64 +1318,124 @@ export default function DashboardAtelier() {
     setBtModalId(bt.id);
   }
 
-  function renderSuiviTask(
-    task: UniteNoteRow,
+  function groupSuiviTasksByUnit(tasks: UniteNoteRow[]) {
+    const groups = new Map<string, UniteNoteRow[]>();
+
+    for (const task of tasks) {
+      const key = task.unite_id || task.unites?.id || task.id;
+      const current = groups.get(key) ?? [];
+      current.push(task);
+      groups.set(key, current);
+    }
+
+    return Array.from(groups.entries()).map(([uniteId, groupedTasks]) => ({
+      uniteId,
+      tasks: groupedTasks,
+    }));
+  }
+
+  function toggleSuiviGroup(groupKey: string) {
+    setExpandedSuiviGroups((current) => {
+      const next = new Set(current);
+      if (next.has(groupKey)) next.delete(groupKey);
+      else next.add(groupKey);
+      return next;
+    });
+  }
+
+  function renderSuiviGroup(
+    tasks: UniteNoteRow[],
+    groupType: SuiviTacheType,
     badgeLabel: string,
     badgeStyle: CSSProperties,
   ) {
-    const linkedBt = getBtForTask(task);
-    const canOpenBt = Boolean(linkedBt?.id);
-    const btLabel = linkedBt?.numero ? `${linkedBt.numero} — ` : "";
+    const firstTask = tasks[0];
+    if (!firstTask) return null;
+
+    const groupKey = `${groupType}:${firstTask.unite_id || firstTask.unites?.id || firstTask.id}`;
+    const isExpanded = expandedSuiviGroups.has(groupKey);
+    const visibleTasks = isExpanded ? tasks : tasks.slice(0, 1);
+    const hiddenCount = Math.max(0, tasks.length - 1);
 
     return (
-      <div
-        key={task.id}
-        role="button"
-        tabIndex={0}
-        style={{
-          ...styles.suiviTaskRow,
-          cursor: canOpenBt ? "pointer" : "default",
-          ...(canOpenBt ? styles.suiviTaskRowClickable : {}),
-        }}
-        title={
-          canOpenBt
-            ? "Double-cliquer pour ouvrir le bon de travail"
-            : "Aucun BT lié à cette tâche"
-        }
-        onDoubleClick={() => openBtModalFromTask(task)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") openBtModalFromTask(task);
-        }}
-      >
-        <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={styles.rowTitle}>
-            {btLabel}Unité {task.unites?.no_unite ?? "—"}
+      <div key={groupKey} style={styles.suiviTaskGroup}>
+        <div style={styles.suiviTaskGroupHeader}>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={styles.rowTitle}>
+              Unité {firstTask.unites?.no_unite ?? "—"}
+            </div>
+            <div style={styles.rowSub}>
+              {[firstTask.unites?.marque, firstTask.unites?.modele]
+                .filter(Boolean)
+                .join(" ") || "—"}
+            </div>
           </div>
-          <div style={styles.rowSub}>{task.titre}</div>
-          <div style={styles.rowSub}>
-            {[task.unites?.marque, task.unites?.modele]
-              .filter(Boolean)
-              .join(" ") || "—"}
-          </div>
-          <div style={styles.rowMeta}>
-            <span>Créé le : {formatDate(task.created_at)}</span>
-            {task.details ? (
-              <>
-                <span style={styles.metaDivider}>•</span>
-                <span>{task.details}</span>
-              </>
-            ) : null}
-            {canOpenBt ? (
-              <>
-                <span style={styles.metaDivider}>•</span>
-                <span style={styles.doubleClickHint}>
-                  Double-cliquer pour ouvrir le BT
-                </span>
-              </>
-            ) : null}
-          </div>
+          <span style={{ ...styles.badge, ...badgeStyle }}>{badgeLabel}</span>
         </div>
-        <span style={{ ...styles.badge, ...badgeStyle }}>{badgeLabel}</span>
+
+        <div style={styles.suiviTaskItems}>
+          {visibleTasks.map((task, index) => {
+            const linkedBt = getBtForTask(task);
+            const canOpenBt = Boolean(linkedBt?.id);
+            const btLabel = linkedBt?.numero ? `${linkedBt.numero} — ` : "";
+
+            return (
+              <div
+                key={task.id}
+                role="button"
+                tabIndex={0}
+                style={{
+                  ...styles.suiviTaskInnerRow,
+                  ...(index > 0 ? styles.suiviTaskInnerRowDivider : {}),
+                  cursor: canOpenBt ? "pointer" : "default",
+                }}
+                title={
+                  canOpenBt
+                    ? "Double-cliquer pour ouvrir le bon de travail"
+                    : "Aucun BT lié à cette tâche"
+                }
+                onDoubleClick={() => openBtModalFromTask(task)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") openBtModalFromTask(task);
+                }}
+              >
+                <div style={styles.rowTitle}>
+                  {btLabel}
+                  {task.titre}
+                </div>
+                <div style={styles.rowMeta}>
+                  <span>Créé le : {formatDate(task.created_at)}</span>
+                  {task.details ? (
+                    <>
+                      <span style={styles.metaDivider}>•</span>
+                      <span>{task.details}</span>
+                    </>
+                  ) : null}
+                  {canOpenBt ? (
+                    <>
+                      <span style={styles.metaDivider}>•</span>
+                      <span style={styles.doubleClickHint}>
+                        Double-cliquer pour ouvrir le BT
+                      </span>
+                    </>
+                  ) : null}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {hiddenCount > 0 ? (
+          <button
+            type="button"
+            style={styles.suiviSeeMoreBtn}
+            onClick={() => toggleSuiviGroup(groupKey)}
+          >
+            {isExpanded
+              ? "Voir moins"
+              : `Voir plus (${hiddenCount} autre${hiddenCount > 1 ? "s" : ""})`}
+          </button>
+        ) : null}
       </div>
     );
   }
@@ -1730,8 +1793,13 @@ export default function DashboardAtelier() {
               <EmptyState text="Aucune tâche hors service." />
             ) : (
               <div style={styles.listStack}>
-                {horsServiceTasks.map((task) =>
-                  renderSuiviTask(task, "Hors service", styles.badgeDanger),
+                {groupSuiviTasksByUnit(horsServiceTasks).map((group) =>
+                  renderSuiviGroup(
+                    group.tasks,
+                    "hors_service",
+                    "Hors service",
+                    styles.badgeDanger,
+                  ),
                 )}
               </div>
             )}
@@ -1746,8 +1814,13 @@ export default function DashboardAtelier() {
               <EmptyState text="Aucune tâche urgente." />
             ) : (
               <div style={styles.listStack}>
-                {urgentTasks.map((task) =>
-                  renderSuiviTask(task, "Urgent", styles.badgeWarning),
+                {groupSuiviTasksByUnit(urgentTasks).map((group) =>
+                  renderSuiviGroup(
+                    group.tasks,
+                    "urgent",
+                    "Urgent",
+                    styles.badgeWarning,
+                  ),
                 )}
               </div>
             )}
@@ -1762,8 +1835,13 @@ export default function DashboardAtelier() {
               <EmptyState text="Aucune tâche à planifier." />
             ) : (
               <div style={styles.listStack}>
-                {planifierTasks.map((task) =>
-                  renderSuiviTask(task, "À planifier", styles.badgeInfo),
+                {groupSuiviTasksByUnit(planifierTasks).map((group) =>
+                  renderSuiviGroup(
+                    group.tasks,
+                    "a_planifier",
+                    "À planifier",
+                    styles.badgeInfo,
+                  ),
                 )}
               </div>
             )}
@@ -2318,6 +2396,41 @@ const styles: Record<string, CSSProperties> = {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
     gap: 16,
+  },
+  suiviTaskGroup: {
+    border: "1px solid #e4e9f2",
+    borderRadius: 14,
+    background: "linear-gradient(180deg, #ffffff 0%, #fbfcfe 100%)",
+    boxShadow: "0 4px 12px rgba(15, 23, 42, 0.035)",
+    overflow: "hidden",
+  },
+  suiviTaskGroupHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 14,
+    padding: 12,
+  },
+  suiviTaskItems: {
+    borderTop: "1px solid #edf1f6",
+  },
+  suiviTaskInnerRow: {
+    padding: "10px 12px",
+    outline: "none",
+  },
+  suiviTaskInnerRowDivider: {
+    borderTop: "1px solid #edf1f6",
+  },
+  suiviSeeMoreBtn: {
+    width: "100%",
+    minHeight: 36,
+    border: "none",
+    borderTop: "1px solid #e4e9f2",
+    background: "#f8fafc",
+    color: "#2159d6",
+    fontSize: 12,
+    fontWeight: 800,
+    cursor: "pointer",
   },
   suiviTaskRow: {
     display: "flex",
