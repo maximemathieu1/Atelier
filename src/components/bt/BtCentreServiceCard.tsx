@@ -14,6 +14,7 @@ type PieceRow = {
   nom?: string | null;
   titre?: string | null;
   quantite?: number | string | null;
+  prix_unitaire?: number | string | null;
 };
 
 type MainOeuvreRow = {
@@ -442,20 +443,28 @@ export default function BtCentreServiceCard({
   const ecartMainOeuvre = totalReclame - totalMainOeuvreBt;
 
   const totalPiecesFabricant = useMemo(() => {
-    return pieces.reduce((sum, p) => {
-      const isFabricant = repartition.pieces[p.id] === "fabricant";
-      if (!isFabricant) return sum;
+    return pieces.reduce((sum, piece) => {
+      const estFactureeAuFabricant =
+        payeur === "fabricant" ||
+        (payeur === "partage" &&
+          repartition.pieces[piece.id] === "fabricant");
 
-      const raw = p as unknown as {
-        prix_unitaire?: number | string | null;
-        quantite?: number | string | null;
-      };
+      if (!estFactureeAuFabricant) return sum;
 
-      const prixUnitaire = Number(raw.prix_unitaire || 0);
-      const quantite = Number(raw.quantite ?? p.quantite ?? 0);
+      const prixUnitaire = Number(
+        String(piece.prix_unitaire ?? 0).replace(",", "."),
+      );
+      const quantite = Number(
+        String(piece.quantite ?? 0).replace(",", "."),
+      );
+
+      if (!Number.isFinite(prixUnitaire) || !Number.isFinite(quantite)) {
+        return sum;
+      }
+
       return sum + prixUnitaire * quantite;
     }, 0);
-  }, [pieces, repartition.pieces]);
+  }, [pieces, payeur, repartition.pieces]);
 
   const repartitionComplete = useMemo(() => {
     if (payeur !== "partage") return true;
@@ -624,7 +633,7 @@ export default function BtCentreServiceCard({
         seriePieceRemplacement;
     }
     if (totalReclame > 0) {
-      params["Temps de réparation standard (SRT) / Standard repair time (SRT)"] =
+      params["Temps de réparation standard / Standard repair time (SRT)"] =
         totalReclame.toFixed(2);
     }
     if (totalPiecesFabricant > 0) {
@@ -651,7 +660,17 @@ export default function BtCentreServiceCard({
       return;
     }
 
-    window.open(buildSmartsheetPrefillUrl(), "_blank", "noopener,noreferrer");
+    const url = buildSmartsheetPrefillUrl();
+
+    console.info("[Smartsheet Lion] Préremplissage", {
+      niv: vehiculeNiv || "",
+      kilometrage: kilometrage || btKm || "",
+      srtTotal: totalReclame,
+      coutPieces: totalPiecesFabricant,
+      url,
+    });
+
+    window.open(url, "_blank", "noopener,noreferrer");
   }
 
   async function generateLionClaim() {
