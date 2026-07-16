@@ -105,6 +105,7 @@ type Props = {
   isReadOnly: boolean;
   documents: BtDocumentRow[];
   btKm?: number | string | null;
+  vehiculeNiv?: string | null;
   onDocumentGenerated?: () => void | Promise<void>;
 };
 
@@ -117,48 +118,8 @@ const GROUPE_BRETON_INFO = {
   city: "St-Georges",
   province: "Québec",
   email: "maxime@groupebreton.com",
-  phone: "418-957-5921",
+  phone: "+14189575921",
 };
-
-type SmartsheetPrefillData = {
-  km?: number | string | null;
-  dateReparation?: string | null;
-  plainte?: string | null;
-  correction?: string | null;
-  numeroPieceLion?: string | null;
-  descriptionPiece?: string | null;
-  coutsPieces?: number | string | null;
-  numeroFacture?: string | null;
-};
-
-function buildSmartsheetPrefillUrl(row: SmartsheetPrefillData) {
-  const params: Record<string, string> = {
-    "Nom de l’entreprise / Business name": GROUPE_BRETON_INFO.businessName,
-    "Adresse / Address": GROUPE_BRETON_INFO.address,
-    "Ville / City": GROUPE_BRETON_INFO.city,
-    "Province / Province": GROUPE_BRETON_INFO.province,
-    "Courriel / Email": GROUPE_BRETON_INFO.email,
-    "N° de téléphone / Phone number": GROUPE_BRETON_INFO.phone,
-  };
-
-  const addParam = (key: string, value: unknown) => {
-    if (value == null) return;
-    const normalized = String(value).trim();
-    if (normalized) params[key] = normalized;
-  };
-
-  addParam("Kilométrage (km) / Mileage (mi)", row.km);
-  addParam("Date de réparation / Repair date", row.dateReparation);
-  addParam("Description du problème / Problem description", row.plainte);
-  addParam("Correction / Correction", row.correction);
-  addParam("Numéro de pièce Lion / Lion part number", row.numeroPieceLion);
-  addParam("Description de la pièce / Part description", row.descriptionPiece);
-  addParam("Coûts total (pièces) / Total cost (parts)", row.coutsPieces);
-  addParam("Numéro de facture / Invoice number", row.numeroFacture);
-
-  const query = new URLSearchParams(params).toString();
-  return `${SMARTSHEET_LION_FORM_URL}?${query}`;
-}
 
 const FABRICANTS: CentreServiceFabricant[] = ["Lion", "Girardin", "Thomas"];
 const STATUTS = [
@@ -236,6 +197,7 @@ export default function BtCentreServiceCard({
   isReadOnly,
   documents,
   btKm,
+  vehiculeNiv,
   onDocumentGenerated,
 }: Props) {
   const [loading, setLoading] = useState(true);
@@ -479,6 +441,22 @@ export default function BtCentreServiceCard({
   const totalReclame = totalDiagnostic + totalSrt;
   const ecartMainOeuvre = totalReclame - totalMainOeuvreBt;
 
+  const totalPiecesFabricant = useMemo(() => {
+    return pieces.reduce((sum, p) => {
+      const isFabricant = repartition.pieces[p.id] === "fabricant";
+      if (!isFabricant) return sum;
+
+      const raw = p as unknown as {
+        prix_unitaire?: number | string | null;
+        quantite?: number | string | null;
+      };
+
+      const prixUnitaire = Number(raw.prix_unitaire || 0);
+      const quantite = Number(raw.quantite ?? p.quantite ?? 0);
+      return sum + prixUnitaire * quantite;
+    }, 0);
+  }, [pieces, repartition.pieces]);
+
   const repartitionComplete = useMemo(() => {
     if (payeur !== "partage") return true;
     return (
@@ -613,35 +591,67 @@ export default function BtCentreServiceCard({
     });
   }
 
+  function buildSmartsheetPrefillUrl() {
+    const params: Record<string, string> = {
+      "Nom de l’entreprise / Business name": GROUPE_BRETON_INFO.businessName,
+      "Adresse / Address": GROUPE_BRETON_INFO.address,
+      "Ville / City": GROUPE_BRETON_INFO.city,
+      "Province / Province": GROUPE_BRETON_INFO.province,
+      "Courriel / Email": GROUPE_BRETON_INFO.email,
+      "N° de téléphone / Phone number": GROUPE_BRETON_INFO.phone,
+    };
+
+    if (vehiculeNiv) {
+      params[
+        "Numéro d’identification du véhicule (NIV) / Vehicle Identification Number (VIN)"
+      ] = vehiculeNiv;
+    }
+    if (kilometrage || btKm) {
+      params["Kilométrage (km) / Mileage (mi)"] = String(kilometrage || btKm);
+    }
+    if (dateFermeture || dateOuverture) {
+      params["Date de réparation / Repair date"] =
+        dateFermeture || dateOuverture;
+    }
+    if (plainte) {
+      params["Description du problème / Problem description"] = plainte;
+    }
+    if (correction) {
+      params["Correction / Correction"] = correction;
+    }
+    if (seriePieceRemplacement) {
+      params["Numéro de pièce Lion / Lion part number"] =
+        seriePieceRemplacement;
+    }
+    if (totalReclame > 0) {
+      params["Temps de réparation standard (SRT) / Standard repair time (SRT)"] =
+        totalReclame.toFixed(2);
+    }
+    if (totalPiecesFabricant > 0) {
+      params["Coûts total (pièces) / Total cost (parts)"] =
+        totalPiecesFabricant.toFixed(2);
+    }
+    if (factureAchat1) {
+      params["Numéro de facture / Invoice number"] = factureAchat1;
+    }
+
+    const query = Object.entries(params)
+      .map(
+        ([key, value]) =>
+          `${encodeURIComponent(key)}=${encodeURIComponent(value)}`,
+      )
+      .join("&");
+
+    return `${SMARTSHEET_LION_FORM_URL}?${query}`;
+  }
+
   function ouvrirFormulaireSmartsheetPreRempli() {
     if (fabricant !== "Lion") {
       setError("Le formulaire Smartsheet est disponible seulement pour Lion.");
       return;
     }
 
-    const firstPiece = pieces[0];
-    const numeroPieceLion =
-      String(firstPiece?.sku || firstPiece?.code || "").trim() || null;
-    const descriptionPiece =
-      pieces
-        .map((piece) =>
-          String(piece.description || piece.nom || piece.titre || "").trim(),
-        )
-        .filter(Boolean)
-        .join("; ") || null;
-
-    const url = buildSmartsheetPrefillUrl({
-      km: kilometrage || btKm,
-      dateReparation: dateFermeture || dateOuverture,
-      plainte,
-      correction,
-      numeroPieceLion,
-      descriptionPiece,
-      coutsPieces: null,
-      numeroFacture: factureAchat1,
-    });
-
-    window.open(url, "_blank", "noopener,noreferrer");
+    window.open(buildSmartsheetPrefillUrl(), "_blank", "noopener,noreferrer");
   }
 
   async function generateLionClaim() {
