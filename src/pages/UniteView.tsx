@@ -615,32 +615,6 @@ export default function UniteView({
     }
   }
 
-  async function toggleUniteActive() {
-    if (!u || busy) return;
-
-    const nextActif = !u.actif;
-    const action = nextActif ? "réactiver" : "mettre inactive";
-    const consequence = nextActif
-      ? "Le suivi PEP et les entretiens périodiques reprendront."
-      : "Elle sera retirée du suivi PEP et des entretiens périodiques, sans supprimer son historique.";
-
-    if (!confirm(`Voulez-vous ${action} l’unité ${u.no_unite} ?\n\n${consequence}`)) return;
-
-    setBusy(true);
-    try {
-      const { error } = await supabase
-        .from("unites")
-        .update({ actif: nextActif })
-        .eq("id", u.id);
-
-      if (error) throw error;
-      setU((prev) => (prev ? { ...prev, actif: nextActif } : prev));
-    } catch (e: any) {
-      alert(e?.message ?? String(e));
-    } finally {
-      setBusy(false);
-    }
-  }
 
   async function deleteUnite() {
     if (!u || busy) return;
@@ -888,20 +862,6 @@ export default function UniteView({
             </>
           )}
 
-          <button
-            className="ghost"
-            onClick={toggleUniteActive}
-            disabled={busy}
-            type="button"
-            style={{
-              borderStyle: "solid",
-              borderColor: u.actif ? "#f59e0b" : "#86efac",
-              color: u.actif ? "#92400e" : "#166534",
-              background: u.actif ? "#fffbeb" : "#f0fdf4",
-            }}
-          >
-            {u.actif ? "Mettre inactive" : "Réactiver"}
-          </button>
 
           <button
             className="ghost"
@@ -956,14 +916,26 @@ export default function UniteView({
                   />
                 </Row>
 
-                <Row label="Statut">
-                  <input
+                <Row
+                  label="Statut"
+                  hint="Une unité inactive est retirée du suivi PEP et des entretiens périodiques."
+                >
+                  <select
                     className="input"
-                    value={u.statut ?? ""}
-                    onChange={(e) => setU({ ...u, statut: e.target.value })}
-                    placeholder="Ex: actif"
+                    value={u.actif === false ? "inactif" : "actif"}
+                    onChange={(e) => {
+                      const actif = e.target.value === "actif";
+                      setU({
+                        ...u,
+                        actif,
+                        statut: actif ? "actif" : "inactif",
+                      });
+                    }}
                     disabled={!isEditMode}
-                  />
+                  >
+                    <option value="actif">Actif</option>
+                    <option value="inactif">Inactif</option>
+                  </select>
                 </Row>
 
                 <Row label="KM actuel" hint="Provient du dernier journal KM">
