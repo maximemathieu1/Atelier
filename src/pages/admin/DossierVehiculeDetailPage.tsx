@@ -493,7 +493,6 @@ export default function DossierVehiculeDetailPage() {
     [documents]
   );
 
-  const lastPep = peps[0] || null;
 
   const pepGapWarning = useMemo(() => {
     for (let index = 0; index < peps.length - 1; index += 1) {
