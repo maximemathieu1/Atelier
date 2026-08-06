@@ -16,6 +16,8 @@ type UniteRow = {
   annee?: number | string | null;
   km_actuel?: number | string | null;
   odometre?: number | string | null;
+  statut?: string | null;
+  pep_vignette_expiration?: string | null;
 };
 
 type PepRow = {

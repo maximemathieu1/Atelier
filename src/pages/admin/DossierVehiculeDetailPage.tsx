@@ -22,6 +22,7 @@ type UniteRow = {
   odometre?: number | string | null;
   pep_vignette_no?: string | null;
   pep_vignette_expiration?: string | null;
+  statut?: string | null;
 };
 
 type PepArchiveRow = {
@@ -1000,7 +1001,7 @@ function DocumentsTable({
       </thead>
       <tbody>
         {documents.map((doc) => {
-          const status = expirationStatus(doc.date_expiration);
+          const status = optionalExpirationStatus(doc.date_expiration, 30);
 
           return (
             <tr key={doc.id}>
