@@ -67,6 +67,11 @@ type VehicleDocumentRow = {
   created_at: string;
 };
 
+type ExpirationDefaultRow = {
+  type_document: string;
+  date_expiration: string | null;
+};
+
 const DOCUMENT_TYPES = [
   { value: "immatriculation", label: "Immatriculation" },
   { value: "assurance", label: "Assurance" },
@@ -154,6 +159,17 @@ function daysExpired(value?: string | null) {
   return diff > 0 ? diff : 0;
 }
 
+function daysUntilExpiration(value?: string | null) {
+  const expiration = parseLocalDate(value);
+  if (!expiration) return null;
+
+  const today = new Date();
+  today.setHours(12, 0, 0, 0);
+
+  const diff = Math.ceil((expiration.getTime() - today.getTime()) / 86400000);
+  return diff >= 0 ? diff : null;
+}
+
 function addDays(date: Date, days: number) {
   const next = new Date(date);
   next.setDate(next.getDate() + days);
@@ -239,6 +255,33 @@ function requiresExpiration(type: string) {
   return type === "assurance" || type === "immatriculation" || type === "cvm";
 }
 
+function mostFrequentValidDate(values: Array<string | null | undefined>) {
+  const today = new Date();
+  today.setHours(12, 0, 0, 0);
+
+  const counts = new Map<string, number>();
+
+  for (const raw of values) {
+    const date = parseLocalDate(raw);
+    if (!date || date.getTime() < today.getTime()) continue;
+
+    const key = String(raw).slice(0, 10);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+
+  let bestDate = "";
+  let bestCount = 0;
+
+  for (const [date, count] of counts.entries()) {
+    if (count > bestCount || (count == bestCount && date > bestDate)) {
+      bestDate = date;
+      bestCount = count;
+    }
+  }
+
+  return bestDate;
+}
+
 function findLinkedBtForPep(pep: PepArchiveRow, bts: BtRow[]) {
   if (!pep.unite_id || !pep.date_pep) return null;
 
@@ -289,6 +332,7 @@ export default function DossierVehiculeDetailPage() {
   const [activeTab, setActiveTab] = useState<TabKey>("apercu");
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
   const [savingVignette, setSavingVignette] = useState(false);
 
   const [unite, setUnite] = useState<UniteRow | null>(null);
@@ -302,10 +346,58 @@ export default function DossierVehiculeDetailPage() {
 
   const [vignetteNo, setVignetteNo] = useState("");
   const [vignetteExpiration, setVignetteExpiration] = useState("");
+  const [defaultExpirationByType, setDefaultExpirationByType] = useState<
+    Record<string, string>
+  >({});
+  const [defaultVignetteExpiration, setDefaultVignetteExpiration] = useState("");
 
   useEffect(() => {
-    if (uniteId) load();
+    if (!uniteId) return;
+
+    void Promise.all([load(), loadExpirationDefaults()]);
   }, [uniteId]);
+
+  async function loadExpirationDefaults() {
+    const [docsRes, vignetteRes] = await Promise.all([
+      supabase
+        .from("vehicle_documents")
+        .select("type_document,date_expiration")
+        .in("type_document", ["assurance", "immatriculation", "cvm"])
+        .not("date_expiration", "is", null),
+
+      supabase
+        .from("unites")
+        .select("pep_vignette_expiration")
+        .not("pep_vignette_expiration", "is", null),
+    ]);
+
+    if (!docsRes.error) {
+      const grouped: Record<string, Array<string | null>> = {};
+
+      for (const row of (docsRes.data ?? []) as ExpirationDefaultRow[]) {
+        if (!grouped[row.type_document]) grouped[row.type_document] = [];
+        grouped[row.type_document].push(row.date_expiration);
+      }
+
+      const defaults: Record<string, string> = {};
+
+      for (const [type, dates] of Object.entries(grouped)) {
+        const bestDate = mostFrequentValidDate(dates);
+        if (bestDate) defaults[type] = bestDate;
+      }
+
+      setDefaultExpirationByType(defaults);
+    }
+
+    if (!vignetteRes.error) {
+      const dates = (vignetteRes.data ?? []).map(
+        (row: { pep_vignette_expiration?: string | null }) =>
+          row.pep_vignette_expiration ?? null,
+      );
+
+      setDefaultVignetteExpiration(mostFrequentValidDate(dates));
+    }
+  }
 
   async function load() {
     if (!uniteId) return;
@@ -344,7 +436,9 @@ export default function DossierVehiculeDetailPage() {
 
       setUnite(u);
       setVignetteNo(u.pep_vignette_no || "");
-      setVignetteExpiration(u.pep_vignette_expiration || "");
+      setVignetteExpiration(
+        u.pep_vignette_expiration || defaultVignetteExpiration || "",
+      );
     }
 
     if (pepRes.data) setPeps(pepRes.data as PepArchiveRow[]);
@@ -380,6 +474,29 @@ export default function DossierVehiculeDetailPage() {
 
   const lastAssurance = assuranceDocs[0] || null;
   const lastImmatriculation = immatriculationDocs[0] || null;
+
+  useEffect(() => {
+    if (!requiresExpiration(docType)) {
+      setDocExpiration("");
+      return;
+    }
+
+    setDocExpiration(defaultExpirationByType[docType] ?? "");
+  }, [docType, defaultExpirationByType]);
+
+  useEffect(() => {
+    if (
+      !vignetteExpiration &&
+      !unite?.pep_vignette_expiration &&
+      defaultVignetteExpiration
+    ) {
+      setVignetteExpiration(defaultVignetteExpiration);
+    }
+  }, [
+    vignetteExpiration,
+    unite?.pep_vignette_expiration,
+    defaultVignetteExpiration,
+  ]);
 
   async function getSignedUrl(path: string) {
     const { data, error } = await supabase.storage.from(BUCKET_NAME).createSignedUrl(path, 60 * 10);
@@ -458,6 +575,17 @@ export default function DossierVehiculeDetailPage() {
 
     await load();
     setSavingVignette(false);
+  }
+
+  function handleDocumentDrop(event: React.DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    setDragActive(false);
+
+    const file = event.dataTransfer.files?.[0];
+    if (file) {
+      void uploadDocument(file);
+    }
   }
 
   async function uploadDocument(file: File) {
@@ -560,12 +688,39 @@ export default function DossierVehiculeDetailPage() {
   const lastCvm = cvmDocuments[0] || null;
 
   const pepCurrentStatus = pepStatus(lastPep);
-  const pepIsValid = pepCurrentStatus.label === "Valide";
 
-  const pepVignetteStatus = optionalExpirationStatus(
-    unite.pep_vignette_expiration,
-    30,
+  const cvmExpiredDays = daysExpired(lastCvm?.date_expiration);
+  const cvmIsValid = Boolean(
+    lastCvm?.date_expiration &&
+    (!cvmExpiredDays || cvmExpiredDays === 0),
   );
+
+  const vignetteExpiredDays = daysExpired(unite.pep_vignette_expiration);
+  const vignetteDaysRemaining = daysUntilExpiration(
+    unite.pep_vignette_expiration,
+  );
+
+  const pepVignetteStatus: AlertBadge = cvmIsValid
+    ? { label: "Non requise — CVM valide", style: styles.statusOk }
+    : !unite.pep_vignette_expiration
+      ? { label: "Vignette manquante", style: styles.statusDanger }
+      : vignetteExpiredDays && vignetteExpiredDays > 30
+        ? {
+            label: `Expirée depuis ${vignetteExpiredDays} j`,
+            style: styles.statusDanger,
+          }
+        : vignetteExpiredDays
+          ? {
+              label: `Expirée depuis ${vignetteExpiredDays} j`,
+              style: styles.statusWarning,
+            }
+          : vignetteDaysRemaining != null && vignetteDaysRemaining <= 15
+            ? {
+                label: `Expire dans ${vignetteDaysRemaining} j`,
+                style: styles.statusWarning,
+              }
+            : { label: "OK", style: styles.statusOk };
+
   const assuranceStatus = administrativeExpirationStatus(
     lastAssurance?.date_expiration,
     "Assurance manquante",
@@ -574,9 +729,7 @@ export default function DossierVehiculeDetailPage() {
     lastImmatriculation?.date_expiration,
     "Immatriculation manquante",
   );
-  const cvmStatus = pepIsValid
-    ? { label: "Remplacé par PEP valide", style: styles.statusOk }
-    : optionalExpirationStatus(lastCvm?.date_expiration, 15);
+  const cvmStatus = optionalExpirationStatus(lastCvm?.date_expiration, 15);
 
   return (
     <div style={styles.page}>
@@ -698,6 +851,13 @@ export default function DossierVehiculeDetailPage() {
                 type="date"
                 style={styles.input}
               />
+              {!unite.pep_vignette_expiration &&
+                defaultVignetteExpiration && (
+                  <div style={styles.defaultDateHint}>
+                    Date proposée automatiquement selon la date de vignette
+                    valide la plus utilisée.
+                  </div>
+                )}
             </div>
 
             <button
@@ -822,6 +982,13 @@ export default function DossierVehiculeDetailPage() {
                 style={styles.input}
                 title="Date d'expiration du document"
               />
+              {requiresExpiration(docType) &&
+                defaultExpirationByType[docType] && (
+                  <div style={styles.defaultDateHint}>
+                    Date proposée automatiquement selon la date valide la plus
+                    utilisée pour ce type.
+                  </div>
+                )}
             </div>
 
             <div style={styles.fieldGroupNote}>
@@ -836,14 +1003,55 @@ export default function DossierVehiculeDetailPage() {
 
             <div style={styles.fieldGroupFile}>
               <label style={styles.fieldLabel}>Document</label>
+
+              <div
+                style={{
+                  ...styles.dropZone,
+                  ...(dragActive ? styles.dropZoneActive : {}),
+                }}
+                onDragEnter={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setDragActive(true);
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setDragActive(true);
+                }}
+                onDragLeave={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setDragActive(false);
+                }}
+                onDrop={handleDocumentDrop}
+                onClick={() => fileRef.current?.click()}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    fileRef.current?.click();
+                  }
+                }}
+              >
+                <strong>
+                  {dragActive
+                    ? "Dépose le document ici"
+                    : "Glisser-déposer un document"}
+                </strong>
+                <span style={styles.dropZoneHint}>
+                  ou cliquer pour sélectionner un fichier
+                </span>
+              </div>
+
               <input
                 ref={fileRef}
                 type="file"
                 accept=".pdf,image/*"
-                style={styles.file}
+                style={{ display: "none" }}
                 onChange={(e) => {
                   const file = e.target.files?.[0];
-                  if (file) uploadDocument(file);
+                  if (file) void uploadDocument(file);
                 }}
               />
             </div>
@@ -1293,10 +1501,40 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     alignItems: "center",
   },
+  dropZone: {
+    minHeight: 96,
+    border: "2px dashed #cbd5e1",
+    borderRadius: 12,
+    background: "#ffffff",
+    display: "grid",
+    placeItems: "center",
+    alignContent: "center",
+    gap: 4,
+    padding: 14,
+    cursor: "pointer",
+    textAlign: "center",
+    color: "#334155",
+  },
+  dropZoneActive: {
+    borderColor: "#2563eb",
+    background: "#eff6ff",
+    color: "#1d4ed8",
+  },
+  dropZoneHint: {
+    fontSize: 12,
+    color: "#64748b",
+  },
   expirationHint: {
     width: "100%",
     color: "#92400e",
     fontSize: 13,
+  },
+  defaultDateHint: {
+    marginTop: 4,
+    fontSize: 11,
+    lineHeight: 1.35,
+    color: "#64748b",
+    maxWidth: 280,
   },
   statusBadge: {
     display: "inline-flex",
