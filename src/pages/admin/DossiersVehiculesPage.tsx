@@ -96,6 +96,20 @@ function daysExpired(value?: string | null) {
   return diff > 0 ? diff : 0;
 }
 
+function daysUntilExpiration(value?: string | null) {
+  const expiration = parseLocalDate(value);
+  if (!expiration) return null;
+
+  const today = new Date();
+  today.setHours(12, 0, 0, 0);
+
+  const diff = Math.ceil(
+    (expiration.getTime() - today.getTime()) / 86400000,
+  );
+
+  return diff >= 0 ? diff : null;
+}
+
 function getPepDueDate(pep?: PepRow | null) {
   if (!pep) return null;
 
@@ -159,7 +173,18 @@ export default function DossiersVehiculesPage() {
     .order("created_at", { ascending: false }),
 ]);
 
-    if (unitesRes.data) setUnites(unitesRes.data as UniteRow[]);
+    if (unitesRes.data) {
+      setUnites(
+        (unitesRes.data as UniteRow[]).filter(
+          (unite) =>
+            String(unite.statut ?? "")
+              .normalize("NFD")
+              .replace(/[\u0300-\u036f]/g, "")
+              .trim()
+              .toLowerCase() !== "inactif",
+        ),
+      );
+    }
     if (pepRes.data) setPeps(pepRes.data as PepRow[]);
     if (docsRes.data) setDocuments(docsRes.data as VehicleDocumentRow[]);
 
@@ -236,11 +261,6 @@ export default function DossiersVehiculesPage() {
         addExpirationReason(required.label, latest.date_expiration);
       }
 
-      addExpirationReason(
-        "Vignette PEP",
-        unite.pep_vignette_expiration,
-      );
-
       const latestPep = pepByUnite.get(unite.id) ?? null;
 
       if (!latestPep) {
@@ -261,16 +281,46 @@ export default function DossiersVehiculesPage() {
           String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")),
         );
 
-      const latestCvm = cvmDocs[0];
+      const latestCvm = cvmDocs[0] ?? null;
+      const cvmExpiredDays = daysExpired(latestCvm?.date_expiration);
+      const cvmIsValid = Boolean(
+        latestCvm?.date_expiration &&
+        (!cvmExpiredDays || cvmExpiredDays === 0),
+      );
 
-      if (!hasCurrentPep(latestPep) && latestCvm) {
-        const cvmExpiredDays = daysExpired(latestCvm.date_expiration);
+      if (latestCvm && cvmExpiredDays) {
+        if (cvmExpiredDays > 15) {
+          redReasons.push(`CVM expiré depuis ${cvmExpiredDays} jours`);
+        } else {
+          yellowReasons.push(`CVM expiré depuis ${cvmExpiredDays} jours`);
+        }
+      }
 
-        if (cvmExpiredDays) {
-          if (cvmExpiredDays > 15) {
-            redReasons.push(`CVM expiré depuis ${cvmExpiredDays} jours`);
-          } else {
-            yellowReasons.push(`CVM expiré depuis ${cvmExpiredDays} jours`);
+      if (!cvmIsValid) {
+        const vignetteExpiration = unite.pep_vignette_expiration ?? null;
+
+        if (!vignetteExpiration) {
+          redReasons.push("Vignette PEP manquante");
+        } else {
+          const vignetteExpiredDays = daysExpired(vignetteExpiration);
+          const vignetteDaysRemaining =
+            daysUntilExpiration(vignetteExpiration);
+
+          if (vignetteExpiredDays && vignetteExpiredDays > 30) {
+            redReasons.push(
+              `Vignette PEP expirée depuis ${vignetteExpiredDays} jours`,
+            );
+          } else if (vignetteExpiredDays) {
+            yellowReasons.push(
+              `Vignette PEP expirée depuis ${vignetteExpiredDays} jours`,
+            );
+          } else if (
+            vignetteDaysRemaining != null &&
+            vignetteDaysRemaining <= 15
+          ) {
+            yellowReasons.push(
+              `Vignette PEP expire dans ${vignetteDaysRemaining} jours`,
+            );
           }
         }
       }

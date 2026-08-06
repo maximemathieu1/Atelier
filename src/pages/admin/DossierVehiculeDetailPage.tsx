@@ -851,13 +851,6 @@ export default function DossierVehiculeDetailPage() {
                 type="date"
                 style={styles.input}
               />
-              {!unite.pep_vignette_expiration &&
-                defaultVignetteExpiration && (
-                  <div style={styles.defaultDateHint}>
-                    Date proposée automatiquement selon la date de vignette
-                    valide la plus utilisée.
-                  </div>
-                )}
             </div>
 
             <button
@@ -982,13 +975,6 @@ export default function DossierVehiculeDetailPage() {
                 style={styles.input}
                 title="Date d'expiration du document"
               />
-              {requiresExpiration(docType) &&
-                defaultExpirationByType[docType] && (
-                  <div style={styles.defaultDateHint}>
-                    Date proposée automatiquement selon la date valide la plus
-                    utilisée pour ce type.
-                  </div>
-                )}
             </div>
 
             <div style={styles.fieldGroupNote}>
@@ -1528,13 +1514,6 @@ const styles: Record<string, React.CSSProperties> = {
     width: "100%",
     color: "#92400e",
     fontSize: 13,
-  },
-  defaultDateHint: {
-    marginTop: 4,
-    fontSize: 11,
-    lineHeight: 1.35,
-    color: "#64748b",
-    maxWidth: 280,
   },
   statusBadge: {
     display: "inline-flex",
