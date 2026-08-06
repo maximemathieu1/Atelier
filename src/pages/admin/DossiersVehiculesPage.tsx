@@ -132,11 +132,6 @@ function getPepOverdueDays(pep?: PepRow | null) {
   return diff > 0 ? diff : 0;
 }
 
-function hasCurrentPep(pep?: PepRow | null) {
-  if (!pep) return false;
-  return (getPepOverdueDays(pep) ?? 0) === 0;
-}
-
 export default function DossiersVehiculesPage() {
   const navigate = useNavigate();
 
