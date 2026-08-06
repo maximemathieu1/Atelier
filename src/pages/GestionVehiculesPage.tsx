@@ -105,6 +105,14 @@ function startDateForPeriod(period: PeriodeKey) {
   return d.toISOString();
 }
 
+function normalizeStatus(value: string | null | undefined) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
 export default function GestionVehiculesPage() {
   const [loadingUnits, setLoadingUnits] = useState(true);
   const [loadingData, setLoadingData] = useState(false);
@@ -209,9 +217,17 @@ export default function GestionVehiculesPage() {
 
       if (error) throw error;
 
-      const rows = (data || []) as unknown as UniteRow[];
+      const rows = ((data || []) as unknown as UniteRow[]).filter(
+        (unite) => normalizeStatus(unite.statut) !== "inactif",
+      );
+
       setUnites(rows);
-      if (!selectedUniteId && rows.length > 0) setSelectedUniteId(rows[0].id);
+
+      const selectedStillActive = rows.some((unite) => unite.id === selectedUniteId);
+
+      if (!selectedStillActive) {
+        setSelectedUniteId(rows[0]?.id ?? "");
+      }
     } catch (e: any) {
       setError(e?.message || "Erreur chargement véhicules.");
       setUnites([]);

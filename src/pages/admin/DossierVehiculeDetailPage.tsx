@@ -122,20 +122,116 @@ function fileSizeLabel(size?: number | null) {
   return `${(size / 1024 / 1024).toFixed(1)} Mo`;
 }
 
-function expirationStatus(value?: string | null) {
-  if (!value) return { label: "—", style: styles.statusNeutral };
+function normalizeStatus(value?: string | null) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+type AlertBadge = {
+  label: string;
+  style: React.CSSProperties;
+};
+
+function parseLocalDate(value?: string | null) {
+  if (!value) return null;
+  const clean = String(value).slice(0, 10);
+  const date = new Date(`${clean}T12:00:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function daysExpired(value?: string | null) {
+  const expiration = parseLocalDate(value);
+  if (!expiration) return null;
 
   const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  today.setHours(12, 0, 0, 0);
 
-  const exp = new Date(`${value}T00:00:00`);
-  if (Number.isNaN(exp.getTime())) return { label: "—", style: styles.statusNeutral };
+  const diff = Math.floor((today.getTime() - expiration.getTime()) / 86400000);
+  return diff > 0 ? diff : 0;
+}
 
-  const diffDays = Math.ceil((exp.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
 
-  if (diffDays < 0) return { label: "Expiré", style: styles.statusDanger };
-  if (diffDays <= 30) return { label: "Expire bientôt", style: styles.statusWarning };
+function getPepDueDate(pep?: PepArchiveRow | null) {
+  if (!pep) return null;
+
+  const explicit = parseLocalDate(pep.date_prochain);
+  if (explicit) return explicit;
+
+  const source = parseLocalDate(pep.date_pep || pep.created_at);
+  return source ? addDays(source, 90) : null;
+}
+
+function getPepOverdueDays(pep?: PepArchiveRow | null) {
+  const due = getPepDueDate(pep);
+  if (!due) return null;
+
+  const today = new Date();
+  today.setHours(12, 0, 0, 0);
+
+  const diff = Math.floor((today.getTime() - due.getTime()) / 86400000);
+  return diff > 0 ? diff : 0;
+}
+
+function administrativeExpirationStatus(
+  value?: string | null,
+  missingLabel = "Manquant",
+): AlertBadge {
+  if (!value) return { label: missingLabel, style: styles.statusDanger };
+
+  const expired = daysExpired(value);
+
+  if (expired && expired > 30) {
+    return { label: `Expiré depuis ${expired} j`, style: styles.statusDanger };
+  }
+
+  if (expired && expired > 0) {
+    return { label: `Expiré depuis ${expired} j`, style: styles.statusWarning };
+  }
+
   return { label: "OK", style: styles.statusOk };
+}
+
+function optionalExpirationStatus(
+  value?: string | null,
+  yellowLimit = 15,
+): AlertBadge {
+  if (!value) return { label: "—", style: styles.statusNeutral };
+
+  const expired = daysExpired(value);
+
+  if (expired && expired > yellowLimit) {
+    return { label: `Expiré depuis ${expired} j`, style: styles.statusDanger };
+  }
+
+  if (expired && expired > 0) {
+    return { label: `Expiré depuis ${expired} j`, style: styles.statusWarning };
+  }
+
+  return { label: "OK", style: styles.statusOk };
+}
+
+function pepStatus(pep?: PepArchiveRow | null): AlertBadge {
+  if (!pep) return { label: "PEP manquant", style: styles.statusDanger };
+
+  const overdue = getPepOverdueDays(pep) ?? 0;
+
+  if (overdue > 15) {
+    return { label: `Passé dû depuis ${overdue} j`, style: styles.statusDanger };
+  }
+
+  if (overdue > 0) {
+    return { label: `Passé dû depuis ${overdue} j`, style: styles.statusWarning };
+  }
+
+  return { label: "Valide", style: styles.statusOk };
 }
 
 function requiresExpiration(type: string) {
@@ -235,6 +331,16 @@ export default function DossierVehiculeDetailPage() {
 
     if (uniteRes.data) {
       const u = uniteRes.data as UniteRow;
+
+      if (normalizeStatus(u.statut) === "inactif") {
+        setUnite(null);
+        setPeps([]);
+        setBts([]);
+        setDocuments([]);
+        setLoading(false);
+        return;
+      }
+
       setUnite(u);
       setVignetteNo(u.pep_vignette_no || "");
       setVignetteExpiration(u.pep_vignette_expiration || "");
@@ -450,9 +556,26 @@ export default function DossierVehiculeDetailPage() {
     { key: "documents", label: "Documents" },
   ];
 
-  const pepVignetteStatus = expirationStatus(unite.pep_vignette_expiration);
-  const assuranceStatus = expirationStatus(lastAssurance?.date_expiration);
-  const immatStatus = expirationStatus(lastImmatriculation?.date_expiration);
+  const lastCvm = cvmDocuments[0] || null;
+
+  const pepCurrentStatus = pepStatus(lastPep);
+  const pepIsValid = pepCurrentStatus.label === "Valide";
+
+  const pepVignetteStatus = optionalExpirationStatus(
+    unite.pep_vignette_expiration,
+    30,
+  );
+  const assuranceStatus = administrativeExpirationStatus(
+    lastAssurance?.date_expiration,
+    "Assurance manquante",
+  );
+  const immatStatus = administrativeExpirationStatus(
+    lastImmatriculation?.date_expiration,
+    "Immatriculation manquante",
+  );
+  const cvmStatus = pepIsValid
+    ? { label: "Remplacé par PEP valide", style: styles.statusOk }
+    : optionalExpirationStatus(lastCvm?.date_expiration, 15);
 
   return (
     <div style={styles.page}>
@@ -473,10 +596,12 @@ export default function DossierVehiculeDetailPage() {
           <Info label="NIV" value={nivLabel(unite)} />
           <Info label="Véhicule" value={[unite.marque, unite.modele, unite.annee].filter(Boolean).join(" ") || "—"} />
           <Info label="KM actuel" value={kmLabel(unite.km_actuel ?? unite.odometre)} />
+          <Info label="PEP" value={formatDate(lastPep?.date_pep || lastPep?.created_at)} badge={pepCurrentStatus} />
           <Info label="Vignette PEP" value={unite.pep_vignette_no || "—"} />
           <Info label="Expiration vignette PEP" value={formatDate(unite.pep_vignette_expiration)} badge={pepVignetteStatus} />
           <Info label="Assurance" value={formatDate(lastAssurance?.date_expiration)} badge={assuranceStatus} />
           <Info label="Immatriculation" value={formatDate(lastImmatriculation?.date_expiration)} badge={immatStatus} />
+          <Info label="CVM" value={formatDate(lastCvm?.date_expiration)} badge={cvmStatus} />
         </div>
       </div>
 
@@ -513,9 +638,11 @@ export default function DossierVehiculeDetailPage() {
           <div style={styles.card}>
             <h2 style={styles.cardTitle}>Surveillance</h2>
             <div style={styles.summaryRows}>
+              <SummaryWithBadge label="PEP" value={formatDate(lastPep?.date_pep || lastPep?.created_at)} badge={pepCurrentStatus} />
               <SummaryWithBadge label="Assurance" value={formatDate(lastAssurance?.date_expiration)} badge={assuranceStatus} />
               <SummaryWithBadge label="Immatriculation" value={formatDate(lastImmatriculation?.date_expiration)} badge={immatStatus} />
               <SummaryWithBadge label="Vignette PEP" value={formatDate(unite.pep_vignette_expiration)} badge={pepVignetteStatus} />
+              <SummaryWithBadge label="CVM" value={formatDate(lastCvm?.date_expiration)} badge={cvmStatus} />
             </div>
           </div>
 

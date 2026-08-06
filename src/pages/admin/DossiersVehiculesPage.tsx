@@ -23,6 +23,7 @@ type PepRow = {
   unite_id?: string | null;
   date_pep?: string | null;
   date?: string | null;
+  date_prochain?: string | null;
   created_at?: string | null;
 };
 
@@ -31,6 +32,7 @@ type VehicleDocumentRow = {
   unite_id: string;
   type_document: string;
   created_at: string;
+  date_expiration?: string | null;
 };
 
 function unitLabel(u: UniteRow) {
@@ -58,6 +60,65 @@ function formatDate(value?: string | null) {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return "—";
   return d.toLocaleDateString("fr-CA");
+}
+
+const REQUIRED_DOCUMENT_TYPES = [
+  { value: "assurance", label: "Assurance" },
+  { value: "immatriculation", label: "Immatriculation" },
+] as const;
+
+function parseLocalDate(value?: string | null) {
+  if (!value) return null;
+  const clean = String(value).slice(0, 10);
+  const date = new Date(`${clean}T12:00:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function daysExpired(value?: string | null) {
+  const expiration = parseLocalDate(value);
+  if (!expiration) return null;
+
+  const today = new Date();
+  today.setHours(12, 0, 0, 0);
+
+  const diff = Math.floor(
+    (today.getTime() - expiration.getTime()) / 86400000,
+  );
+
+  return diff > 0 ? diff : 0;
+}
+
+function getPepDueDate(pep?: PepRow | null) {
+  if (!pep) return null;
+
+  const explicitDue = parseLocalDate(pep.date_prochain);
+  if (explicitDue) return explicitDue;
+
+  const sourceDate = pep.date_pep || pep.date || pep.created_at;
+  const pepDate = parseLocalDate(sourceDate);
+  return pepDate ? addDays(pepDate, 90) : null;
+}
+
+function getPepOverdueDays(pep?: PepRow | null) {
+  const dueDate = getPepDueDate(pep);
+  if (!dueDate) return null;
+
+  const today = new Date();
+  today.setHours(12, 0, 0, 0);
+
+  const diff = Math.floor((today.getTime() - dueDate.getTime()) / 86400000);
+  return diff > 0 ? diff : 0;
+}
+
+function hasCurrentPep(pep?: PepRow | null) {
+  if (!pep) return false;
+  return (getPepOverdueDays(pep) ?? 0) === 0;
 }
 
 export default function DossiersVehiculesPage() {
@@ -92,7 +153,7 @@ export default function DossiersVehiculesPage() {
 
   supabase
     .from("vehicle_documents")
-    .select("id, unite_id, type_document, created_at")
+    .select("id, unite_id, type_document, created_at, date_expiration")
     .order("created_at", { ascending: false }),
 ]);
 
@@ -120,6 +181,113 @@ export default function DossiersVehiculesPage() {
     }
     return map;
   }, [documents]);
+
+  const alertsByUnite = useMemo(() => {
+    type AlertState = {
+      severity: "yellow" | "red";
+      reasons: string[];
+    };
+
+    const docsByUnit = new Map<string, VehicleDocumentRow[]>();
+
+    for (const doc of documents) {
+      const current = docsByUnit.get(doc.unite_id) ?? [];
+      current.push(doc);
+      docsByUnit.set(doc.unite_id, current);
+    }
+
+    const alerts = new Map<string, AlertState>();
+
+    for (const unite of unites) {
+      const unitDocs = docsByUnit.get(unite.id) ?? [];
+      const yellowReasons: string[] = [];
+      const redReasons: string[] = [];
+
+      const addExpirationReason = (
+        label: string,
+        expiration?: string | null,
+      ) => {
+        const expiredDays = daysExpired(expiration);
+        if (!expiredDays) return;
+
+        if (expiredDays > 30) {
+          redReasons.push(`${label} expiré depuis ${expiredDays} jours`);
+        } else {
+          yellowReasons.push(`${label} expiré depuis ${expiredDays} jours`);
+        }
+      };
+
+      for (const required of REQUIRED_DOCUMENT_TYPES) {
+        const matchingDocs = unitDocs
+          .filter((doc) => doc.type_document === required.value)
+          .sort((a, b) =>
+            String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")),
+          );
+
+        const latest = matchingDocs[0];
+
+        if (!latest) {
+          redReasons.push(`${required.label} manquante`);
+          continue;
+        }
+
+        addExpirationReason(required.label, latest.date_expiration);
+      }
+
+      addExpirationReason(
+        "Vignette PEP",
+        unite.pep_vignette_expiration,
+      );
+
+      const latestPep = pepByUnite.get(unite.id) ?? null;
+
+      if (!latestPep) {
+        redReasons.push("PEP manquant");
+      } else {
+        const pepOverdueDays = getPepOverdueDays(latestPep) ?? 0;
+
+        if (pepOverdueDays > 15) {
+          redReasons.push(`PEP passé dû depuis ${pepOverdueDays} jours`);
+        } else if (pepOverdueDays > 0) {
+          yellowReasons.push(`PEP passé dû depuis ${pepOverdueDays} jours`);
+        }
+      }
+
+      const cvmDocs = unitDocs
+        .filter((doc) => doc.type_document === "cvm")
+        .sort((a, b) =>
+          String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")),
+        );
+
+      const latestCvm = cvmDocs[0];
+
+      if (!hasCurrentPep(latestPep) && latestCvm) {
+        const cvmExpiredDays = daysExpired(latestCvm.date_expiration);
+
+        if (cvmExpiredDays) {
+          if (cvmExpiredDays > 15) {
+            redReasons.push(`CVM expiré depuis ${cvmExpiredDays} jours`);
+          } else {
+            yellowReasons.push(`CVM expiré depuis ${cvmExpiredDays} jours`);
+          }
+        }
+      }
+
+      if (redReasons.length > 0) {
+        alerts.set(unite.id, {
+          severity: "red",
+          reasons: [...redReasons, ...yellowReasons],
+        });
+      } else if (yellowReasons.length > 0) {
+        alerts.set(unite.id, {
+          severity: "yellow",
+          reasons: yellowReasons,
+        });
+      }
+    }
+
+    return alerts;
+  }, [documents, unites, pepByUnite]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -177,6 +345,7 @@ export default function DossiersVehiculesPage() {
                   <th style={styles.th}>Dernier PEP</th>
                   <th style={styles.th}>KM actuel</th>
                   <th style={styles.th}>Documents</th>
+                  <th style={styles.th}>État dossier</th>
                 </tr>
               </thead>
               <tbody>
@@ -184,13 +353,24 @@ export default function DossiersVehiculesPage() {
                   const lastPep = pepByUnite.get(u.id);
                   const lastPepDate = lastPep?.date_pep || lastPep?.date || lastPep?.created_at;
                   const docsCount = docsCountByUnite.get(u.id) || 0;
+                  const alertState = alertsByUnite.get(u.id) ?? null;
+                  const alertReasons = alertState?.reasons ?? [];
+                  const hasAlert = Boolean(alertState);
 
                   return (
                     <tr
                       key={u.id}
-                      style={styles.tr}
+                      style={{
+                        ...styles.tr,
+                        ...(alertState?.severity === "red" ? styles.trDanger : {}),
+                        ...(alertState?.severity === "yellow" ? styles.trWarning : {}),
+                      }}
                       onDoubleClick={() => navigate(`/admin/dossiers-vehicules/${u.id}`)}
-                      title="Double-cliquer pour ouvrir le dossier"
+                      title={
+                        hasAlert
+                          ? alertReasons.join("\n")
+                          : "Double-cliquer pour ouvrir le dossier"
+                      }
                     >
                       <td style={styles.tdStrong}>{unitLabel(u)}</td>
                       <td style={styles.td}>{plateLabel(u)}</td>
@@ -198,13 +378,32 @@ export default function DossiersVehiculesPage() {
                       <td style={styles.td}>{formatDate(lastPepDate)}</td>
                       <td style={styles.td}>{kmLabel(u)}</td>
                       <td style={styles.td}>{docsCount}</td>
+                      <td style={styles.td}>
+                        {hasAlert ? (
+                          <div style={styles.alertCell}>
+                            <span
+                              style={
+                                alertState?.severity === "red"
+                                  ? styles.alertBadge
+                                  : styles.warningBadge
+                              }
+                            >
+                              {alertState?.severity === "red"
+                                ? "Action requise"
+                                : "À surveiller"}
+                            </span>
+                          </div>
+                        ) : (
+                          <span style={styles.okBadge}>Complet</span>
+                        )}
+                      </td>
                     </tr>
                   );
                 })}
 
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={6} style={styles.emptyTd}>
+                    <td colSpan={7} style={styles.emptyTd}>
                       Aucune unité trouvée.
                     </td>
                   </tr>
@@ -294,6 +493,55 @@ const styles: Record<string, React.CSSProperties> = {
   },
   tr: {
     cursor: "default",
+  },
+  trDanger: {
+    background: "#fff1f2",
+    boxShadow: "inset 4px 0 0 #dc2626",
+  },
+  trWarning: {
+    background: "#fffbeb",
+    boxShadow: "inset 4px 0 0 #f59e0b",
+  },
+  alertCell: {
+    display: "grid",
+    gap: 5,
+    maxWidth: 360,
+  },
+  alertBadge: {
+    display: "inline-flex",
+    width: "fit-content",
+    borderRadius: 999,
+    padding: "3px 8px",
+    background: "#fee2e2",
+    color: "#991b1b",
+    fontSize: 12,
+    fontWeight: 900,
+  },
+  warningBadge: {
+    display: "inline-flex",
+    width: "fit-content",
+    borderRadius: 999,
+    padding: "3px 8px",
+    background: "#fef3c7",
+    color: "#92400e",
+    fontSize: 12,
+    fontWeight: 900,
+  },
+  okBadge: {
+    display: "inline-flex",
+    width: "fit-content",
+    borderRadius: 999,
+    padding: "3px 8px",
+    background: "#dcfce7",
+    color: "#166534",
+    fontSize: 12,
+    fontWeight: 900,
+  },
+  alertReasons: {
+    color: "#991b1b",
+    fontSize: 12,
+    fontWeight: 700,
+    whiteSpace: "normal",
   },
   td: {
     padding: "12px",
