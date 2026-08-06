@@ -16,6 +16,7 @@ type EmployePep = {
 type UniteRow = {
   id: string;
   no_unite: string;
+  actif: boolean;
   marque: string | null;
   modele: string | null;
   annee: number | null;
@@ -1105,6 +1106,7 @@ if (isTrueDynamicRule) {
             [
               "id",
               "no_unite",
+              "actif",
               "marque",
               "modele",
               "annee",
@@ -1122,6 +1124,7 @@ if (isTrueDynamicRule) {
               "groupe_accessoire",
             ].join(",")
           )
+          .eq("actif", true)
           .order("no_unite", { ascending: true });
 
         const optionsPromise = supabase

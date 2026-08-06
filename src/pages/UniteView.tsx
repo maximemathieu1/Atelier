@@ -6,6 +6,7 @@ import UniteEntretienPage from "./UniteEntretienPage";
 type Unite = {
   id: string;
   no_unite: string;
+  actif: boolean;
 
   statut: string | null;
   km_actuel: number | null;
@@ -330,6 +331,7 @@ export default function UniteView({
         [
           "id",
           "no_unite",
+          "actif",
           "statut",
           "km_actuel",
           "marque",
@@ -575,6 +577,7 @@ export default function UniteView({
     try {
       const payload = {
         no_unite: u.no_unite?.trim(),
+        actif: u.actif !== false,
         statut: u.statut?.trim() || null,
         marque: u.marque?.trim() || null,
         modele: u.modele?.trim() || null,
@@ -605,6 +608,33 @@ export default function UniteView({
       await refreshAll();
       await loadPepAttributesForUnit(u.id);
       closeEditMode();
+    } catch (e: any) {
+      alert(e?.message ?? String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function toggleUniteActive() {
+    if (!u || busy) return;
+
+    const nextActif = !u.actif;
+    const action = nextActif ? "réactiver" : "mettre inactive";
+    const consequence = nextActif
+      ? "Le suivi PEP et les entretiens périodiques reprendront."
+      : "Elle sera retirée du suivi PEP et des entretiens périodiques, sans supprimer son historique.";
+
+    if (!confirm(`Voulez-vous ${action} l’unité ${u.no_unite} ?\n\n${consequence}`)) return;
+
+    setBusy(true);
+    try {
+      const { error } = await supabase
+        .from("unites")
+        .update({ actif: nextActif })
+        .eq("id", u.id);
+
+      if (error) throw error;
+      setU((prev) => (prev ? { ...prev, actif: nextActif } : prev));
     } catch (e: any) {
       alert(e?.message ?? String(e));
     } finally {
@@ -819,6 +849,21 @@ export default function UniteView({
           <div className="muted">
             Fiche unité • configuration • PEP • client • notes mécaniques • kilométrage
           </div>
+          <div
+            style={{
+              display: "inline-flex",
+              marginTop: 8,
+              padding: "5px 10px",
+              borderRadius: 999,
+              border: `1px solid ${u.actif ? "#bbf7d0" : "#fecaca"}`,
+              background: u.actif ? "#f0fdf4" : "#fef2f2",
+              color: u.actif ? "#166534" : "#991b1b",
+              fontSize: 12,
+              fontWeight: 900,
+            }}
+          >
+            {u.actif ? "Unité active" : "Unité inactive — suivi PEP arrêté"}
+          </div>
         </div>
 
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
@@ -842,6 +887,21 @@ export default function UniteView({
               </button>
             </>
           )}
+
+          <button
+            className="ghost"
+            onClick={toggleUniteActive}
+            disabled={busy}
+            type="button"
+            style={{
+              borderStyle: "solid",
+              borderColor: u.actif ? "#f59e0b" : "#86efac",
+              color: u.actif ? "#92400e" : "#166534",
+              background: u.actif ? "#fffbeb" : "#f0fdf4",
+            }}
+          >
+            {u.actif ? "Mettre inactive" : "Réactiver"}
+          </button>
 
           <button
             className="ghost"

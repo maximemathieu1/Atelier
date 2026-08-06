@@ -4,6 +4,7 @@ import { supabase } from "../../lib/supabaseClient";
 type UniteRow = {
   id: string;
   no_unite: string;
+  actif: boolean;
   marque: string | null;
   modele: string | null;
   annee: number | null;
@@ -367,7 +368,8 @@ export default function PepSuivi() {
         const [unitesRes, archivesRes, historiquesRes] = await Promise.all([
           supabase
             .from("unites")
-            .select("id, no_unite, marque, modele, annee, statut, mode_comptable")
+            .select("id, no_unite, actif, marque, modele, annee, statut, mode_comptable")
+            .eq("actif", true)
             .order("no_unite", { ascending: true }),
           supabase
             .from("pep_archives")

@@ -25,6 +25,7 @@ type BtRow = {
     marque?: string | null;
     modele?: string | null;
     km_actuel?: number | null;
+    actif?: boolean | null;
   } | null;
 };
 
@@ -63,6 +64,7 @@ type UniteEntretienTemplate = {
     marque?: string | null;
     modele?: string | null;
     km_actuel?: number | null;
+    actif?: boolean | null;
   } | null;
 };
 
@@ -103,6 +105,7 @@ type UniteEntretienItem = {
     marque?: string | null;
     modele?: string | null;
     km_actuel?: number | null;
+    actif?: boolean | null;
   } | null;
 };
 
@@ -311,7 +314,8 @@ export default function DashboardAtelier() {
               no_unite,
               marque,
               modele,
-              km_actuel
+              km_actuel,
+              actif
             )
           `,
           )
@@ -371,7 +375,8 @@ export default function DashboardAtelier() {
               no_unite,
               marque,
               modele,
-              km_actuel
+              km_actuel,
+              actif
             )
           `,
           )
@@ -410,7 +415,8 @@ export default function DashboardAtelier() {
               no_unite,
               marque,
               modele,
-              km_actuel
+              km_actuel,
+              actif
             )
           `,
           )
@@ -490,7 +496,8 @@ export default function DashboardAtelier() {
                 no_unite,
                 marque,
                 modele,
-                km_actuel
+                km_actuel,
+                actif
               )
             )
           `,
@@ -541,12 +548,16 @@ export default function DashboardAtelier() {
       const btRows = (btRes.data ?? []) as BtRow[];
       const stockRows = (stockRes.data ?? []) as StockRow[];
       const pointageRows = (pointagesRes.data ?? []) as PointageRow[];
-      const assignedTemplates = (assignedTemplatesRes.data ??
-        []) as UniteEntretienTemplate[];
+      const assignedTemplates = ((assignedTemplatesRes.data ??
+        []) as UniteEntretienTemplate[]).filter(
+          (row) => row.unites?.actif !== false,
+        );
       const templates = (templatesRes.data ?? []) as EntretienTemplate[];
       const templateItems = (templateItemsRes.data ??
         []) as EntretienTemplateItem[];
-      const unitItems = (unitItemsRes.data ?? []) as UniteEntretienItem[];
+      const unitItems = ((unitItemsRes.data ?? []) as UniteEntretienItem[]).filter(
+        (row) => row.unites?.actif !== false,
+      );
       const historique = (historiqueRes.data ?? []) as EntretienHistorique[];
       const openTasksRows = (openTasksRes.data ?? []) as UniteNoteRow[];
 

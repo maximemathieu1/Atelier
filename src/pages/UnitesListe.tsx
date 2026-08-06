@@ -5,6 +5,7 @@ import { supabase } from "../lib/supabaseClient";
 type Unite = {
   id: string;
   no_unite: string;
+  actif: boolean;
   marque: string | null;
   modele: string | null;
   niv: string | null;
@@ -17,7 +18,8 @@ type Client = {
   nom: string;
 };
 
-type SortKey = "no_unite" | "marque" | "modele" | "niv" | "km_actuel" | "client";
+type SortKey = "no_unite" | "marque" | "modele" | "niv" | "km_actuel" | "client" | "actif";
+type ActiveFilter = "actives" | "inactives" | "toutes";
 type SortDir = "asc" | "desc";
 
 export default function UnitesListe() {
@@ -27,6 +29,7 @@ export default function UnitesListe() {
   const [rows, setRows] = useState<Unite[]>([]);
   const [clientsById, setClientsById] = useState<Record<string, Client>>({});
   const [search, setSearch] = useState("");
+  const [activeFilter, setActiveFilter] = useState<ActiveFilter>("actives");
 
   const [sortKey, setSortKey] = useState<SortKey>("no_unite");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
@@ -39,7 +42,7 @@ export default function UnitesListe() {
       await Promise.all([
         supabase
           .from("unites")
-          .select("id, no_unite, marque, modele, niv, km_actuel, client_id")
+          .select("id, no_unite, actif, marque, modele, niv, km_actuel, client_id")
           .order("no_unite"),
         supabase.from("clients").select("id, nom"),
       ]);
@@ -70,7 +73,7 @@ export default function UnitesListe() {
     try {
       const { data, error } = await supabase
         .from("unites")
-        .insert({ no_unite: "Nouvelle unité" })
+        .insert({ no_unite: "Nouvelle unité", actif: true })
         .select("id")
         .single();
 
@@ -117,6 +120,8 @@ export default function UnitesListe() {
         return row.km_actuel ?? 0;
       case "client":
         return resolveClientName(row);
+      case "actif":
+        return row.actif === false ? 0 : 1;
       default:
         return "";
     }
@@ -124,9 +129,15 @@ export default function UnitesListe() {
 
   const filteredRows = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return rows;
+    const rowsByActive = rows.filter((u) => {
+      if (activeFilter === "toutes") return true;
+      if (activeFilter === "inactives") return u.actif === false;
+      return u.actif !== false;
+    });
 
-    return rows.filter((u) => {
+    if (!q) return rowsByActive;
+
+    return rowsByActive.filter((u) => {
       const client = resolveClientName(u);
       const haystack = [
         u.no_unite,
@@ -141,7 +152,7 @@ export default function UnitesListe() {
 
       return haystack.includes(q);
     });
-  }, [rows, search, clientsById]);
+  }, [rows, search, clientsById, activeFilter]);
 
   const sortedRows = useMemo(() => {
     const copy = [...filteredRows];
@@ -170,7 +181,7 @@ export default function UnitesListe() {
 
   useEffect(() => {
     setPage(1);
-  }, [search, sortKey, sortDir, pageSize]);
+  }, [search, activeFilter, sortKey, sortDir, pageSize]);
 
   const totalPages = Math.max(1, Math.ceil(sortedRows.length / pageSize));
 
@@ -244,6 +255,26 @@ export default function UnitesListe() {
           onChange={(e) => setSearch(e.target.value)}
         />
 
+        <div style={styles.filterGroup}>
+          {([
+            ["actives", "Actives"],
+            ["inactives", "Inactives"],
+            ["toutes", "Toutes"],
+          ] as const).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              style={{
+                ...styles.filterBtn,
+                ...(activeFilter === value ? styles.filterBtnActive : {}),
+              }}
+              onClick={() => setActiveFilter(value)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
         <select
           style={styles.select}
           value={String(pageSize)}
@@ -268,6 +299,7 @@ export default function UnitesListe() {
             <thead>
               <tr style={styles.theadRow}>
                 {renderSortableHeader("Unité", "no_unite", false, 160)}
+                {renderSortableHeader("État", "actif", false, 130)}
                 {renderSortableHeader("Client", "client", false, 220)}
                 {renderSortableHeader("Marque", "marque", false, 170)}
                 {renderSortableHeader("Modèle", "modele", false, 220)}
@@ -279,7 +311,7 @@ export default function UnitesListe() {
             <tbody>
               {paginatedRows.length === 0 ? (
                 <tr>
-                  <td colSpan={6}>
+                  <td colSpan={7}>
                     <div style={styles.emptyWrap}>
                       {rows.length === 0 ? "Aucune unité." : "Aucun résultat."}
                     </div>
@@ -298,6 +330,12 @@ export default function UnitesListe() {
                     >
                       <td style={{ ...styles.td, background: rowBg }}>
                         <div style={styles.mainValue}>{u.no_unite}</div>
+                      </td>
+
+                      <td style={{ ...styles.td, background: rowBg }}>
+                        <span style={u.actif === false ? styles.inactiveBadge : styles.activeBadge}>
+                          {u.actif === false ? "Inactive" : "Active"}
+                        </span>
                       </td>
 
                       <td style={{ ...styles.td, background: rowBg }}>
@@ -492,6 +530,55 @@ const styles: Record<string, any> = {
     color: "#0f172a",
     outline: "none",
     minWidth: 160,
+  },
+
+  filterGroup: {
+    display: "flex",
+    alignItems: "center",
+    gap: 4,
+    padding: 4,
+    borderRadius: 12,
+    border: "1px solid #d6dbe7",
+    background: "#f8fafc",
+  },
+
+  filterBtn: {
+    height: 34,
+    padding: "0 12px",
+    borderRadius: 9,
+    border: "none",
+    background: "transparent",
+    color: "#64748b",
+    fontWeight: 800,
+    cursor: "pointer",
+  },
+
+  filterBtnActive: {
+    background: "#ffffff",
+    color: "#1d4ed8",
+    boxShadow: "0 1px 3px rgba(15,23,42,.10)",
+  },
+
+  activeBadge: {
+    display: "inline-flex",
+    padding: "4px 9px",
+    borderRadius: 999,
+    background: "#f0fdf4",
+    border: "1px solid #bbf7d0",
+    color: "#166534",
+    fontSize: 12,
+    fontWeight: 900,
+  },
+
+  inactiveBadge: {
+    display: "inline-flex",
+    padding: "4px 9px",
+    borderRadius: 999,
+    background: "#fef2f2",
+    border: "1px solid #fecaca",
+    color: "#991b1b",
+    fontSize: 12,
+    fontWeight: 900,
   },
 
   toolbarRight: {
