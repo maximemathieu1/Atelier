@@ -186,6 +186,41 @@ function getPepDueDate(pep?: PepArchiveRow | null) {
   return source ? addDays(source, 90) : null;
 }
 
+function getPepDate(pep?: PepArchiveRow | null) {
+  if (!pep) return null;
+  return parseLocalDate(pep.date_pep || pep.created_at);
+}
+
+function getDaysBetweenDates(
+  older?: Date | null,
+  newer?: Date | null,
+) {
+  if (!older || !newer) return null;
+  return Math.floor((newer.getTime() - older.getTime()) / 86400000);
+}
+
+function isPepValidOnDate(
+  pep: PepArchiveRow,
+  referenceValue?: string | null,
+) {
+  const pepDate = getPepDate(pep);
+  const referenceDate = parseLocalDate(referenceValue);
+  if (!pepDate || !referenceDate) return false;
+
+  const ageDays = getDaysBetweenDates(pepDate, referenceDate);
+  return ageDays != null && ageDays >= 0 && ageDays <= 90;
+}
+
+function isPepAfterDate(
+  pep: PepArchiveRow,
+  dateValue?: string | null,
+) {
+  const pepDate = getPepDate(pep);
+  const compareDate = parseLocalDate(dateValue);
+  if (!pepDate || !compareDate) return false;
+  return pepDate.getTime() > compareDate.getTime();
+}
+
 function getPepOverdueDays(pep?: PepArchiveRow | null) {
   const due = getPepDueDate(pep);
   if (!due) return null;
@@ -459,6 +494,23 @@ export default function DossierVehiculeDetailPage() {
   );
 
   const lastPep = peps[0] || null;
+
+  const pepGapWarning = useMemo(() => {
+    for (let index = 0; index < peps.length - 1; index += 1) {
+      const newerPep = peps[index];
+      const olderPep = peps[index + 1];
+      const gapDays = getDaysBetweenDates(
+        getPepDate(olderPep),
+        getPepDate(newerPep),
+      );
+
+      if (gapDays != null && gapDays > 90) {
+        return `Écart de ${gapDays} jours entre deux PEP`;
+      }
+    }
+
+    return "";
+  }, [peps]);
   const recentBts = bts.slice(0, 5);
   const recentDocs = documents.slice(0, 5);
 
@@ -686,14 +738,32 @@ export default function DossierVehiculeDetailPage() {
   ];
 
   const lastCvm = cvmDocuments[0] || null;
-
-  const pepCurrentStatus = pepStatus(lastPep);
-
   const cvmExpiredDays = daysExpired(lastCvm?.date_expiration);
   const cvmIsValid = Boolean(
     lastCvm?.date_expiration &&
     (!cvmExpiredDays || cvmExpiredDays === 0),
   );
+
+  const applicablePep = cvmIsValid
+    ? null
+    : lastCvm?.date_expiration
+      ? peps.find((pep) =>
+          isPepAfterDate(pep, lastCvm.date_expiration),
+        ) ??
+        peps.find((pep) =>
+          isPepValidOnDate(pep, lastCvm.date_expiration),
+        ) ??
+        null
+      : peps[0] ?? null;
+
+  const pepCurrentStatus: AlertBadge = cvmIsValid
+    ? { label: "Non requis — CVM valide", style: styles.statusOk }
+    : lastCvm?.date_expiration && !applicablePep
+      ? {
+          label: "Nouveau CVM ou PEP valide requis",
+          style: styles.statusDanger,
+        }
+      : pepStatus(applicablePep);
 
   const vignetteExpiredDays = daysExpired(unite.pep_vignette_expiration);
   const vignetteDaysRemaining = daysUntilExpiration(
@@ -702,24 +772,29 @@ export default function DossierVehiculeDetailPage() {
 
   const pepVignetteStatus: AlertBadge = cvmIsValid
     ? { label: "Non requise — CVM valide", style: styles.statusOk }
-    : !unite.pep_vignette_expiration
-      ? { label: "Vignette manquante", style: styles.statusDanger }
-      : vignetteExpiredDays && vignetteExpiredDays > 30
-        ? {
-            label: `Expirée depuis ${vignetteExpiredDays} j`,
-            style: styles.statusDanger,
-          }
-        : vignetteExpiredDays
+    : !applicablePep
+      ? {
+          label: "En attente d’un PEP valide",
+          style: styles.statusDanger,
+        }
+      : !unite.pep_vignette_expiration
+        ? { label: "Vignette manquante", style: styles.statusDanger }
+        : vignetteExpiredDays && vignetteExpiredDays > 30
           ? {
               label: `Expirée depuis ${vignetteExpiredDays} j`,
-              style: styles.statusWarning,
+              style: styles.statusDanger,
             }
-          : vignetteDaysRemaining != null && vignetteDaysRemaining <= 15
+          : vignetteExpiredDays
             ? {
-                label: `Expire dans ${vignetteDaysRemaining} j`,
+                label: `Expirée depuis ${vignetteExpiredDays} j`,
                 style: styles.statusWarning,
               }
-            : { label: "OK", style: styles.statusOk };
+            : vignetteDaysRemaining != null && vignetteDaysRemaining <= 15
+              ? {
+                  label: `Expire dans ${vignetteDaysRemaining} j`,
+                  style: styles.statusWarning,
+                }
+              : { label: "OK", style: styles.statusOk };
 
   const assuranceStatus = administrativeExpirationStatus(
     lastAssurance?.date_expiration,
@@ -729,7 +804,21 @@ export default function DossierVehiculeDetailPage() {
     lastImmatriculation?.date_expiration,
     "Immatriculation manquante",
   );
-  const cvmStatus = optionalExpirationStatus(lastCvm?.date_expiration, 15);
+
+  const cvmStatus: AlertBadge = !lastCvm
+    ? { label: "Aucun CVM", style: styles.statusNeutral }
+    : cvmIsValid
+      ? { label: "Valide", style: styles.statusOk }
+      : applicablePep
+        ? {
+            label: "Expiré — PEP valide disponible",
+            style: styles.statusWarning,
+          }
+        : {
+            label: `Expiré depuis ${cvmExpiredDays ?? 0} j`,
+            style: styles.statusDanger,
+          };
+
 
   return (
     <div style={styles.page}>
@@ -750,7 +839,7 @@ export default function DossierVehiculeDetailPage() {
           <Info label="NIV" value={nivLabel(unite)} />
           <Info label="Véhicule" value={[unite.marque, unite.modele, unite.annee].filter(Boolean).join(" ") || "—"} />
           <Info label="KM actuel" value={kmLabel(unite.km_actuel ?? unite.odometre)} />
-          <Info label="PEP" value={formatDate(lastPep?.date_pep || lastPep?.created_at)} badge={pepCurrentStatus} />
+          <Info label="PEP" value={formatDate(applicablePep?.date_pep || applicablePep?.created_at)} badge={pepCurrentStatus} />
           <Info label="Vignette PEP" value={unite.pep_vignette_no || "—"} />
           <Info label="Expiration vignette PEP" value={formatDate(unite.pep_vignette_expiration)} badge={pepVignetteStatus} />
           <Info label="Assurance" value={formatDate(lastAssurance?.date_expiration)} badge={assuranceStatus} />
@@ -780,7 +869,7 @@ export default function DossierVehiculeDetailPage() {
           <div style={styles.card}>
             <h2 style={styles.cardTitle}>Résumé</h2>
             <div style={styles.summaryRows}>
-            <Summary label="Dernier PEP" value={formatDate(lastPep?.date_pep || lastPep?.created_at)} />
+            <Summary label="Dernier PEP" value={formatDate(applicablePep?.date_pep || applicablePep?.created_at)} />
               <Summary label="Vignette PEP" value={unite.pep_vignette_no || "—"} />
               <Summary label="Expiration vignette PEP" value={formatDate(unite.pep_vignette_expiration)} />
               <Summary label="CVM importés" value={String(cvmDocuments.length)} />
@@ -792,7 +881,17 @@ export default function DossierVehiculeDetailPage() {
           <div style={styles.card}>
             <h2 style={styles.cardTitle}>Surveillance</h2>
             <div style={styles.summaryRows}>
-              <SummaryWithBadge label="PEP" value={formatDate(lastPep?.date_pep || lastPep?.created_at)} badge={pepCurrentStatus} />
+              <SummaryWithBadge label="PEP" value={formatDate(applicablePep?.date_pep || applicablePep?.created_at)} badge={pepCurrentStatus} />
+              {pepGapWarning ? (
+                <SummaryWithBadge
+                  label="Continuité PEP"
+                  value={pepGapWarning}
+                  badge={{
+                    label: "À vérifier",
+                    style: styles.statusWarning,
+                  }}
+                />
+              ) : null}
               <SummaryWithBadge label="Assurance" value={formatDate(lastAssurance?.date_expiration)} badge={assuranceStatus} />
               <SummaryWithBadge label="Immatriculation" value={formatDate(lastImmatriculation?.date_expiration)} badge={immatStatus} />
               <SummaryWithBadge label="Vignette PEP" value={formatDate(unite.pep_vignette_expiration)} badge={pepVignetteStatus} />

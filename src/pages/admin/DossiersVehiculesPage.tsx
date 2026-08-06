@@ -121,6 +121,41 @@ function getPepDueDate(pep?: PepRow | null) {
   return pepDate ? addDays(pepDate, 90) : null;
 }
 
+function getPepDate(pep?: PepRow | null) {
+  if (!pep) return null;
+  return parseLocalDate(pep.date_pep || pep.date || pep.created_at);
+}
+
+function getDaysBetweenDates(
+  older?: Date | null,
+  newer?: Date | null,
+) {
+  if (!older || !newer) return null;
+  return Math.floor((newer.getTime() - older.getTime()) / 86400000);
+}
+
+function isPepValidOnDate(
+  pep: PepRow,
+  referenceValue?: string | null,
+) {
+  const pepDate = getPepDate(pep);
+  const referenceDate = parseLocalDate(referenceValue);
+  if (!pepDate || !referenceDate) return false;
+
+  const ageDays = getDaysBetweenDates(pepDate, referenceDate);
+  return ageDays != null && ageDays >= 0 && ageDays <= 90;
+}
+
+function isDateAfter(
+  left?: string | null,
+  right?: string | null,
+) {
+  const leftDate = parseLocalDate(left);
+  const rightDate = parseLocalDate(right);
+  if (!leftDate || !rightDate) return false;
+  return leftDate.getTime() > rightDate.getTime();
+}
+
 function getPepOverdueDays(pep?: PepRow | null) {
   const dueDate = getPepDueDate(pep);
   if (!dueDate) return null;
@@ -196,6 +231,30 @@ export default function DossiersVehiculesPage() {
     return map;
   }, [peps]);
 
+  const pepsByUnite = useMemo(() => {
+    const map = new Map<string, PepRow[]>();
+
+    for (const pep of peps) {
+      const uniteId = pep.unite_id;
+      if (!uniteId) continue;
+
+      const current = map.get(uniteId) ?? [];
+      current.push(pep);
+      map.set(uniteId, current);
+    }
+
+    for (const [uniteId, rows] of map.entries()) {
+      rows.sort((a, b) => {
+        const aDate = getPepDate(a)?.getTime() ?? 0;
+        const bDate = getPepDate(b)?.getTime() ?? 0;
+        return bDate - aDate;
+      });
+      map.set(uniteId, rows);
+    }
+
+    return map;
+  }, [peps]);
+
   const docsCountByUnite = useMemo(() => {
     const map = new Map<string, number>();
     for (const doc of documents) {
@@ -222,10 +281,11 @@ export default function DossiersVehiculesPage() {
 
     for (const unite of unites) {
       const unitDocs = docsByUnit.get(unite.id) ?? [];
+      const unitPeps = pepsByUnite.get(unite.id) ?? [];
       const yellowReasons: string[] = [];
       const redReasons: string[] = [];
 
-      const addExpirationReason = (
+      const addAdministrativeExpiration = (
         label: string,
         expiration?: string | null,
       ) => {
@@ -253,20 +313,21 @@ export default function DossiersVehiculesPage() {
           continue;
         }
 
-        addExpirationReason(required.label, latest.date_expiration);
+        addAdministrativeExpiration(required.label, latest.date_expiration);
       }
 
-      const latestPep = pepByUnite.get(unite.id) ?? null;
+      for (let index = 0; index < unitPeps.length - 1; index += 1) {
+        const newerPep = unitPeps[index];
+        const olderPep = unitPeps[index + 1];
+        const newerDate = getPepDate(newerPep);
+        const olderDate = getPepDate(olderPep);
+        const gapDays = getDaysBetweenDates(olderDate, newerDate);
 
-      if (!latestPep) {
-        redReasons.push("PEP manquant");
-      } else {
-        const pepOverdueDays = getPepOverdueDays(latestPep) ?? 0;
-
-        if (pepOverdueDays > 15) {
-          redReasons.push(`PEP passé dû depuis ${pepOverdueDays} jours`);
-        } else if (pepOverdueDays > 0) {
-          yellowReasons.push(`PEP passé dû depuis ${pepOverdueDays} jours`);
+        if (gapDays != null && gapDays > 90) {
+          yellowReasons.push(
+            `Écart de ${gapDays} jours entre deux PEP`,
+          );
+          break;
         }
       }
 
@@ -277,46 +338,86 @@ export default function DossiersVehiculesPage() {
         );
 
       const latestCvm = cvmDocs[0] ?? null;
-      const cvmExpiredDays = daysExpired(latestCvm?.date_expiration);
+      const cvmExpiration = latestCvm?.date_expiration ?? null;
+      const cvmExpiredDays = daysExpired(cvmExpiration);
       const cvmIsValid = Boolean(
-        latestCvm?.date_expiration &&
+        latestCvm &&
+        cvmExpiration &&
         (!cvmExpiredDays || cvmExpiredDays === 0),
       );
 
-      if (latestCvm && cvmExpiredDays) {
-        if (cvmExpiredDays > 15) {
-          redReasons.push(`CVM expiré depuis ${cvmExpiredDays} jours`);
-        } else {
-          yellowReasons.push(`CVM expiré depuis ${cvmExpiredDays} jours`);
-        }
-      }
+      if (cvmIsValid) {
+        // Pendant la validité du CVM, PEP et vignette ne sont pas obligatoires.
+      } else {
+        let applicablePep: PepRow | null = null;
 
-      if (!cvmIsValid) {
-        const vignetteExpiration = unite.pep_vignette_expiration ?? null;
+        if (latestCvm && cvmExpiration) {
+          const pepAfterCvmExpiration =
+            unitPeps.find((pep) =>
+              isDateAfter(
+                pep.date_pep || pep.date || pep.created_at,
+                cvmExpiration,
+              ),
+            ) ?? null;
 
-        if (!vignetteExpiration) {
-          redReasons.push("Vignette PEP manquante");
-        } else {
-          const vignetteExpiredDays = daysExpired(vignetteExpiration);
-          const vignetteDaysRemaining =
-            daysUntilExpiration(vignetteExpiration);
+          const pepStillValidAtCvmExpiration =
+            unitPeps.find((pep) =>
+              isPepValidOnDate(pep, cvmExpiration),
+            ) ?? null;
 
-          if (vignetteExpiredDays && vignetteExpiredDays > 30) {
+          applicablePep =
+            pepAfterCvmExpiration ?? pepStillValidAtCvmExpiration;
+
+          if (!applicablePep) {
             redReasons.push(
-              `Vignette PEP expirée depuis ${vignetteExpiredDays} jours`,
-            );
-          } else if (vignetteExpiredDays) {
-            yellowReasons.push(
-              `Vignette PEP expirée depuis ${vignetteExpiredDays} jours`,
-            );
-          } else if (
-            vignetteDaysRemaining != null &&
-            vignetteDaysRemaining <= 15
-          ) {
-            yellowReasons.push(
-              `Vignette PEP expire dans ${vignetteDaysRemaining} jours`,
+              "CVM expiré — nouveau CVM ou PEP valide requis",
             );
           }
+        } else {
+          applicablePep = unitPeps[0] ?? null;
+        }
+
+        if (applicablePep) {
+          const pepOverdueDays = getPepOverdueDays(applicablePep) ?? 0;
+
+          if (pepOverdueDays > 15) {
+            redReasons.push(
+              `PEP passé dû depuis ${pepOverdueDays} jours`,
+            );
+          } else if (pepOverdueDays > 0) {
+            yellowReasons.push(
+              `PEP passé dû depuis ${pepOverdueDays} jours`,
+            );
+          }
+
+          const vignetteExpiration = unite.pep_vignette_expiration ?? null;
+
+          if (!vignetteExpiration) {
+            redReasons.push("Vignette PEP manquante");
+          } else {
+            const vignetteExpiredDays = daysExpired(vignetteExpiration);
+            const vignetteDaysRemaining =
+              daysUntilExpiration(vignetteExpiration);
+
+            if (vignetteExpiredDays && vignetteExpiredDays > 30) {
+              redReasons.push(
+                `Vignette PEP expirée depuis ${vignetteExpiredDays} jours`,
+              );
+            } else if (vignetteExpiredDays) {
+              yellowReasons.push(
+                `Vignette PEP expirée depuis ${vignetteExpiredDays} jours`,
+              );
+            } else if (
+              vignetteDaysRemaining != null &&
+              vignetteDaysRemaining <= 15
+            ) {
+              yellowReasons.push(
+                `Vignette PEP expire dans ${vignetteDaysRemaining} jours`,
+              );
+            }
+          }
+        } else if (!latestCvm) {
+          redReasons.push("PEP manquant");
         }
       }
 
@@ -334,7 +435,7 @@ export default function DossiersVehiculesPage() {
     }
 
     return alerts;
-  }, [documents, unites, pepByUnite]);
+  }, [documents, unites, pepsByUnite]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
