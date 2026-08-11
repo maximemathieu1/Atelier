@@ -23,6 +23,7 @@ type UniteRow = {
   pep_vignette_no?: string | null;
   pep_vignette_expiration?: string | null;
   statut?: string | null;
+  date_mise_en_service?: string | null;
 };
 
 type PepArchiveRow = {
@@ -229,9 +230,15 @@ function buildRegulatoryCoverage(
 function getCoverageGap(
   peps: Array<{ date_pep?: string | null; date?: string | null; created_at?: string | null; date_prochain?: string | null }>,
   cvms: Array<{ date_expiration?: string | null }>,
+  miseEnServiceValue?: string | null,
 ) {
   const today = startOfToday();
-  const requiredStart = addMonths(today, -24);
+  const twentyFourMonthsAgo = addMonths(today, -24);
+  const miseEnService = parseLocalDate(miseEnServiceValue);
+  const requiredStart =
+    miseEnService && miseEnService.getTime() > twentyFourMonthsAgo.getTime()
+      ? miseEnService
+      : twentyFourMonthsAgo;
   const intervals = buildRegulatoryCoverage(peps, cvms).filter(
     (interval) =>
       interval.end.getTime() >= requiredStart.getTime() &&
@@ -624,8 +631,8 @@ export default function DossierVehiculeDetailPage() {
 
 
   const coverageGap = useMemo(
-    () => getCoverageGap(peps, cvmDocuments),
-    [peps, cvmDocuments],
+    () => getCoverageGap(peps, cvmDocuments, unite?.date_mise_en_service),
+    [peps, cvmDocuments, unite?.date_mise_en_service],
   );
   const recentBts = bts.slice(0, 5);
   const recentDocs = documents.slice(0, 5);
@@ -1111,6 +1118,7 @@ export default function DossierVehiculeDetailPage() {
           <Info label="NIV" value={nivLabel(unite)} />
           <Info label="Véhicule" value={[unite.marque, unite.modele, unite.annee].filter(Boolean).join(" ") || "—"} />
           <Info label="KM actuel" value={kmLabel(unite.km_actuel ?? unite.odometre)} />
+          <Info label="Mise en service" value={formatDate(unite.date_mise_en_service)} />
           <Info label="PEP" value={formatDate(applicablePep?.date_pep || applicablePep?.created_at)} badge={pepCurrentStatus} />
           <Info label="Vignette PEP" value={unite.pep_vignette_no || "—"} />
           <Info label="Expiration vignette PEP" value={formatDate(unite.pep_vignette_expiration)} badge={pepVignetteStatus} />
@@ -1155,11 +1163,16 @@ export default function DossierVehiculeDetailPage() {
             <div style={styles.summaryRows}>
               <SummaryWithBadge label="PEP" value={formatDate(applicablePep?.date_pep || applicablePep?.created_at)} badge={pepCurrentStatus} />
               <SummaryWithBadge
-                label="Historique 24 mois"
+                label="Historique requis"
                 value={
                   coverageGap
                     ? `Trou de couverture de ${coverageGap.days} jours`
-                    : "Couverture PEP / CVM complète"
+                    : unite.date_mise_en_service &&
+                      parseLocalDate(unite.date_mise_en_service) &&
+                      parseLocalDate(unite.date_mise_en_service)!.getTime() >
+                        addMonths(startOfToday(), -24).getTime()
+                      ? `Couverture complète depuis la mise en service (${formatDate(unite.date_mise_en_service)})`
+                      : "Couverture PEP / CVM complète sur 24 mois"
                 }
                 badge={
                   coverageGap

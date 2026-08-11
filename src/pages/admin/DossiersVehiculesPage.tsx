@@ -18,6 +18,7 @@ type UniteRow = {
   odometre?: number | string | null;
   statut?: string | null;
   pep_vignette_expiration?: string | null;
+  date_mise_en_service?: string | null;
 };
 
 type PepRow = {
@@ -127,9 +128,15 @@ function buildRegulatoryCoverage(
 function getCoverageGap(
   peps: Array<{ date_pep?: string | null; date?: string | null; created_at?: string | null; date_prochain?: string | null }>,
   cvms: Array<{ date_expiration?: string | null }>,
+  miseEnServiceValue?: string | null,
 ) {
   const today = startOfToday();
-  const requiredStart = addMonths(today, -24);
+  const twentyFourMonthsAgo = addMonths(today, -24);
+  const miseEnService = parseLocalDate(miseEnServiceValue);
+  const requiredStart =
+    miseEnService && miseEnService.getTime() > twentyFourMonthsAgo.getTime()
+      ? miseEnService
+      : twentyFourMonthsAgo;
   const intervals = buildRegulatoryCoverage(peps, cvms).filter(
     (interval) =>
       interval.end.getTime() >= requiredStart.getTime() &&
@@ -410,7 +417,7 @@ export default function DossiersVehiculesPage() {
           String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")),
         );
 
-      const coverageGap = getCoverageGap(unitPeps, cvmDocs);
+      const coverageGap = getCoverageGap(unitPeps, cvmDocs, unite.date_mise_en_service);
       if (coverageGap) {
         redReasons.push(
           `Historique PEP/CVM incomplet sur 24 mois — trou de ${coverageGap.days} jours`,
