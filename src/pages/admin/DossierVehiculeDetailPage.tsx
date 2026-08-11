@@ -878,6 +878,7 @@ export default function DossierVehiculeDetailPage() {
             : null,
           num_mecano: draft.mecano.trim() || null,
           archive_key: `import-${Date.now()}-${safeName}`,
+          html_complet: `<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>PEP importé</title></head><body><h1>PEP importé</h1><p>Document PDF importé dans le dossier véhicule.</p><p>Fichier : ${safeName}</p><p>Date du PEP : ${draft.datePep}</p></body></html>`,
           payload_json: {
             source: "imported",
             storage_bucket: BUCKET_NAME,
