@@ -82,6 +82,91 @@ function addDays(date: Date, days: number) {
   return next;
 }
 
+
+function addMonths(date: Date, months: number) {
+  const next = new Date(date);
+  next.setMonth(next.getMonth() + months);
+  return next;
+}
+
+function startOfToday() {
+  const today = new Date();
+  today.setHours(12, 0, 0, 0);
+  return today;
+}
+
+type CoverageInterval = {
+  start: Date;
+  end: Date;
+  source: "pep" | "cvm";
+};
+
+function buildRegulatoryCoverage(
+  peps: Array<{ date_pep?: string | null; date?: string | null; created_at?: string | null; date_prochain?: string | null }>,
+  cvms: Array<{ date_expiration?: string | null }>,
+) {
+  const intervals: CoverageInterval[] = [];
+
+  for (const pep of peps) {
+    const start = parseLocalDate(pep.date_pep || pep.date || pep.created_at);
+    if (!start) continue;
+    const explicitEnd = parseLocalDate(pep.date_prochain);
+    const end = explicitEnd ?? addDays(start, 90);
+    intervals.push({ start, end, source: "pep" });
+  }
+
+  for (const cvm of cvms) {
+    const end = parseLocalDate(cvm.date_expiration);
+    if (!end) continue;
+    intervals.push({ start: addMonths(end, -6), end, source: "cvm" });
+  }
+
+  return intervals.sort((a, b) => a.start.getTime() - b.start.getTime());
+}
+
+function getCoverageGap(
+  peps: Array<{ date_pep?: string | null; date?: string | null; created_at?: string | null; date_prochain?: string | null }>,
+  cvms: Array<{ date_expiration?: string | null }>,
+) {
+  const today = startOfToday();
+  const requiredStart = addMonths(today, -24);
+  const intervals = buildRegulatoryCoverage(peps, cvms).filter(
+    (interval) =>
+      interval.end.getTime() >= requiredStart.getTime() &&
+      interval.start.getTime() <= today.getTime(),
+  );
+
+  let coveredUntil = new Date(requiredStart);
+
+  for (const interval of intervals) {
+    if (interval.end.getTime() < coveredUntil.getTime()) continue;
+
+    if (interval.start.getTime() > coveredUntil.getTime()) {
+      return {
+        start: coveredUntil,
+        end: interval.start,
+        days: Math.ceil(
+          (interval.start.getTime() - coveredUntil.getTime()) / 86400000,
+        ),
+      };
+    }
+
+    if (interval.end.getTime() > coveredUntil.getTime()) {
+      coveredUntil = new Date(interval.end);
+    }
+
+    if (coveredUntil.getTime() >= today.getTime()) return null;
+  }
+
+  return coveredUntil.getTime() < today.getTime()
+    ? {
+        start: coveredUntil,
+        end: today,
+        days: Math.ceil((today.getTime() - coveredUntil.getTime()) / 86400000),
+      }
+    : null;
+}
+
 function daysExpired(value?: string | null) {
   const expiration = parseLocalDate(value);
   if (!expiration) return null;
@@ -226,7 +311,10 @@ export default function DossiersVehiculesPage() {
     for (const pep of peps) {
       const uniteId = pep.unite_id;
       if (!uniteId) continue;
-      if (!map.has(uniteId)) map.set(uniteId, pep);
+      const current = map.get(uniteId);
+      if (!current || (getPepDate(pep)?.getTime() ?? 0) > (getPepDate(current)?.getTime() ?? 0)) {
+        map.set(uniteId, pep);
+      }
     }
     return map;
   }, [peps]);
@@ -316,26 +404,18 @@ export default function DossiersVehiculesPage() {
         addAdministrativeExpiration(required.label, latest.date_expiration);
       }
 
-      for (let index = 0; index < unitPeps.length - 1; index += 1) {
-        const newerPep = unitPeps[index];
-        const olderPep = unitPeps[index + 1];
-        const newerDate = getPepDate(newerPep);
-        const olderDate = getPepDate(olderPep);
-        const gapDays = getDaysBetweenDates(olderDate, newerDate);
-
-        if (gapDays != null && gapDays > 90) {
-          yellowReasons.push(
-            `Écart de ${gapDays} jours entre deux PEP`,
-          );
-          break;
-        }
-      }
-
       const cvmDocs = unitDocs
         .filter((doc) => doc.type_document === "cvm")
         .sort((a, b) =>
           String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")),
         );
+
+      const coverageGap = getCoverageGap(unitPeps, cvmDocs);
+      if (coverageGap) {
+        redReasons.push(
+          `Historique PEP/CVM incomplet sur 24 mois — trou de ${coverageGap.days} jours`,
+        );
+      }
 
       const latestCvm = cvmDocs[0] ?? null;
       const cvmExpiration = latestCvm?.date_expiration ?? null;

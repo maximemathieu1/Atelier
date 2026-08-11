@@ -72,6 +72,14 @@ type ExpirationDefaultRow = {
   date_expiration: string | null;
 };
 
+type PepImportDraft = {
+  id: string;
+  file: File;
+  datePep: string;
+  odometre: string;
+  mecano: string;
+};
+
 const DOCUMENT_TYPES = [
   { value: "immatriculation", label: "Immatriculation" },
   { value: "assurance", label: "Assurance" },
@@ -176,6 +184,91 @@ function addDays(date: Date, days: number) {
   return next;
 }
 
+
+function addMonths(date: Date, months: number) {
+  const next = new Date(date);
+  next.setMonth(next.getMonth() + months);
+  return next;
+}
+
+function startOfToday() {
+  const today = new Date();
+  today.setHours(12, 0, 0, 0);
+  return today;
+}
+
+type CoverageInterval = {
+  start: Date;
+  end: Date;
+  source: "pep" | "cvm";
+};
+
+function buildRegulatoryCoverage(
+  peps: Array<{ date_pep?: string | null; date?: string | null; created_at?: string | null; date_prochain?: string | null }>,
+  cvms: Array<{ date_expiration?: string | null }>,
+) {
+  const intervals: CoverageInterval[] = [];
+
+  for (const pep of peps) {
+    const start = parseLocalDate(pep.date_pep || pep.date || pep.created_at);
+    if (!start) continue;
+    const explicitEnd = parseLocalDate(pep.date_prochain);
+    const end = explicitEnd ?? addDays(start, 90);
+    intervals.push({ start, end, source: "pep" });
+  }
+
+  for (const cvm of cvms) {
+    const end = parseLocalDate(cvm.date_expiration);
+    if (!end) continue;
+    intervals.push({ start: addMonths(end, -6), end, source: "cvm" });
+  }
+
+  return intervals.sort((a, b) => a.start.getTime() - b.start.getTime());
+}
+
+function getCoverageGap(
+  peps: Array<{ date_pep?: string | null; date?: string | null; created_at?: string | null; date_prochain?: string | null }>,
+  cvms: Array<{ date_expiration?: string | null }>,
+) {
+  const today = startOfToday();
+  const requiredStart = addMonths(today, -24);
+  const intervals = buildRegulatoryCoverage(peps, cvms).filter(
+    (interval) =>
+      interval.end.getTime() >= requiredStart.getTime() &&
+      interval.start.getTime() <= today.getTime(),
+  );
+
+  let coveredUntil = new Date(requiredStart);
+
+  for (const interval of intervals) {
+    if (interval.end.getTime() < coveredUntil.getTime()) continue;
+
+    if (interval.start.getTime() > coveredUntil.getTime()) {
+      return {
+        start: coveredUntil,
+        end: interval.start,
+        days: Math.ceil(
+          (interval.start.getTime() - coveredUntil.getTime()) / 86400000,
+        ),
+      };
+    }
+
+    if (interval.end.getTime() > coveredUntil.getTime()) {
+      coveredUntil = new Date(interval.end);
+    }
+
+    if (coveredUntil.getTime() >= today.getTime()) return null;
+  }
+
+  return coveredUntil.getTime() < today.getTime()
+    ? {
+        start: coveredUntil,
+        end: today,
+        days: Math.ceil((today.getTime() - coveredUntil.getTime()) / 86400000),
+      }
+    : null;
+}
+
 function getPepDueDate(pep?: PepArchiveRow | null) {
   if (!pep) return null;
 
@@ -230,6 +323,12 @@ function getPepOverdueDays(pep?: PepArchiveRow | null) {
 
   const diff = Math.floor((today.getTime() - due.getTime()) / 86400000);
   return diff > 0 ? diff : 0;
+}
+
+const PEP_RETENTION_MONTHS = 33;
+
+function pepRetentionCutoff() {
+  return addMonths(startOfToday(), -PEP_RETENTION_MONTHS);
 }
 
 function administrativeExpirationStatus(
@@ -363,12 +462,16 @@ export default function DossierVehiculeDetailPage() {
   const { uniteId } = useParams<{ uniteId: string }>();
   const navigate = useNavigate();
   const fileRef = useRef<HTMLInputElement | null>(null);
+  const pepImportFileRef = useRef<HTMLInputElement | null>(null);
 
   const [activeTab, setActiveTab] = useState<TabKey>("apercu");
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [savingVignette, setSavingVignette] = useState(false);
+  const [pepImportOpen, setPepImportOpen] = useState(false);
+  const [pepImporting, setPepImporting] = useState(false);
+  const [pepImportDrafts, setPepImportDrafts] = useState<PepImportDraft[]>([]);
 
   const [unite, setUnite] = useState<UniteRow | null>(null);
   const [peps, setPeps] = useState<PepArchiveRow[]>([]);
@@ -476,9 +579,35 @@ export default function DossierVehiculeDetailPage() {
       );
     }
 
-    if (pepRes.data) setPeps(pepRes.data as PepArchiveRow[]);
+    if (pepRes.data) {
+      setPeps(
+        [...(pepRes.data as PepArchiveRow[])].sort(
+          (a, b) => (getPepDate(b)?.getTime() ?? 0) - (getPepDate(a)?.getTime() ?? 0),
+        ),
+      );
+    }
     if (btRes.data) setBts(btRes.data as BtRow[]);
     if (docsRes.data) setDocuments(docsRes.data as VehicleDocumentRow[]);
+
+    // 33 mois = 24 mois requis + 6 mois de couverture CVM + 3 mois tampon PEP.
+    // Important : la purge se base sur date_pep et jamais sur created_at.
+    const cutoff = pepRetentionCutoff().toISOString().slice(0, 10);
+    const oldPepIds = ((pepRes.data ?? []) as PepArchiveRow[])
+      .filter((pep) => pep.date_pep && String(pep.date_pep).slice(0, 10) < cutoff)
+      .map((pep) => pep.id);
+
+    if (oldPepIds.length > 0) {
+      const { error: purgeError } = await supabase
+        .from("pep_archives")
+        .delete()
+        .in("id", oldPepIds);
+
+      if (!purgeError) {
+        setPeps((current) => current.filter((pep) => !oldPepIds.includes(pep.id)));
+      } else {
+        console.error("Erreur purge anciens PEP :", purgeError);
+      }
+    }
 
     setLoading(false);
   }
@@ -494,22 +623,10 @@ export default function DossierVehiculeDetailPage() {
   );
 
 
-  const pepGapWarning = useMemo(() => {
-    for (let index = 0; index < peps.length - 1; index += 1) {
-      const newerPep = peps[index];
-      const olderPep = peps[index + 1];
-      const gapDays = getDaysBetweenDates(
-        getPepDate(olderPep),
-        getPepDate(newerPep),
-      );
-
-      if (gapDays != null && gapDays > 90) {
-        return `Écart de ${gapDays} jours entre deux PEP`;
-      }
-    }
-
-    return "";
-  }, [peps]);
+  const coverageGap = useMemo(
+    () => getCoverageGap(peps, cvmDocuments),
+    [peps, cvmDocuments],
+  );
   const recentBts = bts.slice(0, 5);
   const recentDocs = documents.slice(0, 5);
 
@@ -564,6 +681,19 @@ export default function DossierVehiculeDetailPage() {
   }
 
   async function openPepArchive(pep: PepArchiveRow) {
+  const importedPath = importedPepStoragePath(pep);
+
+  if (importedPath) {
+    const { data: signed, error: signedError } = await supabase.storage
+      .from(BUCKET_NAME)
+      .createSignedUrl(importedPath, 60 * 10);
+
+    if (!signedError && signed?.signedUrl) {
+      window.open(signed.signedUrl, "_blank", "noopener,noreferrer");
+      return;
+    }
+  }
+
   const linkedBt = findLinkedBtForPep(pep, bts);
 
   if (linkedBt?.id) {
@@ -604,6 +734,149 @@ export default function DossierVehiculeDetailPage() {
 
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
+
+
+  function isImportedPep(pep: PepArchiveRow) {
+    const payload =
+      pep.payload_json && typeof pep.payload_json === "object"
+        ? (pep.payload_json as Record<string, unknown>)
+        : null;
+    return payload?.source === "imported";
+  }
+
+  function importedPepStoragePath(pep: PepArchiveRow) {
+    const payload =
+      pep.payload_json && typeof pep.payload_json === "object"
+        ? (pep.payload_json as Record<string, unknown>)
+        : null;
+    return typeof payload?.storage_path === "string"
+      ? payload.storage_path
+      : null;
+  }
+
+
+  function closePepImportModal() {
+    if (pepImporting) return;
+    setPepImportOpen(false);
+    setPepImportDrafts([]);
+    if (pepImportFileRef.current) pepImportFileRef.current.value = "";
+  }
+
+  function addPepImportFiles(files: FileList | File[]) {
+    const pdfs = Array.from(files).filter(
+      (file) =>
+        file.type === "application/pdf" ||
+        file.name.toLowerCase().endsWith(".pdf"),
+    );
+
+    if (pdfs.length === 0) {
+      alert("Sélectionne au moins un fichier PDF.");
+      return;
+    }
+
+    setPepImportDrafts((current) => [
+      ...current,
+      ...pdfs.map((file) => ({
+        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        file,
+        datePep: "",
+        odometre: "",
+        mecano: "",
+      })),
+    ]);
+  }
+
+  function updatePepImportDraft(
+    id: string,
+    patch: Partial<Omit<PepImportDraft, "id" | "file">>,
+  ) {
+    setPepImportDrafts((current) =>
+      current.map((draft) =>
+        draft.id === id ? { ...draft, ...patch } : draft,
+      ),
+    );
+  }
+
+  function removePepImportDraft(id: string) {
+    setPepImportDrafts((current) =>
+      current.filter((draft) => draft.id !== id),
+    );
+  }
+
+  async function importPepDrafts() {
+    if (!uniteId || pepImportDrafts.length === 0) return;
+
+    const invalid = pepImportDrafts.find((draft) => !draft.datePep);
+    if (invalid) {
+      alert(`La date du PEP est requise pour "${invalid.file.name}".`);
+      return;
+    }
+
+    setPepImporting(true);
+
+    try {
+      for (const draft of pepImportDrafts) {
+        const safeName = draft.file.name.replace(/[^\w.\-À-ÿ ]+/g, "_");
+        const storagePath = `${uniteId}/pep-imports/${Date.now()}-${safeName}`;
+
+        const uploadRes = await supabase.storage
+          .from(BUCKET_NAME)
+          .upload(storagePath, draft.file, {
+            cacheControl: "3600",
+            upsert: false,
+            contentType: draft.file.type || "application/pdf",
+          });
+
+        if (uploadRes.error) {
+          throw new Error(
+            `Téléversement ${draft.file.name} : ${uploadRes.error.message}`,
+          );
+        }
+
+        const pepDate = parseLocalDate(draft.datePep);
+        const dueDate = pepDate ? addDays(pepDate, 90) : null;
+        const dateProchain = dueDate
+          ? dueDate.toISOString().slice(0, 10)
+          : null;
+
+        const insertRes = await supabase.from("pep_archives").insert({
+          unite_id: uniteId,
+          unite: unitLabel(unite),
+          date_pep: draft.datePep,
+          date_prochain: dateProchain,
+          odometre: draft.odometre.trim()
+            ? Number(draft.odometre.replace(",", "."))
+            : null,
+          num_mecano: draft.mecano.trim() || null,
+          archive_key: `import-${Date.now()}-${safeName}`,
+          payload_json: {
+            source: "imported",
+            storage_bucket: BUCKET_NAME,
+            storage_path: storagePath,
+            file_name: draft.file.name,
+          },
+        });
+
+        if (insertRes.error) {
+          await supabase.storage.from(BUCKET_NAME).remove([storagePath]);
+          throw new Error(
+            `Sauvegarde ${draft.file.name} : ${insertRes.error.message}`,
+          );
+        }
+      }
+
+      await load();
+      setPepImportDrafts([]);
+      setPepImportOpen(false);
+      if (pepImportFileRef.current) pepImportFileRef.current.value = "";
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Erreur inconnue";
+      alert(`Erreur import PEP : ${message}`);
+    } finally {
+      setPepImporting(false);
+    }
+  }
 
   async function saveVignette() {
     if (!uniteId) return;
@@ -881,16 +1154,19 @@ export default function DossierVehiculeDetailPage() {
             <h2 style={styles.cardTitle}>Surveillance</h2>
             <div style={styles.summaryRows}>
               <SummaryWithBadge label="PEP" value={formatDate(applicablePep?.date_pep || applicablePep?.created_at)} badge={pepCurrentStatus} />
-              {pepGapWarning ? (
-                <SummaryWithBadge
-                  label="Continuité PEP"
-                  value={pepGapWarning}
-                  badge={{
-                    label: "À vérifier",
-                    style: styles.statusWarning,
-                  }}
-                />
-              ) : null}
+              <SummaryWithBadge
+                label="Historique 24 mois"
+                value={
+                  coverageGap
+                    ? `Trou de couverture de ${coverageGap.days} jours`
+                    : "Couverture PEP / CVM complète"
+                }
+                badge={
+                  coverageGap
+                    ? { label: "Non conforme", style: styles.statusDanger }
+                    : { label: "Complet", style: styles.statusOk }
+                }
+              />
               <SummaryWithBadge label="Assurance" value={formatDate(lastAssurance?.date_expiration)} badge={assuranceStatus} />
               <SummaryWithBadge label="Immatriculation" value={formatDate(lastImmatriculation?.date_expiration)} badge={immatStatus} />
               <SummaryWithBadge label="Vignette PEP" value={formatDate(unite.pep_vignette_expiration)} badge={pepVignetteStatus} />
@@ -963,13 +1239,23 @@ export default function DossierVehiculeDetailPage() {
 
           <div style={{ height: 22 }} />
 
-          <h2 style={styles.cardTitle}>PEP générés par le système</h2>
+          <div style={styles.sectionHeader}>
+            <h2 style={{ ...styles.cardTitle, margin: 0 }}>Historique PEP</h2>
+            <button
+              type="button"
+              style={styles.primaryBtn}
+              onClick={() => setPepImportOpen(true)}
+            >
+              Importer PEP
+            </button>
+          </div>
           <DataTable>
             <thead>
               <tr>
                 <Th>Date</Th>
                 <Th>KM</Th>
                 <Th>Mécano</Th>
+                <Th>Provenance</Th>
                 <Th>BT lié</Th>
                 <Th>Document</Th>
               </tr>
@@ -983,6 +1269,19 @@ export default function DossierVehiculeDetailPage() {
                     <Td>{formatDate(pep.date_pep || pep.created_at)}</Td>
                     <Td>{kmLabel(pep.odometre)}</Td>
                     <Td>{pep.num_mecano || "—"}</Td>
+                    <Td>
+                      <span
+                        style={{
+                          ...styles.statusBadge,
+                          ...(isImportedPep(pep)
+                            ? styles.statusNeutral
+                            : styles.statusOk),
+                          marginTop: 0,
+                        }}
+                      >
+                        {isImportedPep(pep) ? "Importé" : "Atelier"}
+                      </span>
+                    </Td>
                     <Td>
                       {linkedBt ? (
                         <button
@@ -1003,7 +1302,7 @@ export default function DossierVehiculeDetailPage() {
                     </Td>
                   </tr>
                 );
-              })}{peps.length === 0 && <EmptyRow colSpan={5} label="Aucun PEP archivé." />}
+              })}{peps.length === 0 && <EmptyRow colSpan={6} label="Aucun PEP archivé." />}
             </tbody>
           </DataTable>
 
@@ -1155,6 +1454,163 @@ export default function DossierVehiculeDetailPage() {
           />
         </div>
       )}
+
+      {pepImportOpen && (
+        <div
+          style={styles.modalOverlay}
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) closePepImportModal();
+          }}
+        >
+          <div style={styles.modalCard}>
+            <div style={styles.modalHeader}>
+              <div>
+                <h2 style={styles.modalTitle}>Importer PEP</h2>
+                <p style={styles.modalSubtitle}>
+                  Ajoute un ou plusieurs PEP papier ou réalisés à l’externe.
+                </p>
+              </div>
+              <button
+                type="button"
+                style={styles.modalCloseBtn}
+                onClick={closePepImportModal}
+                disabled={pepImporting}
+                aria-label="Fermer"
+              >
+                ×
+              </button>
+            </div>
+
+            <div style={styles.modalBody}>
+              <input
+                ref={pepImportFileRef}
+                type="file"
+                accept=".pdf,application/pdf"
+                multiple
+                style={{ display: "none" }}
+                onChange={(e) => {
+                  if (e.target.files) addPepImportFiles(e.target.files);
+                }}
+              />
+
+              <div
+                style={styles.pepImportDropZone}
+                onClick={() => pepImportFileRef.current?.click()}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  addPepImportFiles(e.dataTransfer.files);
+                }}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    pepImportFileRef.current?.click();
+                  }
+                }}
+              >
+                <strong>Sélectionner les PDF</strong>
+                <span style={styles.dropZoneHint}>
+                  ou glisser-déposer plusieurs PEP ici
+                </span>
+              </div>
+
+              {pepImportDrafts.length > 0 && (
+                <div style={styles.pepImportList}>
+                  {pepImportDrafts.map((draft) => (
+                    <div key={draft.id} style={styles.pepImportRow}>
+                      <div style={styles.pepImportFile}>
+                        <strong>{draft.file.name}</strong>
+                        <span style={styles.muted}>
+                          {fileSizeLabel(draft.file.size)}
+                        </span>
+                      </div>
+
+                      <div style={styles.pepImportField}>
+                        <label style={styles.fieldLabel}>Date du PEP *</label>
+                        <input
+                          type="date"
+                          value={draft.datePep}
+                          onChange={(e) =>
+                            updatePepImportDraft(draft.id, {
+                              datePep: e.target.value,
+                            })
+                          }
+                          style={styles.input}
+                        />
+                      </div>
+
+                      <div style={styles.pepImportFieldSmall}>
+                        <label style={styles.fieldLabel}>KM</label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={draft.odometre}
+                          onChange={(e) =>
+                            updatePepImportDraft(draft.id, {
+                              odometre: e.target.value,
+                            })
+                          }
+                          placeholder="Optionnel"
+                          style={styles.input}
+                        />
+                      </div>
+
+                      <div style={styles.pepImportField}>
+                        <label style={styles.fieldLabel}>Mécano / atelier</label>
+                        <input
+                          value={draft.mecano}
+                          onChange={(e) =>
+                            updatePepImportDraft(draft.id, {
+                              mecano: e.target.value,
+                            })
+                          }
+                          placeholder="Optionnel"
+                          style={styles.input}
+                        />
+                      </div>
+
+                      <button
+                        type="button"
+                        style={styles.removeImportBtn}
+                        onClick={() => removePepImportDraft(draft.id)}
+                        disabled={pepImporting}
+                      >
+                        Supprimer
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div style={styles.modalFooter}>
+              <button
+                type="button"
+                style={styles.secondaryBtn}
+                onClick={closePepImportModal}
+                disabled={pepImporting}
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                style={{
+                  ...styles.primaryBtn,
+                  ...(pepImportDrafts.length === 0 ? styles.disabledBtn : {}),
+                }}
+                onClick={importPepDrafts}
+                disabled={pepImporting || pepImportDrafts.length === 0}
+              >
+                {pepImporting
+                  ? "Importation…"
+                  : `Importer ${pepImportDrafts.length || ""} PEP`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
@@ -1612,6 +2068,143 @@ const styles: Record<string, React.CSSProperties> = {
     width: "100%",
     color: "#92400e",
     fontSize: 13,
+  },
+
+  sectionHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 12,
+    flexWrap: "wrap",
+  },
+  modalOverlay: {
+    position: "fixed",
+    inset: 0,
+    background: "rgba(15, 23, 42, 0.48)",
+    display: "grid",
+    placeItems: "center",
+    padding: 20,
+    zIndex: 1000,
+  },
+  modalCard: {
+    width: "min(1100px, 96vw)",
+    maxHeight: "90vh",
+    background: "#fff",
+    borderRadius: 16,
+    boxShadow: "0 24px 70px rgba(15, 23, 42, 0.28)",
+    overflow: "hidden",
+    display: "grid",
+    gridTemplateRows: "auto minmax(0, 1fr) auto",
+  },
+  modalHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 16,
+    padding: "18px 20px",
+    borderBottom: "1px solid #e5e7eb",
+  },
+  modalTitle: {
+    margin: 0,
+    fontSize: 21,
+    color: "#111827",
+  },
+  modalSubtitle: {
+    margin: "5px 0 0",
+    color: "#6b7280",
+    fontSize: 13,
+  },
+  modalCloseBtn: {
+    width: 36,
+    height: 36,
+    border: "none",
+    borderRadius: 9,
+    background: "#f3f4f6",
+    color: "#374151",
+    fontSize: 24,
+    lineHeight: 1,
+    cursor: "pointer",
+  },
+  modalBody: {
+    padding: 20,
+    overflowY: "auto",
+  },
+  pepImportDropZone: {
+    minHeight: 110,
+    border: "2px dashed #94a3b8",
+    borderRadius: 12,
+    background: "#f8fafc",
+    display: "grid",
+    placeItems: "center",
+    alignContent: "center",
+    gap: 5,
+    padding: 16,
+    cursor: "pointer",
+    textAlign: "center",
+    color: "#334155",
+  },
+  pepImportList: {
+    display: "grid",
+    gap: 10,
+    marginTop: 16,
+  },
+  pepImportRow: {
+    display: "grid",
+    gridTemplateColumns: "minmax(180px, 1.4fr) 160px 120px minmax(170px, 1fr) auto",
+    gap: 10,
+    alignItems: "end",
+    padding: 12,
+    border: "1px solid #e5e7eb",
+    borderRadius: 12,
+    background: "#fff",
+  },
+  pepImportFile: {
+    minWidth: 0,
+    display: "grid",
+    gap: 3,
+    overflowWrap: "anywhere",
+  },
+  pepImportField: {
+    display: "grid",
+    gap: 4,
+    minWidth: 0,
+  },
+  pepImportFieldSmall: {
+    display: "grid",
+    gap: 4,
+    minWidth: 0,
+  },
+  removeImportBtn: {
+    height: 38,
+    border: "1px solid #fecaca",
+    background: "#fff",
+    color: "#b91c1c",
+    borderRadius: 10,
+    padding: "0 12px",
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+  modalFooter: {
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: 10,
+    padding: "14px 20px",
+    borderTop: "1px solid #e5e7eb",
+    background: "#f9fafb",
+  },
+  secondaryBtn: {
+    border: "1px solid #d1d5db",
+    background: "#fff",
+    color: "#374151",
+    borderRadius: 10,
+    padding: "9px 16px",
+    height: 38,
+    cursor: "pointer",
+  },
+  disabledBtn: {
+    opacity: 0.5,
+    cursor: "not-allowed",
   },
   statusBadge: {
     display: "inline-flex",
