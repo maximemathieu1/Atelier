@@ -227,6 +227,12 @@ export default function BonTravailOperations(props: Props) {
   const [discussionReplies, setDiscussionReplies] = useState<Record<string, string>>({});
   const [discussionSending, setDiscussionSending] = useState(false);
 
+  const [finalDiscussionTask, setFinalDiscussionTask] = useState<NoteMeca | null>(null);
+  const [finalDiscussionMessages, setFinalDiscussionMessages] = useState<AutorisationMessage[]>([]);
+  const [finalDiscussionReply, setFinalDiscussionReply] = useState("");
+  const [finalDiscussionLoading, setFinalDiscussionLoading] = useState(false);
+  const [finalDiscussionSending, setFinalDiscussionSending] = useState(false);
+
   const initialUniteNo = String(props.uniteNo || "").trim();
   const initialVehicleReadyMessage = initialUniteNo
     ? `Groupe Breton: votre véhicule/unité ${initialUniteNo} est prêt. Vous pouvez passer le récupérer.`
@@ -1148,6 +1154,133 @@ Réponse manquante : ${missingReply.titre}`,
     }
   }
 
+
+  async function openFinalTaskDiscussion(task: NoteMeca) {
+    const authInfo = autorisationMap[task.id];
+    const authTaskId = String(authInfo?.autorisation_tache_id || "").trim();
+
+    if (!authTaskId) {
+      alert("Aucune autorisation client liée à cette tâche.");
+      return;
+    }
+
+    setFinalDiscussionTask(task);
+    setFinalDiscussionReply("");
+    setFinalDiscussionMessages([]);
+    setFinalDiscussionLoading(true);
+
+    try {
+      const { data, error } = await supabase
+        .from("bt_autorisation_messages")
+        .select(
+          "id,autorisation_id,autorisation_tache_id,bt_id,unite_note_id,auteur_type,auteur_nom,message,created_at",
+        )
+        .eq("autorisation_tache_id", authTaskId)
+        .order("created_at", { ascending: true });
+
+      if (error) throw error;
+      setFinalDiscussionMessages((data || []) as AutorisationMessage[]);
+    } catch (err: any) {
+      console.error(err);
+      alert("Erreur chargement discussion: " + (err?.message || String(err)));
+    } finally {
+      setFinalDiscussionLoading(false);
+    }
+  }
+
+  async function sendFinalTaskDiscussionReply() {
+    if (!finalDiscussionTask) return;
+
+    const message = finalDiscussionReply.trim();
+    if (!message) {
+      alert("Écris une réponse avant l’envoi.");
+      return;
+    }
+
+    const authInfo = autorisationMap[finalDiscussionTask.id];
+    const authTaskId = String(authInfo?.autorisation_tache_id || "").trim();
+
+    if (!authTaskId) {
+      alert("Aucune autorisation client liée à cette tâche.");
+      return;
+    }
+
+    setFinalDiscussionSending(true);
+
+    try {
+      const { data: taskAuth, error: taskErr } = await supabase
+        .from("bt_autorisation_taches")
+        .select("id,autorisation_id,titre,decision")
+        .eq("id", authTaskId)
+        .maybeSingle();
+
+      if (taskErr) throw taskErr;
+      if (!taskAuth?.autorisation_id) {
+        throw new Error("Autorisation introuvable.");
+      }
+
+      const { data: auth, error: authErr } = await supabase
+        .from("bt_autorisations")
+        .select("id,token,client_email,client_nom")
+        .eq("id", taskAuth.autorisation_id)
+        .maybeSingle();
+
+      if (authErr) throw authErr;
+      if (!auth) throw new Error("Demande d’autorisation introuvable.");
+
+      const clientEmail = String(auth.client_email || "").trim();
+      if (!clientEmail) {
+        throw new Error("Aucun courriel client associé à cette demande.");
+      }
+
+      const { error: insertErr } = await supabase
+        .from("bt_autorisation_messages")
+        .insert({
+          autorisation_id: taskAuth.autorisation_id,
+          autorisation_tache_id: authTaskId,
+          bt_id: btId,
+          unite_note_id: finalDiscussionTask.id,
+          auteur_type: "atelier",
+          auteur_nom: "Atelier",
+          message,
+        });
+
+      if (insertErr) throw insertErr;
+
+      const lienAutorisation = `${window.location.origin}/autorisation-bt/${auth.token}`;
+
+      const { error: emailErr } = await supabase.functions.invoke(
+        "bt-autorisation-email",
+        {
+          body: {
+            type: "send_commentaire_atelier",
+            bt_id: btId,
+            autorisation_id: taskAuth.autorisation_id,
+            client_email: clientEmail,
+            client_nom: auth.client_nom || null,
+            lien_autorisation: lienAutorisation,
+            tache_titre: finalDiscussionTask.titre,
+            decision: taskAuth.decision,
+            message,
+          },
+        },
+      );
+
+      if (emailErr) throw emailErr;
+
+      setFinalDiscussionReply("");
+      await openFinalTaskDiscussion(finalDiscussionTask);
+      void onRefresh?.();
+
+      alert("Réponse envoyée au client. La décision demeure inchangée.");
+    } catch (err: any) {
+      console.error(err);
+      alert("Erreur envoi réponse: " + (err?.message || String(err)));
+    } finally {
+      setFinalDiscussionSending(false);
+    }
+  }
+
   return (
     <>
       <div style={styles.card}>
@@ -1322,8 +1455,7 @@ Réponse manquante : ${missingReply.titre}`,
                           </div>
                         )}
 
-                        {(isADiscuterClient ||
-                          (discussionCountByTask[t.id] || 0) > 0) && (
+                        {isADiscuterClient && (
                           <button
                             type="button"
                             style={styles.discussionButton}
@@ -1335,6 +1467,22 @@ Réponse manquante : ${missingReply.titre}`,
                               : ""}
                           </button>
                         )}
+
+                        {(decision === "autorise" || decision === "refuse") &&
+                          (discussionCountByTask[t.id] || 0) > 0 && (
+                            <button
+                              type="button"
+                              style={{
+                                ...styles.discussionButton,
+                                background: "#f8fafc",
+                                border: "1px solid #cbd5e1",
+                                color: "#475569",
+                              }}
+                              onClick={() => void openFinalTaskDiscussion(t)}
+                            >
+                              💬 Répondre au commentaire
+                            </button>
+                          )}
 
                         {noteClient &&
                           (discussionCountByTask[t.id] || 0) === 0 && (
@@ -2241,6 +2389,118 @@ Réponse manquante : ${missingReply.titre}`,
                 Annuler
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {finalDiscussionTask && (
+        <div
+          style={styles.modalBackdrop}
+          onClick={() => {
+            if (!finalDiscussionSending) setFinalDiscussionTask(null);
+          }}
+        >
+          <div
+            style={styles.modalCardLarge}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              style={styles.modalClose}
+              onClick={() => setFinalDiscussionTask(null)}
+              disabled={finalDiscussionSending}
+            >
+              ×
+            </button>
+
+            <div style={styles.modalTitle}>Répondre au commentaire</div>
+            <div style={styles.modalText}>
+              {finalDiscussionTask.titre}
+            </div>
+
+            <div style={styles.helpBox}>
+              La décision client est finale et ne sera pas modifiée par cette réponse.
+            </div>
+
+            <div style={styles.discussionList}>
+              {finalDiscussionLoading ? (
+                <div style={styles.helpBox}>Chargement de la discussion...</div>
+              ) : finalDiscussionMessages.length === 0 ? (
+                <div style={styles.helpBox}>Aucun message enregistré.</div>
+              ) : (
+                finalDiscussionMessages.map((m) => {
+                  const isClient = m.auteur_type === "client";
+
+                  return (
+                    <div
+                      key={m.id}
+                      style={{
+                        display: "flex",
+                        justifyContent: isClient ? "flex-end" : "flex-start",
+                      }}
+                    >
+                      <div
+                        style={
+                          isClient
+                            ? styles.discussionClient
+                            : styles.discussionAtelier
+                        }
+                      >
+                        <div style={styles.discussionMeta}>
+                          {isClient
+                            ? m.auteur_nom || "Client"
+                            : m.auteur_nom || "Atelier"}{" "}
+                          · {fmtDateTimeNoSeconds(m.created_at)}
+                        </div>
+                        <div style={styles.discussionText}>{m.message}</div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {!isReadOnly && (
+              <>
+                <textarea
+                  style={styles.textarea}
+                  value={finalDiscussionReply}
+                  onChange={(e) => setFinalDiscussionReply(e.target.value)}
+                  placeholder="Écrire une réponse au client..."
+                  disabled={finalDiscussionSending}
+                />
+
+                <div
+                  style={{
+                    ...styles.row,
+                    justifyContent: "flex-end",
+                    marginTop: 10,
+                  }}
+                >
+                  <button
+                    type="button"
+                    style={styles.btn}
+                    onClick={() => setFinalDiscussionTask(null)}
+                    disabled={finalDiscussionSending}
+                  >
+                    Fermer
+                  </button>
+
+                  <button
+                    type="button"
+                    style={styles.btnPrimary}
+                    onClick={() => void sendFinalTaskDiscussionReply()}
+                    disabled={
+                      finalDiscussionSending || !finalDiscussionReply.trim()
+                    }
+                  >
+                    {finalDiscussionSending
+                      ? "Envoi..."
+                      : "Envoyer la réponse"}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
