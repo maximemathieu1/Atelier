@@ -27,6 +27,18 @@ type AutorisationTache = {
   note_client: string | null;
 };
 
+type AutorisationMessage = {
+  id: string;
+  autorisation_id: string;
+  autorisation_tache_id: string;
+  bt_id: string;
+  unite_note_id: string | null;
+  auteur_type: "client" | "atelier";
+  auteur_nom: string | null;
+  message: string;
+  created_at: string;
+};
+
 type Photo = {
   id: string;
   bt_id: string;
@@ -40,6 +52,26 @@ type Photo = {
 
 const BUCKET = "bt-photos";
 
+function fmtDateTime(value: string | null | undefined) {
+  if (!value) return "—";
+
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+
+  return d.toLocaleString("fr-CA", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
+function isDecisionClient(value: string | null | undefined): value is DecisionClient {
+  return value === "autorise" || value === "refuse" || value === "a_discuter";
+}
+
 export default function AutorisationBtClientPage() {
   const { token } = useParams();
 
@@ -47,21 +79,50 @@ export default function AutorisationBtClientPage() {
   const [saving, setSaving] = useState(false);
   const [autorisation, setAutorisation] = useState<Autorisation | null>(null);
   const [taches, setTaches] = useState<AutorisationTache[]>([]);
+  const [messages, setMessages] = useState<AutorisationMessage[]>([]);
   const [photosByTask, setPhotosByTask] = useState<Record<string, Photo[]>>({});
   const [activePhoto, setActivePhoto] = useState<Photo | null>(null);
+  const [draftNotes, setDraftNotes] = useState<Record<string, string>>({});
+  const [initialDecisions, setInitialDecisions] = useState<Record<string, string | null>>({});
   const [error, setError] = useState<string | null>(null);
 
   const allAnswered = useMemo(
     () =>
       taches.length > 0 &&
-      taches.every(
-        (t) =>
-          t.decision === "autorise" ||
-          t.decision === "refuse" ||
-          t.decision === "a_discuter"
-      ),
-    [taches]
+      taches.every((t) => isDecisionClient(t.decision)),
+    [taches],
   );
+
+  const messagesByTask = useMemo(() => {
+    const map: Record<string, AutorisationMessage[]> = {};
+
+    for (const message of messages) {
+      const taskId = String(message.autorisation_tache_id || "").trim();
+      if (!taskId) continue;
+
+      if (!map[taskId]) map[taskId] = [];
+      map[taskId].push(message);
+    }
+
+    for (const taskId of Object.keys(map)) {
+      map[taskId].sort(
+        (a, b) =>
+          new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+      );
+    }
+
+    return map;
+  }, [messages]);
+
+  const hasPendingChanges = useMemo(() => {
+    return taches.some((t) => {
+      const initialDecision = initialDecisions[t.id] ?? null;
+      const decisionChanged = (t.decision ?? null) !== initialDecision;
+      const hasNewMessage = Boolean(draftNotes[t.id]?.trim());
+
+      return decisionChanged || hasNewMessage;
+    });
+  }, [taches, initialDecisions, draftNotes]);
 
   async function loadData() {
     if (!token) return;
@@ -95,6 +156,24 @@ export default function AutorisationBtClientPage() {
       const loadedTasks = (taskRows || []) as AutorisationTache[];
       setTaches(loadedTasks);
 
+      setInitialDecisions(
+        Object.fromEntries(
+          loadedTasks.map((task) => [task.id, task.decision ?? null]),
+        ),
+      );
+
+      setDraftNotes({});
+
+      const { data: messageRows, error: messageErr } = await supabase.rpc(
+        "get_bt_autorisation_messages",
+        {
+          p_token: token,
+        },
+      );
+
+      if (messageErr) throw messageErr;
+      setMessages((messageRows || []) as AutorisationMessage[]);
+
       const noteIds = loadedTasks.map((t) => t.unite_note_id).filter(Boolean);
 
       if (noteIds.length > 0) {
@@ -114,13 +193,18 @@ export default function AutorisationBtClientPage() {
               .createSignedUrl(p.storage_path, 60 * 60);
 
             return { ...p, url: signed?.signedUrl || "" };
-          })
+          }),
         );
 
         const map: Record<string, Photo[]> = {};
+
         for (const p of withUrls) {
           if (!p.unite_note_id) continue;
-          if (!map[p.unite_note_id]) map[p.unite_note_id] = [];
+
+          if (!map[p.unite_note_id]) {
+            map[p.unite_note_id] = [];
+          }
+
           map[p.unite_note_id].push(p);
         }
 
@@ -136,36 +220,57 @@ export default function AutorisationBtClientPage() {
   }
 
   useEffect(() => {
-    loadData();
+    void loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   function setDecision(tacheId: string, decision: DecisionClient) {
     setTaches((rows) =>
-      rows.map((t) => (t.id === tacheId ? { ...t, decision } : t))
+      rows.map((t) => (t.id === tacheId ? { ...t, decision } : t)),
     );
+
+    if (decision !== "a_discuter") {
+      setDraftNotes((prev) => ({
+        ...prev,
+        [tacheId]: "",
+      }));
+    }
   }
 
-  function setNote(tacheId: string, note: string) {
-    setTaches((rows) =>
-      rows.map((t) => (t.id === tacheId ? { ...t, note_client: note } : t))
-    );
+  function setDraftNote(tacheId: string, note: string) {
+    setDraftNotes((prev) => ({
+      ...prev,
+      [tacheId]: note,
+    }));
   }
 
   async function submit() {
-    if (!autorisation) return;
+    if (!autorisation || !token) return;
 
     if (!allAnswered) {
       alert("Veuillez choisir Autoriser, Refuser ou À discuter pour chaque tâche.");
       return;
     }
 
-    const missingDiscussNote = taches.some(
-      (t) => t.decision === "a_discuter" && !t.note_client?.trim()
-    );
+    const missingDiscussNote = taches.some((t) => {
+      if (t.decision !== "a_discuter") return false;
+
+      const initialDecision = initialDecisions[t.id] ?? null;
+      const newMessage = String(draftNotes[t.id] || "").trim();
+
+      // Si le client vient de choisir À discuter, un commentaire est obligatoire.
+      // Si la tâche était déjà À discuter, il peut soit ajouter un nouveau commentaire,
+      // soit finalement choisir Autoriser / Refuser.
+      return initialDecision !== "a_discuter" && !newMessage;
+    });
 
     if (missingDiscussNote) {
-      alert("Veuillez ajouter une note pour chaque élément marqué À discuter.");
+      alert("Veuillez ajouter un commentaire pour chaque nouvelle tâche marquée À discuter.");
+      return;
+    }
+
+    if (!hasPendingChanges) {
+      alert("Aucune nouvelle réponse à transmettre.");
       return;
     }
 
@@ -173,15 +278,38 @@ export default function AutorisationBtClientPage() {
 
     try {
       for (const t of taches) {
+        const newMessage = String(draftNotes[t.id] || "").trim();
+
+        const payload: Record<string, any> = {
+          decision: t.decision,
+        };
+
+        // On conserve note_client pour compatibilité avec l'affichage Atelier existant.
+        // Lorsqu'un nouveau commentaire client est envoyé, il devient la dernière note.
+        if (t.decision === "a_discuter" && newMessage) {
+          payload.note_client = newMessage;
+        }
+
         const { error } = await supabase
           .from("bt_autorisation_taches")
-          .update({
-            decision: t.decision,
-            note_client: t.note_client?.trim() || null,
-          })
-          .eq("id", t.id);
+          .update(payload)
+          .eq("id", t.id)
+          .eq("autorisation_id", autorisation.id);
 
         if (error) throw error;
+
+        if (t.decision === "a_discuter" && newMessage) {
+          const { error: messageErr } = await supabase.rpc(
+            "add_bt_autorisation_client_message",
+            {
+              p_token: token,
+              p_autorisation_tache_id: t.id,
+              p_message: newMessage,
+            },
+          );
+
+          if (messageErr) throw messageErr;
+        }
       }
 
       const hasRefus = taches.some((t) => t.decision === "refuse");
@@ -193,8 +321,8 @@ export default function AutorisationBtClientPage() {
           statut: hasDiscussion
             ? "a_discuter"
             : hasRefus
-            ? "reponse_partielle"
-            : "autorisee",
+              ? "reponse_partielle"
+              : "autorisee",
           submitted_at: new Date().toISOString(),
         })
         .eq("id", autorisation.id);
@@ -203,16 +331,23 @@ export default function AutorisationBtClientPage() {
 
       const lienAutorisation = `${window.location.origin}/autorisation-bt/${autorisation.token}`;
 
-      await supabase.functions.invoke("bt-autorisation-email", {
-        body: {
-          type: "send_confirmation",
-          bt_id: autorisation.bt_id,
-          autorisation_id: autorisation.id,
-          client_email: autorisation.client_email,
-          client_nom: autorisation.client_nom,
-          lien_autorisation: lienAutorisation,
+      const { error: emailErr } = await supabase.functions.invoke(
+        "bt-autorisation-email",
+        {
+          body: {
+            type: "send_confirmation",
+            bt_id: autorisation.bt_id,
+            autorisation_id: autorisation.id,
+            client_email: autorisation.client_email,
+            client_nom: autorisation.client_nom,
+            lien_autorisation: lienAutorisation,
+          },
         },
-      });
+      );
+
+      if (emailErr) {
+        console.error("Erreur courriel confirmation:", emailErr);
+      }
 
       await loadData();
       alert("Votre réponse a bien été transmise. Merci.");
@@ -228,10 +363,14 @@ export default function AutorisationBtClientPage() {
       minHeight: "100vh",
       background: "#f3f4f6",
       padding: 16,
-      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif',
+      fontFamily:
+        '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif',
       color: "#0f172a",
     },
-    shell: { maxWidth: 860, margin: "0 auto" },
+    shell: {
+      maxWidth: 860,
+      margin: "0 auto",
+    },
     card: {
       background: "#fff",
       borderRadius: 18,
@@ -239,18 +378,32 @@ export default function AutorisationBtClientPage() {
       boxShadow: "0 18px 60px rgba(15,23,42,.10)",
       overflow: "hidden",
     },
-    header: { padding: 20, borderBottom: "1px solid rgba(0,0,0,.08)" },
-    title: { margin: 0, fontSize: 24, fontWeight: 950 },
-    subtitle: { marginTop: 6, color: "rgba(15,23,42,.65)", fontWeight: 700 },
-    body: { padding: 18 },
+    header: {
+      padding: 20,
+      borderBottom: "1px solid rgba(0,0,0,.08)",
+    },
+    title: {
+      margin: 0,
+      fontSize: 24,
+      fontWeight: 950,
+    },
+    subtitle: {
+      marginTop: 6,
+      color: "rgba(15,23,42,.65)",
+      fontWeight: 700,
+    },
+    body: {
+      padding: 18,
+    },
     alertDone: {
       padding: 14,
       borderRadius: 14,
-      background: "#ecfdf5",
-      border: "1px solid #a7f3d0",
-      color: "#065f46",
-      fontWeight: 900,
+      background: "#eff6ff",
+      border: "1px solid #bfdbfe",
+      color: "#1d4ed8",
+      fontWeight: 800,
       marginBottom: 14,
+      lineHeight: 1.45,
     },
     message: {
       padding: 14,
@@ -290,6 +443,65 @@ export default function AutorisationBtClientPage() {
       cursor: "pointer",
       flex: "0 0 auto",
       background: "#f1f5f9",
+    },
+    discussionWrap: {
+      marginTop: 12,
+      padding: 12,
+      borderRadius: 14,
+      background: "#f8fafc",
+      border: "1px solid rgba(0,0,0,.08)",
+    },
+    discussionTitle: {
+      fontSize: 13,
+      fontWeight: 950,
+      marginBottom: 10,
+      color: "#334155",
+      textTransform: "uppercase",
+      letterSpacing: ".02em",
+    },
+    discussionEmpty: {
+      color: "#64748b",
+      fontSize: 13,
+      fontWeight: 700,
+    },
+    messageRow: {
+      display: "flex",
+      marginBottom: 10,
+    },
+    messageClient: {
+      maxWidth: "88%",
+      marginLeft: "auto",
+      padding: "10px 12px",
+      borderRadius: "14px 14px 4px 14px",
+      background: "#dbeafe",
+      border: "1px solid #bfdbfe",
+    },
+    messageAtelier: {
+      maxWidth: "88%",
+      marginRight: "auto",
+      padding: "10px 12px",
+      borderRadius: "14px 14px 14px 4px",
+      background: "#fff",
+      border: "1px solid #dbe1e8",
+    },
+    messageMeta: {
+      fontSize: 11,
+      fontWeight: 900,
+      color: "#64748b",
+      marginBottom: 4,
+    },
+    messageText: {
+      fontSize: 14,
+      fontWeight: 650,
+      color: "#1e293b",
+      whiteSpace: "pre-wrap",
+      wordBreak: "break-word",
+    },
+    decisionCurrent: {
+      marginTop: 12,
+      fontSize: 13,
+      fontWeight: 900,
+      color: "#475569",
     },
     actions: {
       display: "grid",
@@ -351,53 +563,23 @@ export default function AutorisationBtClientPage() {
       fontWeight: 950,
       cursor: "pointer",
     },
-    decisionBoxAutorise: {
-      marginTop: 10,
-      padding: "10px 12px",
-      borderRadius: 12,
-      fontWeight: 950,
-      background: "#dcfce7",
-      color: "#166534",
-      border: "1px solid #86efac",
-    },
-    decisionBoxRefuse: {
-      marginTop: 10,
-      padding: "10px 12px",
-      borderRadius: 12,
-      fontWeight: 950,
-      background: "#fee2e2",
-      color: "#991b1b",
-      border: "1px solid #fecaca",
-    },
-    decisionBoxDiscuss: {
-      marginTop: 10,
-      padding: "10px 12px",
-      borderRadius: 12,
-      fontWeight: 950,
-      background: "#dbeafe",
-      color: "#1d4ed8",
-      border: "1px solid #93c5fd",
-    },
-    noteBox: {
-      marginTop: 10,
-      padding: 10,
-      borderRadius: 12,
-      background: "#f8fafc",
-      border: "1px solid rgba(0,0,0,.08)",
+    textareaLabel: {
+      marginTop: 12,
+      fontSize: 13,
+      fontWeight: 900,
       color: "#334155",
-      fontWeight: 700,
-      whiteSpace: "pre-wrap",
     },
     textarea: {
       width: "100%",
-      minHeight: 70,
-      marginTop: 10,
+      minHeight: 82,
+      marginTop: 6,
       borderRadius: 12,
       border: "1px solid rgba(0,0,0,.14)",
       padding: 10,
       boxSizing: "border-box",
       fontFamily: "inherit",
       resize: "vertical",
+      background: "#fff",
     },
     footer: {
       position: "sticky",
@@ -460,7 +642,9 @@ export default function AutorisationBtClientPage() {
     },
   };
 
-  if (loading) return <div style={styles.page}>Chargement...</div>;
+  if (loading) {
+    return <div style={styles.page}>Chargement...</div>;
+  }
 
   if (error || !autorisation) {
     return (
@@ -476,38 +660,53 @@ export default function AutorisationBtClientPage() {
     );
   }
 
-  const submitted = Boolean(autorisation.submitted_at);
+  const hasPreviousSubmission = Boolean(autorisation.submitted_at);
 
   return (
     <div style={styles.page}>
       <div style={styles.shell}>
         <div style={styles.card}>
           <div style={styles.header}>
-            <h1 style={styles.title}>
-              {submitted ? "Confirmation de réponse" : "Autorisation de travaux"}
-            </h1>
+            <h1 style={styles.title}>Autorisation de travaux</h1>
 
             <div style={styles.subtitle}>
-              {submitted
-                ? "Voici le détail des réponses transmises."
-                : "Veuillez autoriser, refuser ou indiquer les tâches à discuter."}
+              Autorisez, refusez ou discutez chaque tâche. Vous pouvez revenir sur ce lien
+              lorsqu'une nouvelle réponse de l'atelier vous est envoyée.
             </div>
           </div>
 
           <div style={styles.body}>
-            {submitted && <div style={styles.alertDone}>Réponse déjà transmise. Merci.</div>}
+            {hasPreviousSubmission && (
+              <div style={styles.alertDone}>
+                Une réponse a déjà été transmise pour cette demande. Vous pouvez maintenant
+                consulter les échanges et modifier votre décision au besoin.
+              </div>
+            )}
 
-            {autorisation.message && <div style={styles.message}>{autorisation.message}</div>}
+            {autorisation.message && (
+              <div style={styles.message}>{autorisation.message}</div>
+            )}
 
             {taches.map((t) => {
               const photos = photosByTask[t.unite_note_id] || [];
+              const taskMessages = messagesByTask[t.id] || [];
+              const draft = draftNotes[t.id] || "";
+              const initialDecision = initialDecisions[t.id] ?? null;
+              const isNewDiscussionChoice =
+                t.decision === "a_discuter" && initialDecision !== "a_discuter";
 
               return (
                 <div key={t.id} style={styles.task}>
                   <div style={styles.taskTitle}>{t.titre}</div>
 
                   {t.details && (
-                    <div style={{ color: "#64748b", fontWeight: 700, marginBottom: 8 }}>
+                    <div
+                      style={{
+                        color: "#64748b",
+                        fontWeight: 700,
+                        marginBottom: 8,
+                      }}
+                    >
                       {t.details}
                     </div>
                   )}
@@ -526,89 +725,139 @@ export default function AutorisationBtClientPage() {
                     </div>
                   )}
 
-                  {submitted ? (
-                    <>
-                      {t.decision === "autorise" && (
-                        <div style={styles.decisionBoxAutorise}>Travail autorisé</div>
-                      )}
+                  {taskMessages.length > 0 && (
+                    <div style={styles.discussionWrap}>
+                      <div style={styles.discussionTitle}>
+                        Discussion ({taskMessages.length})
+                      </div>
 
-                      {t.decision === "refuse" && (
-                        <div style={styles.decisionBoxRefuse}>Travail refusé</div>
-                      )}
+                      {taskMessages.map((m) => {
+                        const isClient = m.auteur_type === "client";
 
-                      {t.decision === "a_discuter" && (
-                        <div style={styles.decisionBoxDiscuss}>À discuter</div>
-                      )}
-                    </>
-                  ) : (
-                    <div style={styles.actions}>
-                      <button
-                        type="button"
-                        style={t.decision === "autorise" ? styles.yesActive : styles.yes}
-                        onClick={() => setDecision(t.id, "autorise")}
-                      >
-                        Autoriser
-                      </button>
+                        return (
+                          <div key={m.id} style={styles.messageRow}>
+                            <div
+                              style={
+                                isClient
+                                  ? styles.messageClient
+                                  : styles.messageAtelier
+                              }
+                            >
+                              <div style={styles.messageMeta}>
+                                {isClient
+                                  ? m.auteur_nom || "Client"
+                                  : m.auteur_nom || "Atelier"}{" "}
+                                · {fmtDateTime(m.created_at)}
+                              </div>
 
-                      <button
-                        type="button"
-                        style={t.decision === "refuse" ? styles.noActive : styles.no}
-                        onClick={() => setDecision(t.id, "refuse")}
-                      >
-                        Refuser
-                      </button>
-
-                      <button
-                        type="button"
-                        style={
-                          t.decision === "a_discuter"
-                            ? styles.discussActive
-                            : styles.discuss
-                        }
-                        onClick={() => setDecision(t.id, "a_discuter")}
-                      >
-                        À discuter
-                      </button>
+                              <div style={styles.messageText}>{m.message}</div>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
 
-                  {submitted ? (
-                    t.note_client ? <div style={styles.noteBox}>{t.note_client}</div> : null
-                  ) : (
-                    <textarea
-                      style={styles.textarea}
-                      placeholder={
-                        t.decision === "a_discuter"
-                          ? "Note obligatoire pour préciser ce qui est à discuter"
-                          : "Note optionnelle"
+                  {taskMessages.length === 0 && t.decision === "a_discuter" && (
+                    <div style={styles.discussionWrap}>
+                      <div style={styles.discussionTitle}>Discussion</div>
+                      <div style={styles.discussionEmpty}>
+                        Aucun échange enregistré pour cette tâche.
+                      </div>
+                    </div>
+                  )}
+
+                  <div style={styles.decisionCurrent}>
+                    Votre décision :
+                  </div>
+
+                  <div style={styles.actions}>
+                    <button
+                      type="button"
+                      style={
+                        t.decision === "autorise"
+                          ? styles.yesActive
+                          : styles.yes
                       }
-                      value={t.note_client || ""}
-                      onChange={(e) => setNote(t.id, e.target.value)}
-                    />
+                      onClick={() => setDecision(t.id, "autorise")}
+                      disabled={saving}
+                    >
+                      Autoriser
+                    </button>
+
+                    <button
+                      type="button"
+                      style={
+                        t.decision === "refuse"
+                          ? styles.noActive
+                          : styles.no
+                      }
+                      onClick={() => setDecision(t.id, "refuse")}
+                      disabled={saving}
+                    >
+                      Refuser
+                    </button>
+
+                    <button
+                      type="button"
+                      style={
+                        t.decision === "a_discuter"
+                          ? styles.discussActive
+                          : styles.discuss
+                      }
+                      onClick={() => setDecision(t.id, "a_discuter")}
+                      disabled={saving}
+                    >
+                      À discuter
+                    </button>
+                  </div>
+
+                  {t.decision === "a_discuter" && (
+                    <>
+                      <div style={styles.textareaLabel}>
+                        {isNewDiscussionChoice
+                          ? "Commentaire obligatoire"
+                          : "Ajouter un nouveau commentaire"}
+                      </div>
+
+                      <textarea
+                        style={styles.textarea}
+                        placeholder="Écrivez votre nouveau commentaire..."
+                        value={draft}
+                        onChange={(e) => setDraftNote(t.id, e.target.value)}
+                        disabled={saving}
+                      />
+                    </>
                   )}
                 </div>
               );
             })}
           </div>
 
-          {!submitted && (
-            <div style={styles.footer}>
-              <button
-                type="button"
-                style={allAnswered && !saving ? styles.submit : styles.submitDisabled}
-                disabled={!allAnswered || saving}
-                onClick={submit}
-              >
-                {saving ? "Envoi..." : "Confirmer mes réponses"}
-              </button>
-            </div>
-          )}
+          <div style={styles.footer}>
+            <button
+              type="button"
+              style={
+                allAnswered && hasPendingChanges && !saving
+                  ? styles.submit
+                  : styles.submitDisabled
+              }
+              disabled={!allAnswered || !hasPendingChanges || saving}
+              onClick={submit}
+            >
+              {saving ? "Envoi..." : "Transmettre mes réponses"}
+            </button>
+          </div>
         </div>
       </div>
 
       {activePhoto && (
         <div style={styles.lightbox} onClick={() => setActivePhoto(null)}>
-          <button type="button" style={styles.close} onClick={() => setActivePhoto(null)}>
+          <button
+            type="button"
+            style={styles.close}
+            onClick={() => setActivePhoto(null)}
+          >
             ×
           </button>
 

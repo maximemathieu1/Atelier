@@ -34,6 +34,18 @@ type AutorisationInfo = {
   autorisation_tache_id: string;
 };
 
+type AutorisationMessage = {
+  id: string;
+  autorisation_id: string;
+  autorisation_tache_id: string;
+  bt_id: string;
+  unite_note_id: string | null;
+  auteur_type: "client" | "atelier";
+  auteur_nom: string | null;
+  message: string;
+  created_at: string;
+};
+
 type TacheEffectuee = {
   id: string;
   bt_id: string;
@@ -205,6 +217,13 @@ type Props = {
 export default function BonTravailOperations(props: Props) {
   const [showPointageDetails, setShowPointageDetails] = useState(false);
   const [suiviModalTask, setSuiviModalTask] = useState<NoteMeca | null>(null);
+
+  const [discussionTask, setDiscussionTask] = useState<NoteMeca | null>(null);
+  const [discussionMessages, setDiscussionMessages] = useState<AutorisationMessage[]>([]);
+  const [discussionCountByTask, setDiscussionCountByTask] = useState<Record<string, number>>({});
+  const [discussionLoading, setDiscussionLoading] = useState(false);
+  const [discussionReply, setDiscussionReply] = useState("");
+  const [discussionSending, setDiscussionSending] = useState(false);
 
   const initialUniteNo = String(props.uniteNo || "").trim();
   const initialVehicleReadyMessage = initialUniteNo
@@ -533,6 +552,55 @@ export default function BonTravailOperations(props: Props) {
       fontWeight: 850,
       color: "#111827",
     },
+    discussionButton: {
+      marginTop: 7,
+      padding: "7px 10px",
+      borderRadius: 10,
+      border: "1px solid #bfdbfe",
+      background: "#eff6ff",
+      color: "#1d4ed8",
+      fontWeight: 900,
+      fontSize: 12,
+      cursor: "pointer",
+    },
+    discussionList: {
+      display: "grid",
+      gap: 10,
+      marginTop: 12,
+      marginBottom: 14,
+      maxHeight: 380,
+      overflowY: "auto",
+      paddingRight: 4,
+    },
+    discussionClient: {
+      marginLeft: "auto",
+      maxWidth: "86%",
+      padding: "10px 12px",
+      borderRadius: "14px 14px 4px 14px",
+      background: "#dbeafe",
+      border: "1px solid #bfdbfe",
+    },
+    discussionAtelier: {
+      marginRight: "auto",
+      maxWidth: "86%",
+      padding: "10px 12px",
+      borderRadius: "14px 14px 14px 4px",
+      background: "#f8fafc",
+      border: "1px solid #e2e8f0",
+    },
+    discussionMeta: {
+      fontSize: 11,
+      fontWeight: 900,
+      color: "#64748b",
+      marginBottom: 4,
+    },
+    discussionText: {
+      fontSize: 14,
+      fontWeight: 650,
+      color: "#1e293b",
+      whiteSpace: "pre-wrap",
+      wordBreak: "break-word",
+    },
     helpBox: {
       background: "#f8fafc",
       border: "1px solid rgba(15,23,42,.08)",
@@ -796,6 +864,204 @@ export default function BonTravailOperations(props: Props) {
     }
   }
 
+
+  useEffect(() => {
+    const taskIds = Object.values(autorisationMap)
+      .map((a) => String(a?.autorisation_tache_id || "").trim())
+      .filter(Boolean);
+
+    if (!taskIds.length) {
+      setDiscussionCountByTask({});
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadDiscussionCounts() {
+      const { data, error } = await supabase
+        .from("bt_autorisation_messages")
+        .select("autorisation_tache_id")
+        .in("autorisation_tache_id", taskIds);
+
+      if (cancelled) return;
+
+      if (error) {
+        console.error("Erreur chargement compte discussions:", error);
+        return;
+      }
+
+      const byAutorisationTask: Record<string, number> = {};
+      for (const row of data || []) {
+        const id = String((row as any).autorisation_tache_id || "");
+        if (!id) continue;
+        byAutorisationTask[id] = (byAutorisationTask[id] || 0) + 1;
+      }
+
+      const byNote: Record<string, number> = {};
+      for (const note of notes) {
+        const authTaskId = autorisationMap[note.id]?.autorisation_tache_id;
+        if (!authTaskId) continue;
+        byNote[note.id] = byAutorisationTask[authTaskId] || 0;
+      }
+
+      setDiscussionCountByTask(byNote);
+    }
+
+    void loadDiscussionCounts();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [autorisationMap, notes]);
+
+  async function loadTaskDiscussion(task: NoteMeca) {
+    const autorisation = autorisationMap[task.id];
+    const autorisationTacheId = String(
+      autorisation?.autorisation_tache_id || "",
+    ).trim();
+
+    if (!autorisationTacheId) {
+      setDiscussionMessages([]);
+      return;
+    }
+
+    setDiscussionLoading(true);
+
+    try {
+      const { data, error } = await supabase
+        .from("bt_autorisation_messages")
+        .select(
+          "id,autorisation_id,autorisation_tache_id,bt_id,unite_note_id,auteur_type,auteur_nom,message,created_at",
+        )
+        .eq("autorisation_tache_id", autorisationTacheId)
+        .order("created_at", { ascending: true });
+
+      if (error) throw error;
+
+      setDiscussionMessages((data || []) as AutorisationMessage[]);
+      setDiscussionCountByTask((prev) => ({
+        ...prev,
+        [task.id]: (data || []).length,
+      }));
+    } catch (err: any) {
+      console.error(err);
+      alert(
+        "Erreur chargement discussion: " +
+          (err?.message || String(err)),
+      );
+    } finally {
+      setDiscussionLoading(false);
+    }
+  }
+
+  async function openTaskDiscussion(task: NoteMeca) {
+    setDiscussionTask(task);
+    setDiscussionReply("");
+    setDiscussionMessages([]);
+    await loadTaskDiscussion(task);
+  }
+
+  async function sendDiscussionReply() {
+    if (!discussionTask) return;
+
+    const message = discussionReply.trim();
+    if (!message) {
+      alert("Écris une réponse avant l’envoi.");
+      return;
+    }
+
+    const autorisation = autorisationMap[discussionTask.id];
+    const autorisationTacheId = String(
+      autorisation?.autorisation_tache_id || "",
+    ).trim();
+
+    if (!autorisationTacheId) {
+      alert("Aucune autorisation client n’est liée à cette tâche.");
+      return;
+    }
+
+    setDiscussionSending(true);
+
+    try {
+      const { data: taskAuth, error: taskAuthErr } = await supabase
+        .from("bt_autorisation_taches")
+        .select("id,autorisation_id,titre")
+        .eq("id", autorisationTacheId)
+        .maybeSingle();
+
+      if (taskAuthErr) throw taskAuthErr;
+      if (!taskAuth?.autorisation_id) {
+        throw new Error("Autorisation introuvable pour cette tâche.");
+      }
+
+      const { data: auth, error: authErr } = await supabase
+        .from("bt_autorisations")
+        .select("id,token,client_email,client_nom")
+        .eq("id", taskAuth.autorisation_id)
+        .maybeSingle();
+
+      if (authErr) throw authErr;
+      if (!auth) throw new Error("Demande d’autorisation introuvable.");
+
+      const clientEmail = String(auth.client_email || "").trim();
+      if (!clientEmail) {
+        throw new Error(
+          "Aucun courriel client n’est associé à cette demande. La réponse n’a pas été envoyée.",
+        );
+      }
+
+      const { error: insertErr } = await supabase
+        .from("bt_autorisation_messages")
+        .insert({
+          autorisation_id: taskAuth.autorisation_id,
+          autorisation_tache_id: autorisationTacheId,
+          bt_id: btId,
+          unite_note_id: discussionTask.id,
+          auteur_type: "atelier",
+          auteur_nom: "Atelier",
+          message,
+        });
+
+      if (insertErr) throw insertErr;
+
+      const lienAutorisation = `${window.location.origin}/autorisation-bt/${auth.token}`;
+
+      const { error: emailErr } = await supabase.functions.invoke(
+        "bt-autorisation-email",
+        {
+          body: {
+            type: "send_reponse_atelier",
+            bt_id: btId,
+            autorisation_id: taskAuth.autorisation_id,
+            client_email: clientEmail,
+            client_nom: auth.client_nom || null,
+            lien_autorisation: lienAutorisation,
+            tache_titre: discussionTask.titre,
+            message,
+          },
+        },
+      );
+
+      if (emailErr) {
+        throw emailErr;
+      }
+
+      setDiscussionReply("");
+      await loadTaskDiscussion(discussionTask);
+      void onRefresh?.();
+
+      alert("Réponse envoyée au client par courriel.");
+    } catch (err: any) {
+      console.error(err);
+      alert(
+        "Erreur envoi réponse: " +
+          (err?.message || String(err)),
+      );
+    } finally {
+      setDiscussionSending(false);
+    }
+  }
+
   return (
     <>
       <div style={styles.card}>
@@ -970,11 +1236,26 @@ export default function BonTravailOperations(props: Props) {
                           </div>
                         )}
 
-                        {noteClient && (
-                          <div style={styles.clientNoteBox}>
-                            Note client : {noteClient}
-                          </div>
+                        {(isADiscuterClient ||
+                          (discussionCountByTask[t.id] || 0) > 0) && (
+                          <button
+                            type="button"
+                            style={styles.discussionButton}
+                            onClick={() => void openTaskDiscussion(t)}
+                          >
+                            💬 Discussion
+                            {(discussionCountByTask[t.id] || 0) > 0
+                              ? ` (${discussionCountByTask[t.id]})`
+                              : ""}
+                          </button>
                         )}
+
+                        {noteClient &&
+                          (discussionCountByTask[t.id] || 0) === 0 && (
+                            <div style={styles.clientNoteBox}>
+                              Note client : {noteClient}
+                            </div>
+                          )}
 
                         {isRefusedClient && !isReadOnly && (
                           <div style={{ ...styles.row, gap: 6, marginTop: 8 }}>
@@ -1874,6 +2155,113 @@ export default function BonTravailOperations(props: Props) {
                 Annuler
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {discussionTask && (
+        <div
+          style={styles.modalBackdrop}
+          onClick={() => {
+            if (!discussionSending) setDiscussionTask(null);
+          }}
+        >
+          <div
+            style={styles.modalCardLarge}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              style={styles.modalClose}
+              onClick={() => setDiscussionTask(null)}
+              disabled={discussionSending}
+            >
+              ×
+            </button>
+
+            <div style={styles.modalTitle}>Discussion avec le client</div>
+            <div style={styles.modalText}>{discussionTask.titre}</div>
+
+            <div style={styles.discussionList}>
+              {discussionLoading ? (
+                <div style={styles.helpBox}>Chargement de la discussion...</div>
+              ) : discussionMessages.length === 0 ? (
+                <div style={styles.helpBox}>
+                  Aucun message enregistré pour cette tâche.
+                </div>
+              ) : (
+                discussionMessages.map((m) => {
+                  const isClient = m.auteur_type === "client";
+
+                  return (
+                    <div
+                      key={m.id}
+                      style={{
+                        display: "flex",
+                        justifyContent: isClient ? "flex-end" : "flex-start",
+                      }}
+                    >
+                      <div
+                        style={
+                          isClient
+                            ? styles.discussionClient
+                            : styles.discussionAtelier
+                        }
+                      >
+                        <div style={styles.discussionMeta}>
+                          {isClient
+                            ? m.auteur_nom || "Client"
+                            : m.auteur_nom || "Atelier"}{" "}
+                          · {fmtDateTimeNoSeconds(m.created_at)}
+                        </div>
+
+                        <div style={styles.discussionText}>{m.message}</div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {!isReadOnly && (
+              <>
+                <textarea
+                  style={styles.textarea}
+                  value={discussionReply}
+                  onChange={(e) => setDiscussionReply(e.target.value)}
+                  placeholder="Écrire une réponse au client..."
+                  disabled={discussionSending}
+                />
+
+                <div
+                  style={{
+                    ...styles.row,
+                    justifyContent: "flex-end",
+                    marginTop: 10,
+                  }}
+                >
+                  <button
+                    type="button"
+                    style={styles.btn}
+                    onClick={() => setDiscussionTask(null)}
+                    disabled={discussionSending}
+                  >
+                    Fermer
+                  </button>
+
+                  <button
+                    type="button"
+                    style={styles.btnPrimary}
+                    onClick={() => void sendDiscussionReply()}
+                    disabled={discussionSending || !discussionReply.trim()}
+                  >
+                    {discussionSending
+                      ? "Envoi..."
+                      : "Envoyer la réponse au client"}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
