@@ -385,7 +385,7 @@ export default function DossiersVehiculesPage() {
 
   const alertsByUnite = useMemo(() => {
     type AlertState = {
-      severity: "yellow" | "orange" | "red";
+      severity: "yellow" | "red";
       reasons: string[];
     };
 
@@ -443,7 +443,6 @@ export default function DossiersVehiculesPage() {
         );
 
       const coverageGap = getCoverageGap(unitPeps, cvmDocs, unite.date_mise_en_service);
-      let hasAcceptedCoverageGap = false;
       if (coverageGap) {
         const gapStart = coverageGap.start.toISOString().slice(0, 10);
         const gapEnd = coverageGap.end.toISOString().slice(0, 10);
@@ -453,12 +452,8 @@ export default function DossiersVehiculesPage() {
             row.gap_start === gapStart &&
             row.gap_end === gapEnd,
         );
-        if (accepted) {
-          hasAcceptedCoverageGap = true;
-          yellowReasons.push(
-            `Conforme avec dérogation — écart de ${coverageGap.days} jours : ${accepted.justification}`,
-          );
-        } else {
+
+        if (!accepted) {
           redReasons.push(
             `Historique PEP/CVM incomplet — trou de ${coverageGap.days} jours`,
           );
@@ -556,7 +551,7 @@ export default function DossiersVehiculesPage() {
         });
       } else if (yellowReasons.length > 0) {
         alerts.set(unite.id, {
-          severity: hasAcceptedCoverageGap ? "orange" : "yellow",
+          severity: "yellow",
           reasons: yellowReasons,
         });
       }
@@ -639,7 +634,7 @@ export default function DossiersVehiculesPage() {
                       style={{
                         ...styles.tr,
                         ...(alertState?.severity === "red" ? styles.trDanger : {}),
-                        ...((alertState?.severity === "yellow" || alertState?.severity === "orange") ? styles.trWarning : {}),
+                        ...(alertState?.severity === "yellow" ? styles.trWarning : {}),
                       }}
                       onDoubleClick={() => navigate(`/admin/dossiers-vehicules/${u.id}`)}
                       title={
@@ -666,9 +661,7 @@ export default function DossiersVehiculesPage() {
                             >
                               {alertState?.severity === "red"
                                 ? "Action requise"
-                                : alertState?.severity === "orange"
-                                  ? "Conforme avec dérogation"
-                                  : "À surveiller"}
+                                : "À surveiller"}
                             </span>
                           </div>
                         ) : (

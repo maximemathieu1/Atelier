@@ -503,6 +503,7 @@ export default function DossierVehiculeDetailPage() {
   const [overrideOpen, setOverrideOpen] = useState(false);
   const [overrideJustification, setOverrideJustification] = useState("");
   const [savingOverride, setSavingOverride] = useState(false);
+  const [overrideHistoryOpen, setOverrideHistoryOpen] = useState(false);
 
   const [unite, setUnite] = useState<UniteRow | null>(null);
   const [peps, setPeps] = useState<PepArchiveRow[]>([]);
@@ -1258,7 +1259,7 @@ export default function DossierVehiculeDetailPage() {
                 value={
                   coverageGap
                     ? matchingCoverageOverride
-                      ? `Écart accepté de ${coverageGap.days} jours — ${matchingCoverageOverride.justification}`
+                      ? "Historique conforme"
                       : `Trou de couverture de ${coverageGap.days} jours`
                     : unite.date_mise_en_service &&
                       parseLocalDate(unite.date_mise_en_service) &&
@@ -1268,20 +1269,27 @@ export default function DossierVehiculeDetailPage() {
                       : "Couverture PEP / CVM complète sur 24 mois"
                 }
                 badge={
-                  coverageGap
-                    ? matchingCoverageOverride
-                      ? { label: "Conforme avec dérogation", style: styles.statusWarning }
-                      : { label: "Non conforme", style: styles.statusDanger }
-                    : { label: "Complet", style: styles.statusOk }
+                  coverageGap && !matchingCoverageOverride
+                    ? { label: "Non conforme", style: styles.statusDanger }
+                    : { label: "Valide", style: styles.statusOk }
                 }
               />
-              {coverageGap && !matchingCoverageOverride ? (
-                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: -2 }}>
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: -2, flexWrap: "wrap" }}>
+                {coverageGap && !matchingCoverageOverride ? (
                   <button type="button" style={styles.secondaryBtn} onClick={() => setOverrideOpen(true)}>
                     Accepter l’écart
                   </button>
-                </div>
-              ) : null}
+                ) : null}
+                {complianceOverrides.length > 0 ? (
+                  <button
+                    type="button"
+                    style={styles.linkHistoryBtn}
+                    onClick={() => setOverrideHistoryOpen(true)}
+                  >
+                    Voir historique
+                  </button>
+                ) : null}
+              </div>
               {unite.date_mise_en_service && firstPepGraceEnd ? (
                 <SummaryWithBadge
                   label="Premier PEP"
@@ -1584,6 +1592,69 @@ export default function DossierVehiculeDetailPage() {
             onOpen={openVehicleDocument}
             onDelete={deleteDocument}
           />
+        </div>
+      )}
+
+      {overrideHistoryOpen && (
+        <div
+          style={styles.modalOverlay}
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setOverrideHistoryOpen(false);
+          }}
+        >
+          <div style={{ ...styles.modalCard, width: "min(700px, 94vw)", maxHeight: "80vh" }}>
+            <div style={styles.modalHeader}>
+              <div>
+                <h2 style={styles.modalTitle}>Historique des écarts acceptés</h2>
+                <p style={styles.modalSubtitle}>
+                  Dérogations enregistrées pour cette unité.
+                </p>
+              </div>
+              <button
+                type="button"
+                style={styles.modalCloseBtn}
+                onClick={() => setOverrideHistoryOpen(false)}
+                aria-label="Fermer"
+              >
+                ×
+              </button>
+            </div>
+
+            <div style={styles.modalBody}>
+              {complianceOverrides.length === 0 ? (
+                <div style={styles.empty}>Aucune dérogation enregistrée.</div>
+              ) : (
+                <div style={styles.overrideHistoryList}>
+                  {complianceOverrides.map((row) => (
+                    <div key={row.id} style={styles.overrideHistoryRow}>
+                      <div style={styles.overrideHistoryTop}>
+                        <strong>
+                          {formatDate(row.gap_start)} au {formatDate(row.gap_end)}
+                        </strong>
+                        <span style={{ ...styles.statusBadge, ...styles.statusOk, marginTop: 0 }}>
+                          {row.gap_days} jour{row.gap_days > 1 ? "s" : ""}
+                        </span>
+                      </div>
+                      <div style={styles.overrideReason}>{row.justification}</div>
+                      <div style={styles.muted}>
+                        Accepté le {formatDate(row.created_at)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div style={styles.modalFooter}>
+              <button
+                type="button"
+                style={styles.primaryBtn}
+                onClick={() => setOverrideHistoryOpen(false)}
+              >
+                Fermer
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -2377,6 +2448,36 @@ const styles: Record<string, React.CSSProperties> = {
   disabledBtn: {
     opacity: 0.5,
     cursor: "not-allowed",
+  },
+  linkHistoryBtn: {
+    border: "none",
+    background: "transparent",
+    color: "#2563eb",
+    cursor: "pointer",
+    padding: "8px 2px",
+    fontWeight: 700,
+  },
+  overrideHistoryList: {
+    display: "grid",
+    gap: 10,
+  },
+  overrideHistoryRow: {
+    padding: 12,
+    border: "1px solid #e5e7eb",
+    borderRadius: 12,
+    background: "#f9fafb",
+  },
+  overrideHistoryTop: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    flexWrap: "wrap",
+  },
+  overrideReason: {
+    marginTop: 6,
+    color: "#374151",
+    fontWeight: 600,
   },
   statusBadge: {
     display: "inline-flex",
