@@ -1104,6 +1104,16 @@ Réponse manquante : ${missingReply.titre}`,
         message: String(discussionReplies[task.id] || "").trim(),
       }));
 
+      const decisionsFinales = notes
+        .filter((task) => {
+          const decision = autorisationMap[task.id]?.decision;
+          return decision === "autorise" || decision === "refuse";
+        })
+        .map((task) => ({
+          titre: task.titre,
+          decision: autorisationMap[task.id]?.decision,
+        }));
+
       const { error: emailErr } = await supabase.functions.invoke(
         "bt-autorisation-email",
         {
@@ -1115,6 +1125,7 @@ Réponse manquante : ${missingReply.titre}`,
             client_nom: auth.client_nom || null,
             lien_autorisation: lienAutorisation,
             discussions: emailTasks,
+            decisions_finales: decisionsFinales,
           },
         },
       );

@@ -225,6 +225,13 @@ export default function AutorisationBtClientPage() {
   }, [token]);
 
   function setDecision(tacheId: string, decision: DecisionClient) {
+    const initialDecision = initialDecisions[tacheId] ?? null;
+
+    // Une décision déjà transmise Autorisé / Refusé est finale côté client.
+    if (initialDecision === "autorise" || initialDecision === "refuse") {
+      return;
+    }
+
     setTaches((rows) =>
       rows.map((t) => (t.id === tacheId ? { ...t, decision } : t)),
     );
@@ -497,6 +504,15 @@ export default function AutorisationBtClientPage() {
       whiteSpace: "pre-wrap",
       wordBreak: "break-word",
     },
+    finalDecisionBox: {
+      marginTop: 12,
+      padding: "11px 12px",
+      borderRadius: 12,
+      fontWeight: 950,
+      background: "#f1f5f9",
+      border: "1px solid #cbd5e1",
+      color: "#64748b",
+    },
     decisionCurrent: {
       marginTop: 12,
       fontSize: 13,
@@ -767,52 +783,66 @@ export default function AutorisationBtClientPage() {
                     </div>
                   )}
 
-                  <div style={styles.decisionCurrent}>
-                    Votre décision :
-                  </div>
+                  {initialDecision === "autorise" ? (
+                    <div style={styles.finalDecisionBox}>
+                      ✓ Travail autorisé — décision finale
+                    </div>
+                  ) : initialDecision === "refuse" ? (
+                    <div style={styles.finalDecisionBox}>
+                      ✕ Travail refusé — décision finale
+                    </div>
+                  ) : (
+                    <>
+                      <div style={styles.decisionCurrent}>
+                        Votre décision :
+                      </div>
 
-                  <div style={styles.actions}>
-                    <button
-                      type="button"
-                      style={
-                        t.decision === "autorise"
-                          ? styles.yesActive
-                          : styles.yes
-                      }
-                      onClick={() => setDecision(t.id, "autorise")}
-                      disabled={saving}
-                    >
-                      Autoriser
-                    </button>
+                      <div style={styles.actions}>
+                        <button
+                          type="button"
+                          style={
+                            t.decision === "autorise"
+                              ? styles.yesActive
+                              : styles.yes
+                          }
+                          onClick={() => setDecision(t.id, "autorise")}
+                          disabled={saving}
+                        >
+                          Autoriser
+                        </button>
 
-                    <button
-                      type="button"
-                      style={
-                        t.decision === "refuse"
-                          ? styles.noActive
-                          : styles.no
-                      }
-                      onClick={() => setDecision(t.id, "refuse")}
-                      disabled={saving}
-                    >
-                      Refuser
-                    </button>
+                        <button
+                          type="button"
+                          style={
+                            t.decision === "refuse"
+                              ? styles.noActive
+                              : styles.no
+                          }
+                          onClick={() => setDecision(t.id, "refuse")}
+                          disabled={saving}
+                        >
+                          Refuser
+                        </button>
 
-                    <button
-                      type="button"
-                      style={
-                        t.decision === "a_discuter"
-                          ? styles.discussActive
-                          : styles.discuss
-                      }
-                      onClick={() => setDecision(t.id, "a_discuter")}
-                      disabled={saving}
-                    >
-                      À discuter
-                    </button>
-                  </div>
+                        <button
+                          type="button"
+                          style={
+                            t.decision === "a_discuter"
+                              ? styles.discussActive
+                              : styles.discuss
+                          }
+                          onClick={() => setDecision(t.id, "a_discuter")}
+                          disabled={saving}
+                        >
+                          À discuter
+                        </button>
+                      </div>
+                    </>
+                  )}
 
-                  {t.decision === "a_discuter" && (
+                  {initialDecision !== "autorise" &&
+                    initialDecision !== "refuse" &&
+                    t.decision === "a_discuter" && (
                     <>
                       <div style={styles.textareaLabel}>
                         {isNewDiscussionChoice
