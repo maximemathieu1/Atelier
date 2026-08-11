@@ -218,11 +218,13 @@ export default function BonTravailOperations(props: Props) {
   const [showPointageDetails, setShowPointageDetails] = useState(false);
   const [suiviModalTask, setSuiviModalTask] = useState<NoteMeca | null>(null);
 
-  const [discussionTask, setDiscussionTask] = useState<NoteMeca | null>(null);
-  const [discussionMessages, setDiscussionMessages] = useState<AutorisationMessage[]>([]);
+  const [discussionOpen, setDiscussionOpen] = useState(false);
+  const [discussionMessagesByNote, setDiscussionMessagesByNote] = useState<
+    Record<string, AutorisationMessage[]>
+  >({});
   const [discussionCountByTask, setDiscussionCountByTask] = useState<Record<string, number>>({});
   const [discussionLoading, setDiscussionLoading] = useState(false);
-  const [discussionReply, setDiscussionReply] = useState("");
+  const [discussionReplies, setDiscussionReplies] = useState<Record<string, string>>({});
   const [discussionSending, setDiscussionSending] = useState(false);
 
   const initialUniteNo = String(props.uniteNo || "").trim();
@@ -914,14 +916,29 @@ export default function BonTravailOperations(props: Props) {
     };
   }, [autorisationMap, notes]);
 
-  async function loadTaskDiscussion(task: NoteMeca) {
-    const autorisation = autorisationMap[task.id];
-    const autorisationTacheId = String(
-      autorisation?.autorisation_tache_id || "",
-    ).trim();
+  const discussionTasks = notes.filter(
+    (task) => autorisationMap[task.id]?.decision === "a_discuter",
+  );
 
-    if (!autorisationTacheId) {
-      setDiscussionMessages([]);
+  async function loadAllDiscussions() {
+    const activeDiscussionTasks = notes.filter(
+      (task) => autorisationMap[task.id]?.decision === "a_discuter",
+    );
+
+    if (!activeDiscussionTasks.length) {
+      setDiscussionMessagesByNote({});
+      setDiscussionReplies({});
+      return;
+    }
+
+    const authTaskIds = activeDiscussionTasks
+      .map((task) =>
+        String(autorisationMap[task.id]?.autorisation_tache_id || "").trim(),
+      )
+      .filter(Boolean);
+
+    if (!authTaskIds.length) {
+      setDiscussionMessagesByNote({});
       return;
     }
 
@@ -933,20 +950,35 @@ export default function BonTravailOperations(props: Props) {
         .select(
           "id,autorisation_id,autorisation_tache_id,bt_id,unite_note_id,auteur_type,auteur_nom,message,created_at",
         )
-        .eq("autorisation_tache_id", autorisationTacheId)
+        .in("autorisation_tache_id", authTaskIds)
         .order("created_at", { ascending: true });
 
       if (error) throw error;
 
-      setDiscussionMessages((data || []) as AutorisationMessage[]);
+      const byNote: Record<string, AutorisationMessage[]> = {};
+
+      for (const task of activeDiscussionTasks) {
+        const authTaskId = autorisationMap[task.id]?.autorisation_tache_id;
+        byNote[task.id] = (data || []).filter(
+          (row: any) => row.autorisation_tache_id === authTaskId,
+        ) as AutorisationMessage[];
+      }
+
+      setDiscussionMessagesByNote(byNote);
+
+      const counts: Record<string, number> = {};
+      for (const task of activeDiscussionTasks) {
+        counts[task.id] = byNote[task.id]?.length || 0;
+      }
+
       setDiscussionCountByTask((prev) => ({
         ...prev,
-        [task.id]: (data || []).length,
+        ...counts,
       }));
     } catch (err: any) {
       console.error(err);
       alert(
-        "Erreur chargement discussion: " +
+        "Erreur chargement discussions: " +
           (err?.message || String(err)),
       );
     } finally {
@@ -954,50 +986,77 @@ export default function BonTravailOperations(props: Props) {
     }
   }
 
-  async function openTaskDiscussion(task: NoteMeca) {
-    setDiscussionTask(task);
-    setDiscussionReply("");
-    setDiscussionMessages([]);
-    await loadTaskDiscussion(task);
-  }
-
-  async function sendDiscussionReply() {
-    if (!discussionTask) return;
-
-    const message = discussionReply.trim();
-    if (!message) {
-      alert("Écris une réponse avant l’envoi.");
+  async function openDiscussions() {
+    if (!discussionTasks.length) {
+      alert("Aucune tâche n’est actuellement À discuter.");
       return;
     }
 
-    const autorisation = autorisationMap[discussionTask.id];
-    const autorisationTacheId = String(
-      autorisation?.autorisation_tache_id || "",
-    ).trim();
+    setDiscussionOpen(true);
+    setDiscussionReplies({});
+    await loadAllDiscussions();
+  }
 
-    if (!autorisationTacheId) {
-      alert("Aucune autorisation client n’est liée à cette tâche.");
+  async function sendAllDiscussionReplies() {
+    const activeDiscussionTasks = notes.filter(
+      (task) => autorisationMap[task.id]?.decision === "a_discuter",
+    );
+
+    if (!activeDiscussionTasks.length) {
+      alert("Aucune tâche n’est actuellement À discuter.");
+      return;
+    }
+
+    const missingReply = activeDiscussionTasks.find(
+      (task) => !String(discussionReplies[task.id] || "").trim(),
+    );
+
+    if (missingReply) {
+      alert(
+        `Ajoute une réponse pour chaque tâche À discuter.
+
+Réponse manquante : ${missingReply.titre}`,
+      );
       return;
     }
 
     setDiscussionSending(true);
 
     try {
-      const { data: taskAuth, error: taskAuthErr } = await supabase
+      const authTaskIds = activeDiscussionTasks
+        .map((task) =>
+          String(autorisationMap[task.id]?.autorisation_tache_id || "").trim(),
+        )
+        .filter(Boolean);
+
+      const { data: taskAuthRows, error: taskAuthErr } = await supabase
         .from("bt_autorisation_taches")
-        .select("id,autorisation_id,titre")
-        .eq("id", autorisationTacheId)
-        .maybeSingle();
+        .select("id,autorisation_id,titre,unite_note_id")
+        .in("id", authTaskIds);
 
       if (taskAuthErr) throw taskAuthErr;
-      if (!taskAuth?.autorisation_id) {
-        throw new Error("Autorisation introuvable pour cette tâche.");
+
+      const rows = taskAuthRows || [];
+      if (!rows.length) {
+        throw new Error("Aucune autorisation À discuter trouvée.");
       }
+
+      const autorisationIds = Array.from(
+        new Set(rows.map((row: any) => String(row.autorisation_id || "")).filter(Boolean)),
+      );
+
+      if (autorisationIds.length !== 1) {
+        throw new Error(
+          "Les tâches À discuter ne sont pas rattachées à la même demande d’autorisation.",
+        );
+      }
+
+      const autorisationId = autorisationIds[0];
 
       const { data: auth, error: authErr } = await supabase
         .from("bt_autorisations")
         .select("id,token,client_email,client_nom")
-        .eq("id", taskAuth.autorisation_id)
+        .eq("id", autorisationId)
         .maybeSingle();
 
       if (authErr) throw authErr;
@@ -1006,25 +1065,44 @@ export default function BonTravailOperations(props: Props) {
       const clientEmail = String(auth.client_email || "").trim();
       if (!clientEmail) {
         throw new Error(
-          "Aucun courriel client n’est associé à cette demande. La réponse n’a pas été envoyée.",
+          "Aucun courriel client n’est associé à cette demande.",
         );
       }
 
-      const { error: insertErr } = await supabase
-        .from("bt_autorisation_messages")
-        .insert({
-          autorisation_id: taskAuth.autorisation_id,
-          autorisation_tache_id: autorisationTacheId,
+      const inserts = activeDiscussionTasks.map((task) => {
+        const taskAuth = rows.find(
+          (row: any) =>
+            String(row.id) ===
+            String(autorisationMap[task.id]?.autorisation_tache_id || ""),
+        );
+
+        if (!taskAuth) {
+          throw new Error(`Autorisation introuvable pour : ${task.titre}`);
+        }
+
+        return {
+          autorisation_id: autorisationId,
+          autorisation_tache_id: taskAuth.id,
           bt_id: btId,
-          unite_note_id: discussionTask.id,
+          unite_note_id: task.id,
           auteur_type: "atelier",
           auteur_nom: "Atelier",
-          message,
-        });
+          message: String(discussionReplies[task.id] || "").trim(),
+        };
+      });
+
+      const { error: insertErr } = await supabase
+        .from("bt_autorisation_messages")
+        .insert(inserts);
 
       if (insertErr) throw insertErr;
 
       const lienAutorisation = `${window.location.origin}/autorisation-bt/${auth.token}`;
+
+      const emailTasks = activeDiscussionTasks.map((task) => ({
+        titre: task.titre,
+        message: String(discussionReplies[task.id] || "").trim(),
+      }));
 
       const { error: emailErr } = await supabase.functions.invoke(
         "bt-autorisation-email",
@@ -1032,29 +1110,26 @@ export default function BonTravailOperations(props: Props) {
           body: {
             type: "send_reponse_atelier",
             bt_id: btId,
-            autorisation_id: taskAuth.autorisation_id,
+            autorisation_id: autorisationId,
             client_email: clientEmail,
             client_nom: auth.client_nom || null,
             lien_autorisation: lienAutorisation,
-            tache_titre: discussionTask.titre,
-            message,
+            discussions: emailTasks,
           },
         },
       );
 
-      if (emailErr) {
-        throw emailErr;
-      }
+      if (emailErr) throw emailErr;
 
-      setDiscussionReply("");
-      await loadTaskDiscussion(discussionTask);
+      setDiscussionReplies({});
+      await loadAllDiscussions();
       void onRefresh?.();
 
-      alert("Réponse envoyée au client par courriel.");
+      alert("Toutes les réponses ont été envoyées au client dans un seul courriel.");
     } catch (err: any) {
       console.error(err);
       alert(
-        "Erreur envoi réponse: " +
+        "Erreur envoi réponses: " +
           (err?.message || String(err)),
       );
     } finally {
@@ -1241,7 +1316,7 @@ export default function BonTravailOperations(props: Props) {
                           <button
                             type="button"
                             style={styles.discussionButton}
-                            onClick={() => void openTaskDiscussion(t)}
+                            onClick={() => void openDiscussions()}
                           >
                             💬 Discussion
                             {(discussionCountByTask[t.id] || 0) > 0
@@ -2159,109 +2234,164 @@ export default function BonTravailOperations(props: Props) {
         </div>
       )}
 
-      {discussionTask && (
+      {discussionOpen && (
         <div
           style={styles.modalBackdrop}
           onClick={() => {
-            if (!discussionSending) setDiscussionTask(null);
+            if (!discussionSending) setDiscussionOpen(false);
           }}
         >
           <div
-            style={styles.modalCardLarge}
+            style={{
+              ...styles.modalCardLarge,
+              width: "min(820px, 100%)",
+            }}
             onClick={(e) => e.stopPropagation()}
           >
             <button
               type="button"
               style={styles.modalClose}
-              onClick={() => setDiscussionTask(null)}
+              onClick={() => setDiscussionOpen(false)}
               disabled={discussionSending}
             >
               ×
             </button>
 
-            <div style={styles.modalTitle}>Discussion avec le client</div>
-            <div style={styles.modalText}>{discussionTask.titre}</div>
+            <div style={styles.modalTitle}>Répondre aux tâches à discuter</div>
+            <div style={styles.modalText}>
+              Réponds à toutes les tâches ci-dessous, puis envoie une seule fois au client.
+              Les tâches déjà autorisées ou refusées sont ignorées.
+            </div>
 
-            <div style={styles.discussionList}>
-              {discussionLoading ? (
-                <div style={styles.helpBox}>Chargement de la discussion...</div>
-              ) : discussionMessages.length === 0 ? (
-                <div style={styles.helpBox}>
-                  Aucun message enregistré pour cette tâche.
-                </div>
-              ) : (
-                discussionMessages.map((m) => {
-                  const isClient = m.auteur_type === "client";
+            {discussionLoading ? (
+              <div style={styles.helpBox}>Chargement des discussions...</div>
+            ) : discussionTasks.length === 0 ? (
+              <div style={styles.helpBox}>
+                Aucune tâche n’est actuellement À discuter.
+              </div>
+            ) : (
+              <div style={{ display: "grid", gap: 16 }}>
+                {discussionTasks.map((task) => {
+                  const taskMessages = discussionMessagesByNote[task.id] || [];
+                  const reply = discussionReplies[task.id] || "";
 
                   return (
                     <div
-                      key={m.id}
+                      key={task.id}
                       style={{
-                        display: "flex",
-                        justifyContent: isClient ? "flex-end" : "flex-start",
+                        border: "1px solid rgba(0,0,0,.10)",
+                        borderRadius: 14,
+                        padding: 14,
+                        background: "#fff",
                       }}
                     >
                       <div
-                        style={
-                          isClient
-                            ? styles.discussionClient
-                            : styles.discussionAtelier
-                        }
+                        style={{
+                          fontWeight: 950,
+                          textTransform: "uppercase",
+                          marginBottom: 10,
+                        }}
                       >
-                        <div style={styles.discussionMeta}>
-                          {isClient
-                            ? m.auteur_nom || "Client"
-                            : m.auteur_nom || "Atelier"}{" "}
-                          · {fmtDateTimeNoSeconds(m.created_at)}
-                        </div>
-
-                        <div style={styles.discussionText}>{m.message}</div>
+                        {task.titre}
                       </div>
+
+                      <div style={styles.discussionList}>
+                        {taskMessages.length === 0 ? (
+                          <div style={styles.helpBox}>
+                            Aucun message enregistré.
+                          </div>
+                        ) : (
+                          taskMessages.map((m) => {
+                            const isClient = m.auteur_type === "client";
+
+                            return (
+                              <div
+                                key={m.id}
+                                style={{
+                                  display: "flex",
+                                  justifyContent: isClient
+                                    ? "flex-end"
+                                    : "flex-start",
+                                }}
+                              >
+                                <div
+                                  style={
+                                    isClient
+                                      ? styles.discussionClient
+                                      : styles.discussionAtelier
+                                  }
+                                >
+                                  <div style={styles.discussionMeta}>
+                                    {isClient
+                                      ? m.auteur_nom || "Client"
+                                      : m.auteur_nom || "Atelier"}{" "}
+                                    · {fmtDateTimeNoSeconds(m.created_at)}
+                                  </div>
+
+                                  <div style={styles.discussionText}>
+                                    {m.message}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+
+                      <textarea
+                        style={styles.textarea}
+                        value={reply}
+                        onChange={(e) =>
+                          setDiscussionReplies((prev) => ({
+                            ...prev,
+                            [task.id]: e.target.value,
+                          }))
+                        }
+                        placeholder="Réponse de l'atelier pour cette tâche..."
+                        disabled={discussionSending || isReadOnly}
+                      />
                     </div>
                   );
-                })
+                })}
+              </div>
+            )}
+
+            <div
+              style={{
+                ...styles.row,
+                justifyContent: "flex-end",
+                marginTop: 14,
+              }}
+            >
+              <button
+                type="button"
+                style={styles.btn}
+                onClick={() => setDiscussionOpen(false)}
+                disabled={discussionSending}
+              >
+                Fermer
+              </button>
+
+              {!isReadOnly && (
+                <button
+                  type="button"
+                  style={styles.btnPrimary}
+                  onClick={() => void sendAllDiscussionReplies()}
+                  disabled={
+                    discussionSending ||
+                    discussionTasks.length === 0 ||
+                    discussionTasks.some(
+                      (task) =>
+                        !String(discussionReplies[task.id] || "").trim(),
+                    )
+                  }
+                >
+                  {discussionSending
+                    ? "Envoi..."
+                    : `Envoyer les réponses (${discussionTasks.length})`}
+                </button>
               )}
             </div>
-
-            {!isReadOnly && (
-              <>
-                <textarea
-                  style={styles.textarea}
-                  value={discussionReply}
-                  onChange={(e) => setDiscussionReply(e.target.value)}
-                  placeholder="Écrire une réponse au client..."
-                  disabled={discussionSending}
-                />
-
-                <div
-                  style={{
-                    ...styles.row,
-                    justifyContent: "flex-end",
-                    marginTop: 10,
-                  }}
-                >
-                  <button
-                    type="button"
-                    style={styles.btn}
-                    onClick={() => setDiscussionTask(null)}
-                    disabled={discussionSending}
-                  >
-                    Fermer
-                  </button>
-
-                  <button
-                    type="button"
-                    style={styles.btnPrimary}
-                    onClick={() => void sendDiscussionReply()}
-                    disabled={discussionSending || !discussionReply.trim()}
-                  >
-                    {discussionSending
-                      ? "Envoi..."
-                      : "Envoyer la réponse au client"}
-                  </button>
-                </div>
-              </>
-            )}
           </div>
         </div>
       )}
