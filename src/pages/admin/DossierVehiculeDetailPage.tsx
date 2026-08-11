@@ -73,6 +73,16 @@ type ExpirationDefaultRow = {
   date_expiration: string | null;
 };
 
+type ComplianceOverrideRow = {
+  id: string;
+  unite_id: string;
+  gap_start: string;
+  gap_end: string;
+  gap_days: number;
+  justification: string;
+  created_at: string;
+};
+
 type PepImportDraft = {
   id: string;
   file: File;
@@ -489,6 +499,10 @@ export default function DossierVehiculeDetailPage() {
   const [pepImportOpen, setPepImportOpen] = useState(false);
   const [pepImporting, setPepImporting] = useState(false);
   const [pepImportDrafts, setPepImportDrafts] = useState<PepImportDraft[]>([]);
+  const [complianceOverrides, setComplianceOverrides] = useState<ComplianceOverrideRow[]>([]);
+  const [overrideOpen, setOverrideOpen] = useState(false);
+  const [overrideJustification, setOverrideJustification] = useState("");
+  const [savingOverride, setSavingOverride] = useState(false);
 
   const [unite, setUnite] = useState<UniteRow | null>(null);
   const [peps, setPeps] = useState<PepArchiveRow[]>([]);
@@ -558,7 +572,7 @@ export default function DossierVehiculeDetailPage() {
     if (!uniteId) return;
     setLoading(true);
 
-    const [uniteRes, pepRes, btRes, docsRes] = await Promise.all([
+    const [uniteRes, pepRes, btRes, docsRes, overridesRes] = await Promise.all([
       supabase.from("unites").select("*").eq("id", uniteId).maybeSingle(),
       supabase
         .from("pep_archives")
@@ -572,6 +586,11 @@ export default function DossierVehiculeDetailPage() {
         .order("created_at", { ascending: false }),
       supabase
         .from("vehicle_documents")
+        .select("*")
+        .eq("unite_id", uniteId)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("vehicle_compliance_overrides")
         .select("*")
         .eq("unite_id", uniteId)
         .order("created_at", { ascending: false }),
@@ -605,6 +624,7 @@ export default function DossierVehiculeDetailPage() {
     }
     if (btRes.data) setBts(btRes.data as BtRow[]);
     if (docsRes.data) setDocuments(docsRes.data as VehicleDocumentRow[]);
+    if (overridesRes.data) setComplianceOverrides(overridesRes.data as ComplianceOverrideRow[]);
 
     // 33 mois = 24 mois requis + 6 mois de couverture CVM + 3 mois tampon PEP.
     // Important : la purge se base sur date_pep et jamais sur created_at.
@@ -644,6 +664,37 @@ export default function DossierVehiculeDetailPage() {
     () => getCoverageGap(peps, cvmDocuments, unite?.date_mise_en_service),
     [peps, cvmDocuments, unite?.date_mise_en_service],
   );
+
+  const matchingCoverageOverride = useMemo(() => {
+    if (!coverageGap) return null;
+    const gapStart = coverageGap.start.toISOString().slice(0, 10);
+    const gapEnd = coverageGap.end.toISOString().slice(0, 10);
+    return complianceOverrides.find(
+      (row) => row.gap_start === gapStart && row.gap_end === gapEnd,
+    ) ?? null;
+  }, [coverageGap, complianceOverrides]);
+
+  async function acceptCoverageGap() {
+    if (!uniteId || !coverageGap || !overrideJustification.trim()) return;
+    setSavingOverride(true);
+    const userRes = await supabase.auth.getUser();
+    const { error } = await supabase.from("vehicle_compliance_overrides").insert({
+      unite_id: uniteId,
+      gap_start: coverageGap.start.toISOString().slice(0, 10),
+      gap_end: coverageGap.end.toISOString().slice(0, 10),
+      gap_days: coverageGap.days,
+      justification: overrideJustification.trim(),
+      created_by: userRes.data.user?.id || null,
+    });
+    setSavingOverride(false);
+    if (error) {
+      alert(`Erreur dérogation : ${error.message}`);
+      return;
+    }
+    setOverrideJustification("");
+    setOverrideOpen(false);
+    await load();
+  }
 
   const firstPepGraceEnd = useMemo(() => {
     const miseEnService = parseLocalDate(unite?.date_mise_en_service);
@@ -1206,7 +1257,9 @@ export default function DossierVehiculeDetailPage() {
                 label="Historique requis"
                 value={
                   coverageGap
-                    ? `Trou de couverture de ${coverageGap.days} jours`
+                    ? matchingCoverageOverride
+                      ? `Écart accepté de ${coverageGap.days} jours — ${matchingCoverageOverride.justification}`
+                      : `Trou de couverture de ${coverageGap.days} jours`
                     : unite.date_mise_en_service &&
                       parseLocalDate(unite.date_mise_en_service) &&
                       parseLocalDate(unite.date_mise_en_service)!.getTime() >
@@ -1216,10 +1269,19 @@ export default function DossierVehiculeDetailPage() {
                 }
                 badge={
                   coverageGap
-                    ? { label: "Non conforme", style: styles.statusDanger }
+                    ? matchingCoverageOverride
+                      ? { label: "Conforme avec dérogation", style: styles.statusWarning }
+                      : { label: "Non conforme", style: styles.statusDanger }
                     : { label: "Complet", style: styles.statusOk }
                 }
               />
+              {coverageGap && !matchingCoverageOverride ? (
+                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: -2 }}>
+                  <button type="button" style={styles.secondaryBtn} onClick={() => setOverrideOpen(true)}>
+                    Accepter l’écart
+                  </button>
+                </div>
+              ) : null}
               {unite.date_mise_en_service && firstPepGraceEnd ? (
                 <SummaryWithBadge
                   label="Premier PEP"
@@ -1522,6 +1584,46 @@ export default function DossierVehiculeDetailPage() {
             onOpen={openVehicleDocument}
             onDelete={deleteDocument}
           />
+        </div>
+      )}
+
+      {overrideOpen && coverageGap && (
+        <div style={styles.modalOverlay} onMouseDown={(e) => {
+          if (e.target === e.currentTarget && !savingOverride) setOverrideOpen(false);
+        }}>
+          <div style={{ ...styles.modalCard, width: "min(520px, 94vw)", maxHeight: "none" }}>
+            <div style={styles.modalHeader}>
+              <div>
+                <h2 style={styles.modalTitle}>Accepter l’écart</h2>
+                <p style={styles.modalSubtitle}>
+                  Trou de couverture de {coverageGap.days} jours, du {coverageGap.start.toLocaleDateString("fr-CA")} au {coverageGap.end.toLocaleDateString("fr-CA")}.
+                </p>
+              </div>
+              <button type="button" style={styles.modalCloseBtn} onClick={() => setOverrideOpen(false)} disabled={savingOverride}>×</button>
+            </div>
+            <div style={styles.modalBody}>
+              <label style={styles.fieldLabel}>Justification *</label>
+              <textarea
+                value={overrideJustification}
+                onChange={(e) => setOverrideJustification(e.target.value)}
+                placeholder="Ex. rendez-vous atelier retardé"
+                rows={4}
+                style={{ ...styles.input, width: "100%", height: "auto", padding: 10, resize: "vertical" }}
+                autoFocus
+              />
+            </div>
+            <div style={styles.modalFooter}>
+              <button type="button" style={styles.secondaryBtn} onClick={() => setOverrideOpen(false)} disabled={savingOverride}>Annuler</button>
+              <button
+                type="button"
+                style={{ ...styles.primaryBtn, ...(!overrideJustification.trim() ? styles.disabledBtn : {}) }}
+                onClick={acceptCoverageGap}
+                disabled={savingOverride || !overrideJustification.trim()}
+              >
+                {savingOverride ? "Sauvegarde…" : "Accepter"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

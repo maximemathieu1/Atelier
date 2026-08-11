@@ -21,6 +21,15 @@ type UniteRow = {
   date_mise_en_service?: string | null;
 };
 
+type ComplianceOverrideRow = {
+  id: string;
+  unite_id: string;
+  gap_start: string;
+  gap_end: string;
+  gap_days: number;
+  justification: string;
+};
+
 type PepRow = {
   id: string;
   unite_id?: string | null;
@@ -276,6 +285,7 @@ export default function DossiersVehiculesPage() {
   const [unites, setUnites] = useState<UniteRow[]>([]);
   const [peps, setPeps] = useState<PepRow[]>([]);
   const [documents, setDocuments] = useState<VehicleDocumentRow[]>([]);
+  const [complianceOverrides, setComplianceOverrides] = useState<ComplianceOverrideRow[]>([]);
   const [search, setSearch] = useState("");
 
   useEffect(() => {
@@ -285,7 +295,7 @@ export default function DossiersVehiculesPage() {
   async function load() {
     setLoading(true);
 
-    const [unitesRes, pepRes, docsRes] = await Promise.all([
+    const [unitesRes, pepRes, docsRes, overridesRes] = await Promise.all([
     supabase
   .from("unites")
   .select("*")
@@ -303,6 +313,10 @@ export default function DossiersVehiculesPage() {
     .from("vehicle_documents")
     .select("id, unite_id, type_document, created_at, date_expiration")
     .order("created_at", { ascending: false }),
+
+  supabase
+    .from("vehicle_compliance_overrides")
+    .select("id, unite_id, gap_start, gap_end, gap_days, justification"),
 ]);
 
     if (unitesRes.data) {
@@ -319,6 +333,7 @@ export default function DossiersVehiculesPage() {
     }
     if (pepRes.data) setPeps(pepRes.data as PepRow[]);
     if (docsRes.data) setDocuments(docsRes.data as VehicleDocumentRow[]);
+    if (overridesRes.data) setComplianceOverrides(overridesRes.data as ComplianceOverrideRow[]);
 
     setLoading(false);
   }
@@ -370,7 +385,7 @@ export default function DossiersVehiculesPage() {
 
   const alertsByUnite = useMemo(() => {
     type AlertState = {
-      severity: "yellow" | "red";
+      severity: "yellow" | "orange" | "red";
       reasons: string[];
     };
 
@@ -428,10 +443,26 @@ export default function DossiersVehiculesPage() {
         );
 
       const coverageGap = getCoverageGap(unitPeps, cvmDocs, unite.date_mise_en_service);
+      let hasAcceptedCoverageGap = false;
       if (coverageGap) {
-        redReasons.push(
-          `Historique PEP/CVM incomplet sur 24 mois — trou de ${coverageGap.days} jours`,
+        const gapStart = coverageGap.start.toISOString().slice(0, 10);
+        const gapEnd = coverageGap.end.toISOString().slice(0, 10);
+        const accepted = complianceOverrides.find(
+          (row) =>
+            row.unite_id === unite.id &&
+            row.gap_start === gapStart &&
+            row.gap_end === gapEnd,
         );
+        if (accepted) {
+          hasAcceptedCoverageGap = true;
+          yellowReasons.push(
+            `Conforme avec dérogation — écart de ${coverageGap.days} jours : ${accepted.justification}`,
+          );
+        } else {
+          redReasons.push(
+            `Historique PEP/CVM incomplet — trou de ${coverageGap.days} jours`,
+          );
+        }
       }
 
       const latestCvm = cvmDocs[0] ?? null;
@@ -525,14 +556,14 @@ export default function DossiersVehiculesPage() {
         });
       } else if (yellowReasons.length > 0) {
         alerts.set(unite.id, {
-          severity: "yellow",
+          severity: hasAcceptedCoverageGap ? "orange" : "yellow",
           reasons: yellowReasons,
         });
       }
     }
 
     return alerts;
-  }, [documents, unites, pepsByUnite]);
+  }, [documents, unites, pepsByUnite, complianceOverrides]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -608,7 +639,7 @@ export default function DossiersVehiculesPage() {
                       style={{
                         ...styles.tr,
                         ...(alertState?.severity === "red" ? styles.trDanger : {}),
-                        ...(alertState?.severity === "yellow" ? styles.trWarning : {}),
+                        ...((alertState?.severity === "yellow" || alertState?.severity === "orange") ? styles.trWarning : {}),
                       }}
                       onDoubleClick={() => navigate(`/admin/dossiers-vehicules/${u.id}`)}
                       title={
@@ -635,7 +666,9 @@ export default function DossiersVehiculesPage() {
                             >
                               {alertState?.severity === "red"
                                 ? "Action requise"
-                                : "À surveiller"}
+                                : alertState?.severity === "orange"
+                                  ? "Conforme avec dérogation"
+                                  : "À surveiller"}
                             </span>
                           </div>
                         ) : (
