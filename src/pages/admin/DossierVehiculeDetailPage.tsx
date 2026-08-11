@@ -201,14 +201,24 @@ function startOfToday() {
 type CoverageInterval = {
   start: Date;
   end: Date;
-  source: "pep" | "cvm";
+  source: "pep" | "cvm" | "grace";
 };
 
 function buildRegulatoryCoverage(
   peps: Array<{ date_pep?: string | null; date?: string | null; created_at?: string | null; date_prochain?: string | null }>,
   cvms: Array<{ date_expiration?: string | null }>,
+  miseEnServiceValue?: string | null,
 ) {
   const intervals: CoverageInterval[] = [];
+
+  const miseEnService = parseLocalDate(miseEnServiceValue);
+  if (miseEnService) {
+    intervals.push({
+      start: miseEnService,
+      end: addMonths(miseEnService, 3),
+      source: "grace",
+    });
+  }
 
   for (const pep of peps) {
     const start = parseLocalDate(pep.date_pep || pep.date || pep.created_at);
@@ -239,7 +249,7 @@ function getCoverageGap(
     miseEnService && miseEnService.getTime() > twentyFourMonthsAgo.getTime()
       ? miseEnService
       : twentyFourMonthsAgo;
-  const intervals = buildRegulatoryCoverage(peps, cvms).filter(
+  const intervals = buildRegulatoryCoverage(peps, cvms, miseEnServiceValue).filter(
     (interval) =>
       interval.end.getTime() >= requiredStart.getTime() &&
       interval.start.getTime() <= today.getTime(),
@@ -634,6 +644,17 @@ export default function DossierVehiculeDetailPage() {
     () => getCoverageGap(peps, cvmDocuments, unite?.date_mise_en_service),
     [peps, cvmDocuments, unite?.date_mise_en_service],
   );
+
+  const firstPepGraceEnd = useMemo(() => {
+    const miseEnService = parseLocalDate(unite?.date_mise_en_service);
+    return miseEnService ? addMonths(miseEnService, 3) : null;
+  }, [unite?.date_mise_en_service]);
+
+  const firstPepGraceActive = Boolean(
+    firstPepGraceEnd &&
+      startOfToday().getTime() <= firstPepGraceEnd.getTime() &&
+      peps.length === 0,
+  );
   const recentBts = bts.slice(0, 5);
   const recentDocs = documents.slice(0, 5);
 
@@ -761,6 +782,7 @@ export default function DossierVehiculeDetailPage() {
       : null;
   }
 
+ 
 
   function closePepImportModal() {
     if (pepImporting) return;
@@ -1035,14 +1057,29 @@ export default function DossierVehiculeDetailPage() {
         null
       : peps[0] ?? null;
 
+  const serviceDateForPep = parseLocalDate(unite.date_mise_en_service);
+  const initialPepGraceEnd = serviceDateForPep
+    ? addMonths(serviceDateForPep, 3)
+    : null;
+  const initialPepGraceIsActive = Boolean(
+    initialPepGraceEnd &&
+      startOfToday().getTime() <= initialPepGraceEnd.getTime() &&
+      peps.length === 0,
+  );
+
   const pepCurrentStatus: AlertBadge = cvmIsValid
     ? { label: "Non requis — CVM valide", style: styles.statusOk }
-    : lastCvm?.date_expiration && !applicablePep
+    : initialPepGraceIsActive
       ? {
-          label: "Nouveau CVM ou PEP valide requis",
-          style: styles.statusDanger,
+          label: `Grâce premier PEP jusqu’au ${initialPepGraceEnd!.toLocaleDateString("fr-CA")}`,
+          style: styles.statusOk,
         }
-      : pepStatus(applicablePep);
+      : lastCvm?.date_expiration && !applicablePep
+        ? {
+            label: "Nouveau CVM ou PEP valide requis",
+            style: styles.statusDanger,
+          }
+        : pepStatus(applicablePep);
 
   const vignetteExpiredDays = daysExpired(unite.pep_vignette_expiration);
   const vignetteDaysRemaining = daysUntilExpiration(
@@ -1051,7 +1088,9 @@ export default function DossierVehiculeDetailPage() {
 
   const pepVignetteStatus: AlertBadge = cvmIsValid
     ? { label: "Non requise — CVM valide", style: styles.statusOk }
-    : !applicablePep
+    : initialPepGraceIsActive
+      ? { label: "Non requise — grâce premier PEP", style: styles.statusOk }
+      : !applicablePep
       ? {
           label: "En attente d’un PEP valide",
           style: styles.statusDanger,
@@ -1180,6 +1219,23 @@ export default function DossierVehiculeDetailPage() {
                     : { label: "Complet", style: styles.statusOk }
                 }
               />
+              {unite.date_mise_en_service && firstPepGraceEnd ? (
+                <SummaryWithBadge
+                  label="Premier PEP"
+                  value={
+                    firstPepGraceActive
+                      ? `Période de grâce jusqu’au ${firstPepGraceEnd.toLocaleDateString("fr-CA")}`
+                      : `Échéance initiale : ${firstPepGraceEnd.toLocaleDateString("fr-CA")}`
+                  }
+                  badge={
+                    firstPepGraceActive
+                      ? { label: "Grâce active", style: styles.statusOk }
+                      : peps.length === 0
+                        ? { label: "PEP requis", style: styles.statusDanger }
+                        : { label: "Effectué", style: styles.statusOk }
+                  }
+                />
+              ) : null}
               <SummaryWithBadge label="Assurance" value={formatDate(lastAssurance?.date_expiration)} badge={assuranceStatus} />
               <SummaryWithBadge label="Immatriculation" value={formatDate(lastImmatriculation?.date_expiration)} badge={immatStatus} />
               <SummaryWithBadge label="Vignette PEP" value={formatDate(unite.pep_vignette_expiration)} badge={pepVignetteStatus} />

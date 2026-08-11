@@ -99,14 +99,24 @@ function startOfToday() {
 type CoverageInterval = {
   start: Date;
   end: Date;
-  source: "pep" | "cvm";
+  source: "pep" | "cvm" | "grace";
 };
 
 function buildRegulatoryCoverage(
   peps: Array<{ date_pep?: string | null; date?: string | null; created_at?: string | null; date_prochain?: string | null }>,
   cvms: Array<{ date_expiration?: string | null }>,
+  miseEnServiceValue?: string | null,
 ) {
   const intervals: CoverageInterval[] = [];
+
+  const miseEnService = parseLocalDate(miseEnServiceValue);
+  if (miseEnService) {
+    intervals.push({
+      start: miseEnService,
+      end: addMonths(miseEnService, 3),
+      source: "grace",
+    });
+  }
 
   for (const pep of peps) {
     const start = parseLocalDate(pep.date_pep || pep.date || pep.created_at);
@@ -137,7 +147,7 @@ function getCoverageGap(
     miseEnService && miseEnService.getTime() > twentyFourMonthsAgo.getTime()
       ? miseEnService
       : twentyFourMonthsAgo;
-  const intervals = buildRegulatoryCoverage(peps, cvms).filter(
+  const intervals = buildRegulatoryCoverage(peps, cvms, miseEnServiceValue).filter(
     (interval) =>
       interval.end.getTime() >= requiredStart.getTime() &&
       interval.start.getTime() <= today.getTime(),
