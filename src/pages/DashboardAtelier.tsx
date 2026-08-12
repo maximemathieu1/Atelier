@@ -146,6 +146,11 @@ type UniteJobRow = {
   marque: string | null;
   modele: string | null;
   actif?: boolean | null;
+  client?: {
+    nom: string | null;
+  } | {
+    nom: string | null;
+  }[] | null;
 };
 
 type AtelierJobJour = {
@@ -302,6 +307,8 @@ export default function DashboardAtelier() {
   const [jobsJour, setJobsJour] = useState<AtelierJobJour[]>([]);
   const [jobEmployeId, setJobEmployeId] = useState("");
   const [jobUniteId, setJobUniteId] = useState("");
+  const [jobUniteSearch, setJobUniteSearch] = useState("");
+  const [jobUniteMenuOpen, setJobUniteMenuOpen] = useState(false);
   const [jobDescription, setJobDescription] = useState("");
   const [jobBusy, setJobBusy] = useState(false);
   const [draggedJobId, setDraggedJobId] = useState<string | null>(null);
@@ -364,7 +371,7 @@ export default function DashboardAtelier() {
         .order("nom_complet", { ascending: true }),
       supabase
         .from("unites")
-        .select("id,no_unite,marque,modele,actif")
+        .select("id,no_unite,marque,modele,actif,client:clients!unites_client_id_fkey(nom)")
         .eq("actif", true)
         .order("no_unite", { ascending: true }),
       supabase
@@ -427,6 +434,8 @@ export default function DashboardAtelier() {
 
       setJobDescription("");
       setJobUniteId("");
+      setJobUniteSearch("");
+      setJobUniteMenuOpen(false);
       await loadGestionContext();
     } catch (err: any) {
       alert(err?.message ?? "Impossible d'ajouter la tâche.");
@@ -1695,6 +1704,34 @@ export default function DashboardAtelier() {
       .filter((group) => group.jobs.length > 0);
   }, [employesJobs, jobsJour]);
 
+  function getJobUniteClientNom(unite: UniteJobRow) {
+    const client = unite.client;
+    if (Array.isArray(client)) return client[0]?.nom || "";
+    return client?.nom || "";
+  }
+
+  const filteredJobUnites = useMemo(() => {
+    const q = jobUniteSearch.trim().toLowerCase();
+
+    if (!q) return unitesJobs.slice(0, 30);
+
+    return unitesJobs
+      .filter((u) => {
+        const haystack = [
+          u.no_unite,
+          u.marque,
+          u.modele,
+          getJobUniteClientNom(u),
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+
+        return haystack.includes(q);
+      })
+      .slice(0, 30);
+  }, [unitesJobs, jobUniteSearch]);
+
   if (loading) {
     return (
       <div style={styles.page}>
@@ -2230,21 +2267,75 @@ export default function DashboardAtelier() {
                 </select>
               </div>
 
-              <div>
+              <div style={{ position: "relative" }}>
                 <div style={styles.jobsFieldLabel}>Unité</div>
-                <select
+
+                <input
                   style={styles.jobsInput}
-                  value={jobUniteId}
-                  onChange={(e) => setJobUniteId(e.target.value)}
+                  value={jobUniteSearch}
+                  onFocus={() => setJobUniteMenuOpen(true)}
+                  onChange={(e) => {
+                    setJobUniteSearch(e.target.value);
+                    setJobUniteId("");
+                    setJobUniteMenuOpen(true);
+                  }}
+                  placeholder="Unité, client, marque ou modèle"
+                  autoComplete="off"
                   disabled={jobBusy}
-                >
-                  <option value="">Sans unité</option>
-                  {unitesJobs.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.no_unite || "—"} — {[u.marque, u.modele].filter(Boolean).join(" ")}
-                    </option>
-                  ))}
-                </select>
+                />
+
+                {jobUniteMenuOpen ? (
+                  <div style={styles.jobsUnitDropdown}>
+                    <button
+                      type="button"
+                      style={styles.jobsUnitOption}
+                      onClick={() => {
+                        setJobUniteId("");
+                        setJobUniteSearch("");
+                        setJobUniteMenuOpen(false);
+                      }}
+                    >
+                      <div style={styles.jobsUnitOptionMain}>Sans unité</div>
+                      <div style={styles.jobsUnitOptionSub}>Tâche générale d’atelier</div>
+                    </button>
+
+                    {filteredJobUnites.length === 0 ? (
+                      <div style={styles.jobsUnitEmpty}>Aucune unité trouvée.</div>
+                    ) : (
+                      filteredJobUnites.map((u) => (
+                        <button
+                          key={u.id}
+                          type="button"
+                          style={{
+                            ...styles.jobsUnitOption,
+                            ...(jobUniteId === u.id ? styles.jobsUnitOptionSelected : {}),
+                          }}
+                          onClick={() => {
+                            setJobUniteId(u.id);
+                            setJobUniteSearch(
+                              `${u.no_unite || "—"} — ${[u.marque, u.modele]
+                                .filter(Boolean)
+                                .join(" ")}${
+                                  getJobUniteClientNom(u)
+                                    ? ` • ${getJobUniteClientNom(u)}`
+                                    : ""
+                                }`.trim(),
+                            );
+                            setJobUniteMenuOpen(false);
+                          }}
+                        >
+                          <div style={styles.jobsUnitOptionMain}>{u.no_unite || "—"}</div>
+                          <div style={styles.jobsUnitOptionSub}>
+                            {[u.marque, u.modele].filter(Boolean).join(" ") || "—"}
+                            {getJobUniteClientNom(u)
+                              ? ` • Client : ${getJobUniteClientNom(u)}`
+                              : ""}
+                          </div>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                ) : null}
               </div>
 
               <div style={{ gridColumn: "1 / -1" }}>
@@ -2831,6 +2922,46 @@ const styles: Record<string, CSSProperties> = {
     padding: "0 12px",
     font: "inherit",
     boxSizing: "border-box",
+  },
+  jobsUnitDropdown: {
+    position: "absolute",
+    top: "calc(100% + 6px)",
+    left: 0,
+    right: 0,
+    zIndex: 1000,
+    maxHeight: 320,
+    overflowY: "auto",
+    border: "1px solid #d5dce8",
+    borderRadius: 12,
+    background: "#fff",
+    boxShadow: "0 16px 36px rgba(15,23,42,.16)",
+  },
+  jobsUnitOption: {
+    width: "100%",
+    border: "none",
+    borderBottom: "1px solid #edf1f6",
+    background: "#fff",
+    padding: "10px 12px",
+    textAlign: "left",
+    cursor: "pointer",
+  },
+  jobsUnitOptionSelected: {
+    background: "#eef4ff",
+  },
+  jobsUnitOptionMain: {
+    fontSize: 14,
+    fontWeight: 850,
+    color: "#162033",
+  },
+  jobsUnitOptionSub: {
+    fontSize: 12,
+    color: "#60708a",
+    marginTop: 3,
+  },
+  jobsUnitEmpty: {
+    padding: "12px",
+    color: "#74839b",
+    fontSize: 13,
   },
   jobsDescriptionRow: {
     display: "grid",

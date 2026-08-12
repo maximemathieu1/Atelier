@@ -1839,7 +1839,7 @@ export default function OperationTempsReelPage() {
       {!activePointage && employeConnecte && (
         <div style={styles.jobsCard}>
           <div style={styles.jobsHeader}>
-            <div style={styles.jobsTitle}>Mes tâches</div>
+            <div style={styles.jobsTitle}>Ordre du jour</div>
             <div style={styles.jobsCount}>{jobsJour.length}</div>
           </div>
 
@@ -1875,7 +1875,7 @@ export default function OperationTempsReelPage() {
                     onClick={() => void terminerJob(job)}
                     disabled={jobBusyId === job.id}
                   >
-                    {jobBusyId === job.id ? "..." : "✓ Terminer"}
+                    {jobBusyId === job.id ? "..." : "Marquer comme fait"}
                   </button>
                 </div>
               ))}
