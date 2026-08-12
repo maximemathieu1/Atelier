@@ -994,6 +994,41 @@ export default function DossierVehiculeDetailPage() {
     }
   }
 
+  async function deletePepArchive(pep: PepArchiveRow) {
+    const pepDate = formatDate(pep.date_pep || pep.created_at);
+    const ok = window.confirm(
+      `Supprimer le PEP du ${pepDate} ?\n\nCette action est définitive.`,
+    );
+    if (!ok) return;
+
+    const importedPath = importedPepStoragePath(pep);
+
+    const { error: deleteDbError } = await supabase
+      .from("pep_archives")
+      .delete()
+      .eq("id", pep.id);
+
+    if (deleteDbError) {
+      alert(`Erreur suppression PEP : ${deleteDbError.message}`);
+      return;
+    }
+
+    if (importedPath) {
+      const { error: deleteStorageError } = await supabase.storage
+        .from(BUCKET_NAME)
+        .remove([importedPath]);
+
+      if (deleteStorageError) {
+        console.error(
+          "PEP supprimé de l'historique, mais erreur suppression du PDF :",
+          deleteStorageError,
+        );
+      }
+    }
+
+    await load();
+  }
+
   async function saveVignette() {
     if (!uniteId) return;
 
@@ -1432,6 +1467,7 @@ export default function DossierVehiculeDetailPage() {
                 <Th>Provenance</Th>
                 <Th>BT lié</Th>
                 <Th>Document</Th>
+                <Th>Actions</Th>
               </tr>
             </thead>
             <tbody>
@@ -1474,9 +1510,18 @@ export default function DossierVehiculeDetailPage() {
                         Voir PEP
                       </button>
                     </Td>
+                    <Td>
+                      <button
+                        type="button"
+                        style={styles.dangerBtn}
+                        onClick={() => deletePepArchive(pep)}
+                      >
+                        Supprimer
+                      </button>
+                    </Td>
                   </tr>
                 );
-              })}{peps.length === 0 && <EmptyRow colSpan={6} label="Aucun PEP archivé." />}
+              })}{peps.length === 0 && <EmptyRow colSpan={7} label="Aucun PEP archivé." />}
             </tbody>
           </DataTable>
 
