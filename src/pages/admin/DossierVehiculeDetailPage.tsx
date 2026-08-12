@@ -247,7 +247,13 @@ function buildRegulatoryCoverage(
   return intervals.sort((a, b) => a.start.getTime() - b.start.getTime());
 }
 
-function getCoverageGap(
+type CoverageGap = {
+  start: Date;
+  end: Date;
+  days: number;
+};
+
+function getCoverageGaps(
   peps: Array<{ date_pep?: string | null; date?: string | null; created_at?: string | null; date_prochain?: string | null }>,
   cvms: Array<{ date_expiration?: string | null }>,
   miseEnServiceValue?: string | null,
@@ -259,41 +265,51 @@ function getCoverageGap(
     miseEnService && miseEnService.getTime() > twentyFourMonthsAgo.getTime()
       ? miseEnService
       : twentyFourMonthsAgo;
-  const intervals = buildRegulatoryCoverage(peps, cvms, miseEnServiceValue).filter(
+
+  const intervals = buildRegulatoryCoverage(
+    peps,
+    cvms,
+    miseEnServiceValue,
+  ).filter(
     (interval) =>
       interval.end.getTime() >= requiredStart.getTime() &&
       interval.start.getTime() <= today.getTime(),
   );
 
+  const gaps: CoverageGap[] = [];
   let coveredUntil = new Date(requiredStart);
 
   for (const interval of intervals) {
     if (interval.end.getTime() < coveredUntil.getTime()) continue;
 
     if (interval.start.getTime() > coveredUntil.getTime()) {
-      return {
-        start: coveredUntil,
-        end: interval.start,
+      gaps.push({
+        start: new Date(coveredUntil),
+        end: new Date(interval.start),
         days: Math.ceil(
           (interval.start.getTime() - coveredUntil.getTime()) / 86400000,
         ),
-      };
+      });
     }
 
     if (interval.end.getTime() > coveredUntil.getTime()) {
       coveredUntil = new Date(interval.end);
     }
 
-    if (coveredUntil.getTime() >= today.getTime()) return null;
+    if (coveredUntil.getTime() >= today.getTime()) break;
   }
 
-  return coveredUntil.getTime() < today.getTime()
-    ? {
-        start: coveredUntil,
-        end: today,
-        days: Math.ceil((today.getTime() - coveredUntil.getTime()) / 86400000),
-      }
-    : null;
+  if (coveredUntil.getTime() < today.getTime()) {
+    gaps.push({
+      start: new Date(coveredUntil),
+      end: new Date(today),
+      days: Math.ceil(
+        (today.getTime() - coveredUntil.getTime()) / 86400000,
+      ),
+    });
+  }
+
+  return gaps;
 }
 
 function getPepDueDate(pep?: PepArchiveRow | null) {
@@ -661,19 +677,36 @@ export default function DossierVehiculeDetailPage() {
   );
 
 
-  const coverageGap = useMemo(
-    () => getCoverageGap(peps, cvmDocuments, unite?.date_mise_en_service),
+  const coverageGaps = useMemo(
+    () => getCoverageGaps(peps, cvmDocuments, unite?.date_mise_en_service),
     [peps, cvmDocuments, unite?.date_mise_en_service],
   );
 
-  const matchingCoverageOverride = useMemo(() => {
-    if (!coverageGap) return null;
-    const gapStart = coverageGap.start.toISOString().slice(0, 10);
-    const gapEnd = coverageGap.end.toISOString().slice(0, 10);
-    return complianceOverrides.find(
-      (row) => row.gap_start === gapStart && row.gap_end === gapEnd,
-    ) ?? null;
-  }, [coverageGap, complianceOverrides]);
+  const unresolvedCoverageGaps = useMemo(
+    () =>
+      coverageGaps.filter((gap) => {
+        const gapStart = gap.start.toISOString().slice(0, 10);
+        const gapEnd = gap.end.toISOString().slice(0, 10);
+
+        return !complianceOverrides.some(
+          (row) =>
+            row.gap_start === gapStart &&
+            row.gap_end === gapEnd,
+        );
+      }),
+    [coverageGaps, complianceOverrides],
+  );
+
+  const coverageGap = unresolvedCoverageGaps[0] ?? null;
+
+  const totalUnresolvedGapDays = useMemo(
+    () =>
+      unresolvedCoverageGaps.reduce(
+        (total, gap) => total + gap.days,
+        0,
+      ),
+    [unresolvedCoverageGaps],
+  );
 
   async function acceptCoverageGap() {
     if (!uniteId || !coverageGap || !overrideJustification.trim()) return;
@@ -1326,10 +1359,10 @@ export default function DossierVehiculeDetailPage() {
               <SummaryWithBadge
                 label="Historique requis"
                 value={
-                  coverageGap
-                    ? matchingCoverageOverride
-                      ? "Historique conforme"
-                      : `Trou de couverture de ${coverageGap.days} jours`
+                  unresolvedCoverageGaps.length > 0
+                    ? unresolvedCoverageGaps.length === 1
+                      ? `1 trou de couverture de ${unresolvedCoverageGaps[0].days} jours`
+                      : `${unresolvedCoverageGaps.length} trous de couverture — ${totalUnresolvedGapDays} jours au total`
                     : unite.date_mise_en_service &&
                       parseLocalDate(unite.date_mise_en_service) &&
                       parseLocalDate(unite.date_mise_en_service)!.getTime() >
@@ -1338,13 +1371,13 @@ export default function DossierVehiculeDetailPage() {
                       : "Couverture PEP / CVM complète sur 24 mois"
                 }
                 badge={
-                  coverageGap && !matchingCoverageOverride
+                  unresolvedCoverageGaps.length > 0
                     ? { label: "Non conforme", style: styles.statusDanger }
                     : { label: "Valide", style: styles.statusOk }
                 }
               />
               <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: -2, flexWrap: "wrap" }}>
-                {coverageGap && !matchingCoverageOverride ? (
+                {coverageGap ? (
                   <button type="button" style={styles.secondaryBtn} onClick={() => setOverrideOpen(true)}>
                     Accepter l’écart
                   </button>
@@ -1359,6 +1392,48 @@ export default function DossierVehiculeDetailPage() {
                   </button>
                 ) : null}
               </div>
+
+              {unresolvedCoverageGaps.length > 0 ? (
+                <div style={styles.coverageGapList}>
+                  {unresolvedCoverageGaps.map((gap, index) => (
+                    <div
+                      key={`${gap.start.toISOString()}-${gap.end.toISOString()}`}
+                      style={styles.coverageGapRow}
+                    >
+                      <div>
+                        <strong>Écart {index + 1}</strong>
+                        <div style={styles.muted}>
+                          {gap.start.toLocaleDateString("fr-CA")} au{" "}
+                          {gap.end.toLocaleDateString("fr-CA")} — {gap.days} jour
+                          {gap.days > 1 ? "s" : ""}
+                        </div>
+                      </div>
+                      {index === 0 ? (
+                        <span
+                          style={{
+                            ...styles.statusBadge,
+                            ...styles.statusDanger,
+                            marginTop: 0,
+                          }}
+                        >
+                          À traiter
+                        </span>
+                      ) : (
+                        <span
+                          style={{
+                            ...styles.statusBadge,
+                            ...styles.statusNeutral,
+                            marginTop: 0,
+                          }}
+                        >
+                          En attente
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
               {unite.date_mise_en_service && firstPepGraceEnd ? (
                 <SummaryWithBadge
                   label="Premier PEP"
@@ -2535,6 +2610,23 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: "pointer",
     padding: "8px 2px",
     fontWeight: 700,
+  },
+  coverageGapList: {
+    display: "grid",
+    gap: 8,
+    marginTop: 6,
+    padding: 10,
+    border: "1px solid #fecaca",
+    borderRadius: 10,
+    background: "#fff7f7",
+  },
+  coverageGapRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+    padding: "7px 0",
+    borderBottom: "1px solid #fee2e2",
   },
   overrideHistoryList: {
     display: "grid",
