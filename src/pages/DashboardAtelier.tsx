@@ -132,6 +132,42 @@ type ActiveMecano = {
   btNumero?: string | null;
 };
 
+type EmployeGestionRow = {
+  id: string;
+  auth_user_id?: string | null;
+  nom_complet: string;
+  role?: string | null;
+  actif: boolean;
+};
+
+type UniteJobRow = {
+  id: string;
+  no_unite: string | null;
+  marque: string | null;
+  modele: string | null;
+  actif?: boolean | null;
+};
+
+type AtelierJobJour = {
+  id: string;
+  employe_id: string;
+  unite_id: string | null;
+  description: string;
+  ordre: number;
+  created_at: string;
+  completed_at: string | null;
+  employes?: {
+    id: string;
+    nom_complet: string;
+  } | null;
+  unites?: {
+    id: string;
+    no_unite: string | null;
+    marque: string | null;
+    modele: string | null;
+  } | null;
+};
+
 type EntretienFilterKey = "tous" | "jamais_fait" | "en_retard" | "a_prevoir";
 
 type DashboardTab =
@@ -139,7 +175,8 @@ type DashboardTab =
   | "entretiens"
   | "suivis"
   | "taches_ouvertes"
-  | "stock_bas";
+  | "stock_bas"
+  | "jobs_jour";
 
 type SuiviTacheType = "a_planifier" | "urgent" | "hors_service";
 
@@ -258,6 +295,17 @@ export default function DashboardAtelier() {
     () => new Set(),
   );
 
+  const [employeConnecte, setEmployeConnecte] =
+    useState<EmployeGestionRow | null>(null);
+  const [employesJobs, setEmployesJobs] = useState<EmployeGestionRow[]>([]);
+  const [unitesJobs, setUnitesJobs] = useState<UniteJobRow[]>([]);
+  const [jobsJour, setJobsJour] = useState<AtelierJobJour[]>([]);
+  const [jobEmployeId, setJobEmployeId] = useState("");
+  const [jobUniteId, setJobUniteId] = useState("");
+  const [jobDescription, setJobDescription] = useState("");
+  const [jobBusy, setJobBusy] = useState(false);
+  const [draggedJobId, setDraggedJobId] = useState<string | null>(null);
+
   const horsServiceTasks = useMemo(
     () => openTasks.filter((task) => task.suivi_type === "hors_service"),
     [openTasks],
@@ -275,6 +323,182 @@ export default function DashboardAtelier() {
 
   const suiviTasksCount =
     horsServiceTasks.length + urgentTasks.length + planifierTasks.length;
+
+  async function loadGestionContext() {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user?.id) {
+      setEmployeConnecte(null);
+      setEmployesJobs([]);
+      setUnitesJobs([]);
+      setJobsJour([]);
+      return;
+    }
+
+    const { data: me, error: meError } = await supabase
+      .from("employes")
+      .select("id,auth_user_id,nom_complet,role,actif")
+      .eq("auth_user_id", user.id)
+      .maybeSingle();
+
+    if (meError) throw meError;
+
+    const current = (me as EmployeGestionRow | null) ?? null;
+    setEmployeConnecte(current);
+
+    if ((current?.role || "").trim().toLowerCase() !== "gestion") {
+      setEmployesJobs([]);
+      setUnitesJobs([]);
+      setJobsJour([]);
+      if (activeTab === "jobs_jour") setActiveTab("vue_generale");
+      return;
+    }
+
+    const [employesRes, unitesRes, jobsRes] = await Promise.all([
+      supabase
+        .from("employes")
+        .select("id,auth_user_id,nom_complet,role,actif")
+        .eq("actif", true)
+        .order("nom_complet", { ascending: true }),
+      supabase
+        .from("unites")
+        .select("id,no_unite,marque,modele,actif")
+        .eq("actif", true)
+        .order("no_unite", { ascending: true }),
+      supabase
+        .from("atelier_jobs_jour")
+        .select(`
+          id,
+          employe_id,
+          unite_id,
+          description,
+          ordre,
+          created_at,
+          completed_at,
+          employes:employe_id (
+            id,
+            nom_complet
+          ),
+          unites:unite_id (
+            id,
+            no_unite,
+            marque,
+            modele
+          )
+        `)
+        .is("completed_at", null)
+        .order("employe_id", { ascending: true })
+        .order("ordre", { ascending: true })
+        .order("created_at", { ascending: true }),
+    ]);
+
+    if (employesRes.error) throw employesRes.error;
+    if (unitesRes.error) throw unitesRes.error;
+    if (jobsRes.error) throw jobsRes.error;
+
+    setEmployesJobs((employesRes.data || []) as EmployeGestionRow[]);
+    setUnitesJobs((unitesRes.data || []) as UniteJobRow[]);
+    setJobsJour((jobsRes.data || []) as unknown as AtelierJobJour[]);
+  }
+
+  async function ajouterJobJour() {
+    const description = jobDescription.trim();
+    if (!jobEmployeId || !description || jobBusy) return;
+
+    setJobBusy(true);
+    try {
+      const sameEmployee = jobsJour.filter(
+        (job) => job.employe_id === jobEmployeId && !job.completed_at,
+      );
+      const nextOrder =
+        sameEmployee.reduce((max, job) => Math.max(max, Number(job.ordre || 0)), 0) + 1;
+
+      const { error } = await supabase.from("atelier_jobs_jour").insert({
+        employe_id: jobEmployeId,
+        unite_id: jobUniteId || null,
+        description,
+        ordre: nextOrder,
+        created_by: employeConnecte?.id || null,
+      });
+
+      if (error) throw error;
+
+      setJobDescription("");
+      setJobUniteId("");
+      await loadGestionContext();
+    } catch (err: any) {
+      alert(err?.message ?? "Impossible d'ajouter la tâche.");
+    } finally {
+      setJobBusy(false);
+    }
+  }
+
+  async function supprimerJobJour(jobId: string) {
+    if (!confirm("Supprimer cette tâche ?")) return;
+
+    setJobBusy(true);
+    try {
+      const { error } = await supabase
+        .from("atelier_jobs_jour")
+        .delete()
+        .eq("id", jobId);
+
+      if (error) throw error;
+      await loadGestionContext();
+    } catch (err: any) {
+      alert(err?.message ?? "Impossible de supprimer la tâche.");
+    } finally {
+      setJobBusy(false);
+    }
+  }
+
+  async function reorderEmployeeJobs(
+    employeId: string,
+    draggedId: string,
+    targetId: string,
+  ) {
+    if (draggedId === targetId || jobBusy) return;
+
+    const employeeJobs = jobsJour
+      .filter((job) => job.employe_id === employeId && !job.completed_at)
+      .sort((a, b) => Number(a.ordre) - Number(b.ordre));
+
+    const fromIndex = employeeJobs.findIndex((job) => job.id === draggedId);
+    const toIndex = employeeJobs.findIndex((job) => job.id === targetId);
+    if (fromIndex < 0 || toIndex < 0) return;
+
+    const next = [...employeeJobs];
+    const [moved] = next.splice(fromIndex, 1);
+    next.splice(toIndex, 0, moved);
+
+    setJobsJour((current) => {
+      const other = current.filter((job) => job.employe_id !== employeId);
+      return [
+        ...other,
+        ...next.map((job, index) => ({ ...job, ordre: index + 1 })),
+      ];
+    });
+
+    setJobBusy(true);
+    try {
+      for (let index = 0; index < next.length; index += 1) {
+        const { error } = await supabase
+          .from("atelier_jobs_jour")
+          .update({ ordre: index + 1 })
+          .eq("id", next[index].id);
+
+        if (error) throw error;
+      }
+    } catch (err: any) {
+      alert(err?.message ?? "Impossible de réordonner les tâches.");
+      await loadGestionContext();
+    } finally {
+      setJobBusy(false);
+      setDraggedJobId(null);
+    }
+  }
 
   async function loadDashboard(isRefresh = false) {
     try {
@@ -671,7 +895,8 @@ export default function DashboardAtelier() {
   }
 
   useEffect(() => {
-    void loadDashboard();
+    void Promise.all([loadDashboard(), loadGestionContext()]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -696,6 +921,11 @@ export default function DashboardAtelier() {
         "postgres_changes",
         { event: "*", schema: "public", table: "unite_notes" },
         () => loadDashboard(true),
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "atelier_jobs_jour" },
+        () => void loadGestionContext(),
       )
       .subscribe();
 
@@ -1451,6 +1681,20 @@ export default function DashboardAtelier() {
     );
   }
 
+  const isGestion =
+    (employeConnecte?.role || "").trim().toLowerCase() === "gestion";
+
+  const jobsByEmployee = useMemo(() => {
+    return employesJobs
+      .map((employe) => ({
+        employe,
+        jobs: jobsJour
+          .filter((job) => job.employe_id === employe.id && !job.completed_at)
+          .sort((a, b) => Number(a.ordre) - Number(b.ordre)),
+      }))
+      .filter((group) => group.jobs.length > 0);
+  }, [employesJobs, jobsJour]);
+
   if (loading) {
     return (
       <div style={styles.page}>
@@ -1554,6 +1798,19 @@ export default function DashboardAtelier() {
         >
           Stock bas
         </button>
+
+        {isGestion ? (
+          <button
+            type="button"
+            style={{
+              ...styles.tabBtn,
+              ...(activeTab === "jobs_jour" ? styles.tabBtnActive : {}),
+            }}
+            onClick={() => setActiveTab("jobs_jour")}
+          >
+            Jobs du jour
+          </button>
+        ) : null}
       </div>
 
       {errorMsg ? <div style={styles.errorBox}>{errorMsg}</div> : null}
@@ -1947,6 +2204,150 @@ export default function DashboardAtelier() {
         >
           <StockTable stockBas={data.stockBas} formatNumber={formatNumber} />
         </SectionCard>
+      )}
+
+      {activeTab === "jobs_jour" && isGestion && (
+        <div style={styles.jobsLayout}>
+          <SectionCard
+            title="Ajouter une job"
+            subtitle="La tâche apparaîtra seulement à l'employé sélectionné"
+          >
+            <div style={styles.jobsForm}>
+              <div>
+                <div style={styles.jobsFieldLabel}>Employé</div>
+                <select
+                  style={styles.jobsInput}
+                  value={jobEmployeId}
+                  onChange={(e) => setJobEmployeId(e.target.value)}
+                  disabled={jobBusy}
+                >
+                  <option value="">Sélectionner</option>
+                  {employesJobs.map((emp) => (
+                    <option key={emp.id} value={emp.id}>
+                      {emp.nom_complet}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <div style={styles.jobsFieldLabel}>Unité</div>
+                <select
+                  style={styles.jobsInput}
+                  value={jobUniteId}
+                  onChange={(e) => setJobUniteId(e.target.value)}
+                  disabled={jobBusy}
+                >
+                  <option value="">Sans unité</option>
+                  {unitesJobs.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.no_unite || "—"} — {[u.marque, u.modele].filter(Boolean).join(" ")}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{ gridColumn: "1 / -1" }}>
+                <div style={styles.jobsFieldLabel}>Tâche</div>
+                <div style={styles.jobsDescriptionRow}>
+                  <input
+                    style={styles.jobsInput}
+                    value={jobDescription}
+                    onChange={(e) => setJobDescription(e.target.value)}
+                    placeholder="Ex. Changer les pneus avant"
+                    disabled={jobBusy}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") void ajouterJobJour();
+                    }}
+                  />
+                  <button
+                    type="button"
+                    style={styles.btnPrimary}
+                    onClick={() => void ajouterJobJour()}
+                    disabled={jobBusy || !jobEmployeId || !jobDescription.trim()}
+                  >
+                    Ajouter
+                  </button>
+                </div>
+              </div>
+            </div>
+          </SectionCard>
+
+          <SectionCard
+            title="Ordre de travail"
+            subtitle="Glisse-dépose les tâches pour modifier l'ordre de chaque employé"
+          >
+            {jobsByEmployee.length === 0 ? (
+              <EmptyState text="Aucune tâche active." />
+            ) : (
+              <div style={styles.jobsEmployeeStack}>
+                {jobsByEmployee.map(({ employe, jobs }) => (
+                  <div key={employe.id} style={styles.jobsEmployeeCard}>
+                    <div style={styles.jobsEmployeeHeader}>
+                      <div style={styles.rowTitle}>{employe.nom_complet}</div>
+                      <span style={{ ...styles.badge, ...styles.badgeInfo }}>
+                        {jobs.length}
+                      </span>
+                    </div>
+
+                    <div>
+                      {jobs.map((job, index) => (
+                        <div
+                          key={job.id}
+                          draggable={!jobBusy}
+                          onDragStart={() => setDraggedJobId(job.id)}
+                          onDragEnd={() => setDraggedJobId(null)}
+                          onDragOver={(e) => e.preventDefault()}
+                          onDrop={() => {
+                            if (draggedJobId) {
+                              void reorderEmployeeJobs(
+                                employe.id,
+                                draggedJobId,
+                                job.id,
+                              );
+                            }
+                          }}
+                          style={{
+                            ...styles.jobsDragRow,
+                            ...(draggedJobId === job.id
+                              ? styles.jobsDragRowActive
+                              : {}),
+                          }}
+                        >
+                          <div style={styles.jobsHandle}>☰</div>
+                          <div style={styles.jobsOrderNumber}>{index + 1}</div>
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div style={styles.rowTitle}>
+                              {job.unites?.no_unite
+                                ? `${job.unites.no_unite} — `
+                                : ""}
+                              {job.description}
+                            </div>
+                            <div style={styles.rowSub}>
+                              {job.unites
+                                ? [job.unites.marque, job.unites.modele]
+                                    .filter(Boolean)
+                                    .join(" ") || "Unité liée"
+                                : "Sans unité"}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            style={styles.jobsDeleteBtn}
+                            onClick={() => void supprimerJobJour(job.id)}
+                            disabled={jobBusy}
+                          >
+                            Supprimer
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </SectionCard>
+        </div>
       )}
 
       {btModalId && (
@@ -2402,6 +2803,102 @@ const styles: Record<string, CSSProperties> = {
     display: "grid",
     gridTemplateColumns: "1fr",
     gap: 16,
+  },
+
+  jobsLayout: {
+    display: "grid",
+    gridTemplateColumns: "minmax(320px, .75fr) minmax(520px, 1.25fr)",
+    gap: 16,
+    alignItems: "start",
+  },
+  jobsForm: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: 12,
+  },
+  jobsFieldLabel: {
+    fontSize: 12,
+    color: "#60708a",
+    fontWeight: 800,
+    marginBottom: 6,
+  },
+  jobsInput: {
+    width: "100%",
+    minHeight: 42,
+    borderRadius: 10,
+    border: "1px solid #d5dce8",
+    background: "#fff",
+    padding: "0 12px",
+    font: "inherit",
+    boxSizing: "border-box",
+  },
+  jobsDescriptionRow: {
+    display: "grid",
+    gridTemplateColumns: "minmax(0,1fr) auto",
+    gap: 10,
+  },
+  jobsEmployeeStack: {
+    display: "grid",
+    gap: 14,
+  },
+  jobsEmployeeCard: {
+    border: "1px solid #e4e9f2",
+    borderRadius: 14,
+    background: "#fbfcfe",
+    overflow: "hidden",
+  },
+  jobsEmployeeHeader: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    padding: "11px 12px",
+    background: "#f3f6fb",
+    borderBottom: "1px solid #e4e9f2",
+  },
+  jobsDragRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    padding: "11px 12px",
+    borderBottom: "1px solid #edf1f6",
+    background: "#fff",
+    cursor: "grab",
+  },
+  jobsDragRowActive: {
+    opacity: 0.5,
+    background: "#eef4ff",
+  },
+  jobsHandle: {
+    color: "#94a3b8",
+    fontWeight: 900,
+    fontSize: 18,
+    cursor: "grab",
+    userSelect: "none",
+  },
+  jobsOrderNumber: {
+    width: 28,
+    height: 28,
+    borderRadius: 9,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    background: "#eef2f7",
+    color: "#334155",
+    fontSize: 12,
+    fontWeight: 900,
+    flexShrink: 0,
+  },
+  jobsDeleteBtn: {
+    height: 34,
+    borderRadius: 9,
+    border: "1px solid #f2c2c2",
+    background: "#fff",
+    color: "#c93f3f",
+    padding: "0 10px",
+    fontWeight: 800,
+    cursor: "pointer",
+    flexShrink: 0,
   },
   suiviColumns: {
     display: "grid",

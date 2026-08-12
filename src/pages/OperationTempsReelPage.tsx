@@ -88,6 +88,23 @@ type EmployeListRow = {
   actif: boolean;
 };
 
+type AtelierJobJour = {
+  id: string;
+  employe_id: string;
+  unite_id: string | null;
+  description: string;
+  ordre: number;
+  created_at: string;
+  completed_at: string | null;
+  unites?: {
+    id: string;
+    no_unite: string | null;
+    marque: string | null;
+    modele: string | null;
+    plaque: string | null;
+  } | null;
+};
+
 type KmRpcResponse = {
   ok?: boolean;
   code?: string;
@@ -253,6 +270,9 @@ export default function OperationTempsReelPage() {
   const [employesActifs, setEmployesActifs] = useState<EmployeListRow[]>([]);
   const [selectedEmployeId, setSelectedEmployeId] = useState("");
   const [switchPassword, setSwitchPassword] = useState("");
+
+  const [jobsJour, setJobsJour] = useState<AtelierJobJour[]>([]);
+  const [jobBusyId, setJobBusyId] = useState<string | null>(null);
 
   useEffect(() => {
     const t = window.setInterval(() => setTick((v) => v + 1), 1000);
@@ -475,6 +495,73 @@ export default function OperationTempsReelPage() {
     setUnites((data || []) as UniteRow[]);
   }
 
+  async function loadJobsJour(currentEmployeId: string) {
+    const employeId = currentEmployeId.trim();
+    if (!employeId) {
+      setJobsJour([]);
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("atelier_jobs_jour")
+      .select(`
+        id,
+        employe_id,
+        unite_id,
+        description,
+        ordre,
+        created_at,
+        completed_at,
+        unites:unite_id (
+          id,
+          no_unite,
+          marque,
+          modele,
+          plaque
+        )
+      `)
+      .eq("employe_id", employeId)
+      .is("completed_at", null)
+      .order("ordre", { ascending: true })
+      .order("created_at", { ascending: true });
+
+    if (error) throw error;
+    setJobsJour((data || []) as unknown as AtelierJobJour[]);
+  }
+
+  async function selectJob(job: AtelierJobJour) {
+    if (!job.unites?.no_unite) return;
+    const val = job.unites.no_unite;
+    setUniteInput(val);
+    setUniteMenuOpen(false);
+    await refreshPreviewUnite(val);
+  }
+
+  async function terminerJob(job: AtelierJobJour) {
+    if (!employeConnecte || jobBusyId) return;
+
+    setJobBusyId(job.id);
+    try {
+      const { error } = await supabase
+        .from("atelier_jobs_jour")
+        .update({
+          completed_at: nowIso(),
+          completed_by: employeConnecte.id,
+        })
+        .eq("id", job.id)
+        .eq("employe_id", employeConnecte.id)
+        .is("completed_at", null);
+
+      if (error) throw error;
+
+      setJobsJour((current) => current.filter((x) => x.id !== job.id));
+    } catch (e: any) {
+      alert(e?.message ?? String(e));
+    } finally {
+      setJobBusyId(null);
+    }
+  }
+
   async function refreshAll() {
     setLoading(true);
     setErr(null);
@@ -487,6 +574,7 @@ export default function OperationTempsReelPage() {
         loadEmployesActifs(),
         loadActivePointage(connectedEmployeId),
         loadPointagesJour(connectedEmployeId),
+        loadJobsJour(connectedEmployeId),
         loadUnites(),
       ]);
     } catch (e: any) {
@@ -500,6 +588,31 @@ export default function OperationTempsReelPage() {
     refreshAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!employeConnecte?.id) return;
+
+    const channel = supabase
+      .channel(`atelier-jobs-${employeConnecte.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "atelier_jobs_jour",
+          filter: `employe_id=eq.${employeConnecte.id}`,
+        },
+        () => {
+          void loadJobsJour(employeConnecte.id);
+        },
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [employeConnecte?.id]);
 
   async function findUniteByNo(noUnite: string) {
     const valeur = noUnite.trim();
@@ -958,6 +1071,7 @@ export default function OperationTempsReelPage() {
       setMecanoNom("");
       setActivePointage(null);
       setPointagesJour([]);
+      setJobsJour([]);
       setSwitchModalOpen(false);
       setSelectedEmployeId("");
       setSwitchPassword("");
@@ -1362,6 +1476,101 @@ export default function OperationTempsReelPage() {
       cursor: "pointer",
       boxShadow: "0 12px 28px rgba(220,38,38,.18)",
     },
+    jobsCard: {
+      width: "100%",
+      background: "#fff",
+      border: "1px solid rgba(15,23,42,.08)",
+      borderRadius: 18,
+      boxShadow: "0 10px 28px rgba(15,23,42,.06)",
+      marginBottom: 14,
+      overflow: "hidden",
+    },
+    jobsHeader: {
+      padding: "13px 16px",
+      background: "#f8fafc",
+      borderBottom: "1px solid rgba(15,23,42,.08)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 10,
+    },
+    jobsTitle: {
+      fontSize: 16,
+      fontWeight: 950,
+      color: "#0f172a",
+    },
+    jobsCount: {
+      minWidth: 28,
+      height: 28,
+      borderRadius: 999,
+      display: "inline-flex",
+      alignItems: "center",
+      justifyContent: "center",
+      background: "#eef4ff",
+      color: "#1d4ed8",
+      fontSize: 12,
+      fontWeight: 950,
+    },
+    jobsList: {
+      display: "grid",
+    },
+    jobRow: {
+      display: "grid",
+      gridTemplateColumns: "42px minmax(0,1fr) auto",
+      gap: 12,
+      alignItems: "center",
+      padding: "11px 14px",
+      borderBottom: "1px solid rgba(15,23,42,.06)",
+    },
+    jobOrder: {
+      width: 32,
+      height: 32,
+      borderRadius: 10,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      background: "#f1f5f9",
+      color: "#334155",
+      fontWeight: 950,
+      fontSize: 13,
+    },
+    jobSelectBtn: {
+      border: "none",
+      background: "transparent",
+      padding: 0,
+      margin: 0,
+      textAlign: "left",
+      cursor: "pointer",
+      minWidth: 0,
+    },
+    jobMain: {
+      fontSize: 14,
+      fontWeight: 900,
+      color: "#0f172a",
+    },
+    jobSub: {
+      marginTop: 3,
+      fontSize: 12,
+      color: "rgba(15,23,42,.58)",
+      fontWeight: 700,
+    },
+    jobDoneBtn: {
+      minHeight: 36,
+      padding: "0 12px",
+      borderRadius: 10,
+      border: "1px solid rgba(22,163,74,.25)",
+      background: "#f0fdf4",
+      color: "#15803d",
+      fontWeight: 900,
+      cursor: "pointer",
+      whiteSpace: "nowrap",
+    },
+    jobsEmpty: {
+      padding: "14px 16px",
+      color: "rgba(15,23,42,.55)",
+      fontSize: 13,
+      fontWeight: 700,
+    },
     warn: {
       background: "rgba(245,158,11,.10)",
       border: "1px solid rgba(245,158,11,.25)",
@@ -1624,6 +1833,54 @@ export default function OperationTempsReelPage() {
       {err && (
         <div style={styles.errorBox}>
           <b>Erreur :</b> {err}
+        </div>
+      )}
+
+      {!activePointage && employeConnecte && (
+        <div style={styles.jobsCard}>
+          <div style={styles.jobsHeader}>
+            <div style={styles.jobsTitle}>Mes tâches</div>
+            <div style={styles.jobsCount}>{jobsJour.length}</div>
+          </div>
+
+          {jobsJour.length === 0 ? (
+            <div style={styles.jobsEmpty}>Aucune tâche assignée.</div>
+          ) : (
+            <div style={styles.jobsList}>
+              {jobsJour.map((job, index) => (
+                <div key={job.id} style={styles.jobRow}>
+                  <div style={styles.jobOrder}>{index + 1}</div>
+
+                  <button
+                    type="button"
+                    style={styles.jobSelectBtn}
+                    onClick={() => void selectJob(job)}
+                    disabled={busy || !job.unites?.no_unite}
+                    title={job.unites?.no_unite ? "Sélectionner cette unité pour le prochain punch" : "Aucune unité liée"}
+                  >
+                    <div style={styles.jobMain}>
+                      {job.unites?.no_unite ? `Unité ${job.unites.no_unite} — ` : ""}
+                      {job.description}
+                    </div>
+                    <div style={styles.jobSub}>
+                      {job.unites
+                        ? [job.unites.marque, job.unites.modele].filter(Boolean).join(" ") || "Cliquer pour préparer le punch"
+                        : "Tâche atelier sans unité"}
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    style={styles.jobDoneBtn}
+                    onClick={() => void terminerJob(job)}
+                    disabled={jobBusyId === job.id}
+                  >
+                    {jobBusyId === job.id ? "..." : "✓ Terminer"}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
