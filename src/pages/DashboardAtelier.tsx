@@ -2248,6 +2248,7 @@ export default function DashboardAtelier() {
           <SectionCard
             title="Ajouter une job"
             subtitle="La tâche apparaîtra seulement à l'employé sélectionné"
+            overflowVisible
           >
             <div style={styles.jobsForm}>
               <div>
@@ -2734,6 +2735,7 @@ function SectionCard({
   onAction,
   children,
   scrollable = false,
+  overflowVisible = false,
 }: {
   title: string;
   subtitle?: string;
@@ -2741,9 +2743,15 @@ function SectionCard({
   onAction?: () => void;
   children: ReactNode;
   scrollable?: boolean;
+  overflowVisible?: boolean;
 }) {
   return (
-    <section style={styles.card}>
+    <section
+      style={{
+        ...styles.card,
+        ...(overflowVisible ? styles.cardOverflowVisible : {}),
+      }}
+    >
       <div style={styles.cardHeader}>
         <div>
           <div style={styles.cardTitle}>{title}</div>
@@ -2928,7 +2936,7 @@ const styles: Record<string, CSSProperties> = {
     top: "calc(100% + 6px)",
     left: 0,
     right: 0,
-    zIndex: 1000,
+    zIndex: 5000,
     maxHeight: 320,
     overflowY: "auto",
     border: "1px solid #d5dce8",
@@ -3098,6 +3106,11 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: 18,
     overflow: "hidden",
     boxShadow: "0 8px 22px rgba(15, 23, 42, 0.06)",
+  },
+  cardOverflowVisible: {
+    overflow: "visible",
+    position: "relative",
+    zIndex: 20,
   },
   cardHeader: {
     background: "#eaf0fb",
