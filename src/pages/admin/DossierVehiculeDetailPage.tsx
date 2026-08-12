@@ -312,6 +312,74 @@ function getCoverageGaps(
   return gaps;
 }
 
+type PepGapContext = {
+  previousPep: PepArchiveRow | null;
+  nextPep: PepArchiveRow | null;
+  daysBetweenPeps: number | null;
+  daysOver90: number | null;
+};
+
+function getPepGapContext(
+  peps: PepArchiveRow[],
+  gap?: CoverageGap | null,
+): PepGapContext {
+  if (!gap) {
+    return {
+      previousPep: null,
+      nextPep: null,
+      daysBetweenPeps: null,
+      daysOver90: null,
+    };
+  }
+
+  const sorted = [...peps]
+    .filter((pep) => getPepDate(pep))
+    .sort(
+      (a, b) =>
+        (getPepDate(a)?.getTime() ?? 0) -
+        (getPepDate(b)?.getTime() ?? 0),
+    );
+
+  const previousPep =
+    [...sorted]
+      .reverse()
+      .find(
+        (pep) =>
+          (getPepDate(pep)?.getTime() ?? Number.POSITIVE_INFINITY) <
+          gap.end.getTime(),
+      ) ?? null;
+
+  const nextPep =
+    sorted.find(
+      (pep) =>
+        (getPepDate(pep)?.getTime() ?? Number.NEGATIVE_INFINITY) >=
+        gap.end.getTime(),
+    ) ?? null;
+
+  const previousDate = getPepDate(previousPep);
+  const nextDate = getPepDate(nextPep);
+
+  if (!previousDate || !nextDate || previousPep?.id === nextPep?.id) {
+    return {
+      previousPep,
+      nextPep,
+      daysBetweenPeps: null,
+      daysOver90: null,
+    };
+  }
+
+  const daysBetweenPeps = Math.floor(
+    (nextDate.getTime() - previousDate.getTime()) / 86400000,
+  );
+
+  return {
+    previousPep,
+    nextPep,
+    daysBetweenPeps,
+    daysOver90: Math.max(0, daysBetweenPeps - 90),
+  };
+}
+
 function getPepDueDate(pep?: PepArchiveRow | null) {
   if (!pep) return null;
 
@@ -706,6 +774,11 @@ export default function DossierVehiculeDetailPage() {
         0,
       ),
     [unresolvedCoverageGaps],
+  );
+
+  const selectedGapPepContext = useMemo(
+    () => getPepGapContext(peps, coverageGap),
+    [peps, coverageGap],
   );
 
   async function acceptCoverageGap() {
@@ -1827,6 +1900,73 @@ export default function DossierVehiculeDetailPage() {
               <button type="button" style={styles.modalCloseBtn} onClick={() => setOverrideOpen(false)} disabled={savingOverride}>×</button>
             </div>
             <div style={styles.modalBody}>
+              <div style={styles.gapAnalysisBox}>
+                <div style={styles.gapAnalysisTitle}>Analyse de l’écart</div>
+
+                <div style={styles.gapAnalysisGrid}>
+                  <div style={styles.gapAnalysisItem}>
+                    <span style={styles.fieldLabel}>PEP précédent</span>
+                    <strong>
+                      {selectedGapPepContext.previousPep
+                        ? formatDate(
+                            selectedGapPepContext.previousPep.date_pep ||
+                              selectedGapPepContext.previousPep.created_at,
+                          )
+                        : "Aucun"}
+                    </strong>
+                  </div>
+
+                  <div style={styles.gapAnalysisItem}>
+                    <span style={styles.fieldLabel}>PEP suivant</span>
+                    <strong>
+                      {selectedGapPepContext.nextPep
+                        ? formatDate(
+                            selectedGapPepContext.nextPep.date_pep ||
+                              selectedGapPepContext.nextPep.created_at,
+                          )
+                        : "Aucun"}
+                    </strong>
+                  </div>
+
+                  <div style={styles.gapAnalysisItem}>
+                    <span style={styles.fieldLabel}>Entre les 2 PEP</span>
+                    <strong>
+                      {selectedGapPepContext.daysBetweenPeps != null
+                        ? `${selectedGapPepContext.daysBetweenPeps} jours`
+                        : "—"}
+                    </strong>
+                  </div>
+
+                  <div style={styles.gapAnalysisItem}>
+                    <span style={styles.fieldLabel}>Au-delà de 90 jours</span>
+                    <strong>
+                      {selectedGapPepContext.daysOver90 != null
+                        ? `${selectedGapPepContext.daysOver90} jour${
+                            selectedGapPepContext.daysOver90 > 1 ? "s" : ""
+                          }`
+                        : "—"}
+                    </strong>
+                  </div>
+
+                  <div style={styles.gapAnalysisItem}>
+                    <span style={styles.fieldLabel}>Trou réel à accepter</span>
+                    <strong>
+                      {coverageGap.days} jour{coverageGap.days > 1 ? "s" : ""}
+                    </strong>
+                  </div>
+
+                  <div style={styles.gapAnalysisItem}>
+                    <span style={styles.fieldLabel}>Période non couverte</span>
+                    <strong>
+                      {coverageGap.start.toLocaleDateString("fr-CA")} au{" "}
+                      {coverageGap.end.toLocaleDateString("fr-CA")}
+                    </strong>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ height: 16 }} />
+
               <label style={styles.fieldLabel}>Justification *</label>
               <textarea
                 value={overrideJustification}
@@ -2627,6 +2767,32 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 12,
     padding: "7px 0",
     borderBottom: "1px solid #fee2e2",
+  },
+  gapAnalysisBox: {
+    padding: 12,
+    border: "1px solid #e5e7eb",
+    borderRadius: 12,
+    background: "#f9fafb",
+  },
+  gapAnalysisTitle: {
+    fontSize: 14,
+    fontWeight: 800,
+    color: "#111827",
+    marginBottom: 10,
+  },
+  gapAnalysisGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+    gap: 10,
+  },
+  gapAnalysisItem: {
+    display: "grid",
+    gap: 3,
+    padding: 9,
+    border: "1px solid #e5e7eb",
+    borderRadius: 9,
+    background: "#fff",
+    color: "#111827",
   },
   overrideHistoryList: {
     display: "grid",
