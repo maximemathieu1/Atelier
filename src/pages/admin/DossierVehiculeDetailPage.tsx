@@ -843,6 +843,40 @@ export default function DossierVehiculeDetailPage() {
     if (pepImportFileRef.current) pepImportFileRef.current.value = "";
   }
 
+  function extractPepDateFromFileName(fileName: string) {
+    const nameWithoutExtension = fileName.replace(/\.pdf$/i, "");
+
+    // La date est toujours à la fin du nom : YYYY_MM_DD
+    // Ex. 2411_2025_03_14.pdf -> 2025-03-14
+    const match = nameWithoutExtension.match(
+      /(?:^|_)(\d{4})_(\d{2})_(\d{2})$/,
+    );
+
+    if (!match) return "";
+
+    const [, year, month, day] = match;
+    const parsed = new Date(
+      Number(year),
+      Number(month) - 1,
+      Number(day),
+      12,
+      0,
+      0,
+      0,
+    );
+
+    // Validation pour éviter une date impossible.
+    if (
+      parsed.getFullYear() !== Number(year) ||
+      parsed.getMonth() !== Number(month) - 1 ||
+      parsed.getDate() !== Number(day)
+    ) {
+      return "";
+    }
+
+    return `${year}-${month}-${day}`;
+  }
+
   function addPepImportFiles(files: FileList | File[]) {
     const pdfs = Array.from(files).filter(
       (file) =>
@@ -860,7 +894,7 @@ export default function DossierVehiculeDetailPage() {
       ...pdfs.map((file) => ({
         id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
         file,
-        datePep: "",
+        datePep: extractPepDateFromFileName(file.name),
         odometre: "",
         mecano: "",
       })),

@@ -665,7 +665,7 @@ export default function DossiersVehiculesPage() {
                             </span>
                           </div>
                         ) : (
-                          <span style={styles.okBadge}>Complet</span>
+                          <span style={styles.okBadge}>Conforme</span>
                         )}
                       </td>
                     </tr>
