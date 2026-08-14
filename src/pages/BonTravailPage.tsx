@@ -2450,14 +2450,29 @@ ${noms}`);
 
   async function reopenBT() {
     if (!bt) return;
-    if (Boolean(bt.verrouille) || isFacturedStatut(bt.statut)) {
-      alert("BT verrouillé / facturé : impossible de modifier.");
+
+    // Un verrouillage manuel reste prioritaire.
+    if (Boolean(bt.verrouille)) {
+      alert("Ce BT est verrouillé : impossible de le réouvrir.");
       return;
     }
 
+    const wasFactured = isFacturedStatut(bt.statut);
+
+    const ok = window.confirm(
+      wasFactured
+        ? "Ce BT est déjà facturé.\n\nLe réouvrir permettra de modifier les pièces, la main-d'œuvre et les tâches.\n\nLa facture existante ne sera pas supprimée.\n\nVoulez-vous continuer ?"
+        : "Voulez-vous réouvrir ce bon de travail ?",
+    );
+
+    if (!ok) return;
+
     const { error } = await supabase
       .from("bons_travail")
-      .update({ statut: "ouvert", date_fermeture: null })
+      .update({
+        statut: "ouvert",
+        date_fermeture: null,
+      })
       .eq("id", bt.id);
 
     if (error) {
@@ -2466,12 +2481,20 @@ ${noms}`);
     }
 
     setDateFermetureInput("");
+
     const totals = await recalcAndPersistTotals(bt.id);
+
     setBt((prev) =>
       prev
-        ? { ...prev, statut: "ouvert", date_fermeture: null, ...totals }
+        ? {
+            ...prev,
+            statut: "ouvert",
+            date_fermeture: null,
+            ...totals,
+          }
         : prev,
     );
+
     await loadAll();
   }
 
@@ -3284,11 +3307,7 @@ ${noms}`);
               <button
                 style={styles.btnPrimary}
                 onClick={reopenBT}
-                disabled={
-                  loading ||
-                  Boolean(bt?.verrouille) ||
-                  isFacturedStatut(bt?.statut)
-                }
+                disabled={loading || Boolean(bt?.verrouille)}
               >
                 Réouvrir BT
               </button>
