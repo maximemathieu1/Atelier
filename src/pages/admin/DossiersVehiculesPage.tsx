@@ -74,6 +74,8 @@ function formatDate(value?: string | null) {
   return d.toLocaleDateString("fr-CA");
 }
 
+const AUTO_ACCEPT_PEP_GAP_DAYS = 15;
+
 const REQUIRED_DOCUMENT_TYPES = [
   { value: "assurance", label: "Assurance" },
   { value: "immatriculation", label: "Immatriculation" },
@@ -144,7 +146,7 @@ function buildRegulatoryCoverage(
   return intervals.sort((a, b) => a.start.getTime() - b.start.getTime());
 }
 
-function getCoverageGap(
+function getCoverageGaps(
   peps: Array<{ date_pep?: string | null; date?: string | null; created_at?: string | null; date_prochain?: string | null }>,
   cvms: Array<{ date_expiration?: string | null }>,
   miseEnServiceValue?: string | null,
@@ -156,41 +158,39 @@ function getCoverageGap(
     miseEnService && miseEnService.getTime() > twentyFourMonthsAgo.getTime()
       ? miseEnService
       : twentyFourMonthsAgo;
+
   const intervals = buildRegulatoryCoverage(peps, cvms, miseEnServiceValue).filter(
     (interval) =>
       interval.end.getTime() >= requiredStart.getTime() &&
       interval.start.getTime() <= today.getTime(),
   );
 
+  const gaps: Array<{ start: Date; end: Date; days: number }> = [];
   let coveredUntil = new Date(requiredStart);
 
   for (const interval of intervals) {
     if (interval.end.getTime() < coveredUntil.getTime()) continue;
 
     if (interval.start.getTime() > coveredUntil.getTime()) {
-      return {
-        start: coveredUntil,
-        end: interval.start,
+      gaps.push({
+        start: new Date(coveredUntil),
+        end: new Date(interval.start),
         days: Math.ceil(
           (interval.start.getTime() - coveredUntil.getTime()) / 86400000,
         ),
-      };
+      });
     }
 
     if (interval.end.getTime() > coveredUntil.getTime()) {
       coveredUntil = new Date(interval.end);
     }
 
-    if (coveredUntil.getTime() >= today.getTime()) return null;
+    if (coveredUntil.getTime() >= today.getTime()) break;
   }
 
-  return coveredUntil.getTime() < today.getTime()
-    ? {
-        start: coveredUntil,
-        end: today,
-        days: Math.ceil((today.getTime() - coveredUntil.getTime()) / 86400000),
-      }
-    : null;
+  // Ne pas créer de trou entre le dernier PEP/CVM et aujourd'hui :
+  // c'est un retard courant, géré séparément par getPepOverdueDays().
+  return gaps;
 }
 
 function daysExpired(value?: string | null) {
@@ -442,22 +442,37 @@ export default function DossiersVehiculesPage() {
           String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")),
         );
 
-      const coverageGap = getCoverageGap(unitPeps, cvmDocs, unite.date_mise_en_service);
-      if (coverageGap) {
-        const gapStart = coverageGap.start.toISOString().slice(0, 10);
-        const gapEnd = coverageGap.end.toISOString().slice(0, 10);
-        const accepted = complianceOverrides.find(
+      const unresolvedCoverageGaps = getCoverageGaps(
+        unitPeps,
+        cvmDocs,
+        unite.date_mise_en_service,
+      ).filter((gap) => {
+        // Même règle que dans le détail :
+        // moins de 15 jours = accepté automatiquement.
+        if (gap.days < AUTO_ACCEPT_PEP_GAP_DAYS) return false;
+
+        const gapStart = gap.start.toISOString().slice(0, 10);
+        const gapEnd = gap.end.toISOString().slice(0, 10);
+
+        return !complianceOverrides.some(
           (row) =>
             row.unite_id === unite.id &&
             row.gap_start === gapStart &&
             row.gap_end === gapEnd,
         );
+      });
 
-        if (!accepted) {
-          redReasons.push(
-            `Historique PEP/CVM incomplet — trou de ${coverageGap.days} jours`,
-          );
-        }
+      if (unresolvedCoverageGaps.length > 0) {
+        const totalGapDays = unresolvedCoverageGaps.reduce(
+          (total, gap) => total + gap.days,
+          0,
+        );
+
+        redReasons.push(
+          unresolvedCoverageGaps.length === 1
+            ? `Historique PEP/CVM incomplet — trou de ${unresolvedCoverageGaps[0].days} jours`
+            : `Historique PEP/CVM incomplet — ${unresolvedCoverageGaps.length} trous (${totalGapDays} jours au total)`,
+        );
       }
 
       const latestCvm = cvmDocs[0] ?? null;
