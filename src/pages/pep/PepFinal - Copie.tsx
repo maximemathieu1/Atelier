@@ -581,6 +581,42 @@ function isPepTaskLabel(value: unknown) {
   return v.includes("pep") || v.includes("inspection periodique");
 }
 
+async function resolvePepCheckedDate(
+  uniteId: string,
+  fallbackDate?: string | null
+) {
+  const { data: exactRows, error: exactErr } = await supabase
+    .from("bt_taches_effectuees")
+    .select("id,titre,date_effectuee,created_at")
+    .eq("unite_id", uniteId)
+    .eq("entretien_template_item_id", PEP_TEMPLATE_ID)
+    .is("entretien_unite_item_id", null)
+    .order("date_effectuee", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  if (exactErr) throw exactErr;
+
+  const exactDate = exactRows?.[0]?.date_effectuee;
+  if (exactDate) return dateOnlyOrToday(exactDate);
+
+  const { data: fallbackRows, error: fallbackErr } = await supabase
+    .from("bt_taches_effectuees")
+    .select("id,titre,date_effectuee,created_at")
+    .eq("unite_id", uniteId)
+    .order("date_effectuee", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(100);
+
+  if (fallbackErr) throw fallbackErr;
+
+  const matchingTask = (fallbackRows || []).find((row: any) =>
+    isPepTaskLabel(row.titre)
+  );
+
+  return dateOnlyOrToday(matchingTask?.date_effectuee || fallbackDate);
+}
+
 async function resolvePepHourlyRate(uniteId: string) {
   const { data: uniteRow } = await supabase
     .from("unites")
@@ -1078,6 +1114,7 @@ export default function PepFinal() {
   const [archiveMessage, setArchiveMessage] = useState("");
   const [archiveChecklist, setArchiveChecklist] = useState<ArchiveChecklistItem[]>(freshArchiveChecklist());
   const [archiveContext, setArchiveContext] = useState<ArchiveContext | null>(null);
+  const [checkedPepDate, setCheckedPepDate] = useState<string | null>(null);
 
   const signCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const isDrawingRef = useRef(false);
@@ -1103,14 +1140,44 @@ export default function PepFinal() {
 
   const basePayload = state?.payload ?? null;
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadCheckedPepDate() {
+      if (!basePayload?.unite_id) {
+        setCheckedPepDate(null);
+        return;
+      }
+
+      try {
+        const resolvedDate = await resolvePepCheckedDate(
+          basePayload.unite_id,
+          basePayload.date_pep
+        );
+        if (!cancelled) setCheckedPepDate(resolvedDate);
+      } catch (error) {
+        console.error("Impossible de récupérer la date cochée du PEP:", error);
+        if (!cancelled) {
+          setCheckedPepDate(dateOnlyOrToday(basePayload.date_pep));
+        }
+      }
+    }
+
+    void loadCheckedPepDate();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [basePayload?.unite_id, basePayload?.date_pep]);
+
   const payload = useMemo<PepPayload | null>(() => {
     if (!basePayload) return null;
     return {
       ...basePayload,
-      date_pep: basePayload.date_pep,
+      date_pep: checkedPepDate || basePayload.date_pep,
       signature,
     };
-  }, [basePayload, signature]);
+  }, [basePayload, checkedPepDate, signature]);
 
   const isSigned = Boolean(signature && signature.trim());
 
@@ -1388,7 +1455,10 @@ export default function PepFinal() {
     let contextForResume: ArchiveContext | null = null;
 
     try {
-      const datePep = dateOnlyOrToday(payload.date_pep);
+      const datePep = await resolvePepCheckedDate(
+        payload.unite_id,
+        payload.date_pep
+      );
       const archivePayload: PepPayload = { ...payload, date_pep: datePep };
       const archiveKey = buildPepArchiveKey(archivePayload, datePep);
 
