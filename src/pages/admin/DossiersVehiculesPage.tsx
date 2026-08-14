@@ -193,6 +193,22 @@ function getCoverageGaps(
   return gaps;
 }
 
+function getPepGapIntervalDays(
+  peps: PepRow[],
+  gap: { start: Date; end: Date; days: number },
+) {
+  const dates = peps
+    .map((pep) => getPepDate(pep))
+    .filter((date): date is Date => Boolean(date))
+    .sort((a, b) => a.getTime() - b.getTime());
+
+  const previous = [...dates].reverse().find((date) => date.getTime() < gap.end.getTime());
+  const next = dates.find((date) => date.getTime() >= gap.end.getTime());
+
+  if (!previous || !next) return null;
+  return Math.floor((next.getTime() - previous.getTime()) / 86400000);
+}
+
 function daysExpired(value?: string | null) {
   const expiration = parseLocalDate(value);
   if (!expiration) return null;
@@ -468,10 +484,17 @@ export default function DossiersVehiculesPage() {
           0,
         );
 
+        const intervalDays =
+          unresolvedCoverageGaps.length === 1
+            ? getPepGapIntervalDays(unitPeps, unresolvedCoverageGaps[0])
+            : null;
+
         redReasons.push(
           unresolvedCoverageGaps.length === 1
-            ? `Historique PEP/CVM incomplet — trou de ${unresolvedCoverageGaps[0].days} jours`
-            : `Historique PEP/CVM incomplet — ${unresolvedCoverageGaps.length} trous (${totalGapDays} jours au total)`,
+            ? intervalDays != null
+              ? `PEP manquant — ${intervalDays} jours entre les 2 PEP (${unresolvedCoverageGaps[0].days} jours non couverts)`
+              : `Historique PEP/CVM incomplet — ${unresolvedCoverageGaps[0].days} jours non couverts`
+            : `Historique PEP/CVM incomplet — ${unresolvedCoverageGaps.length} périodes manquantes (${totalGapDays} jours non couverts au total)`,
         );
       }
 

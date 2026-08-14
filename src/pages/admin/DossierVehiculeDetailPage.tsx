@@ -1433,7 +1433,12 @@ export default function DossierVehiculeDetailPage() {
                 value={
                   unresolvedCoverageGaps.length > 0
                     ? unresolvedCoverageGaps.length === 1
-                      ? `1 trou de couverture de ${unresolvedCoverageGaps[0].days} jours`
+                      ? (() => {
+                          const ctx = getPepGapContext(peps, unresolvedCoverageGaps[0]);
+                          return ctx.daysBetweenPeps != null
+                            ? `PEP manquant — ${ctx.daysBetweenPeps} jours entre les 2 PEP (${unresolvedCoverageGaps[0].days} jours non couverts)`
+                            : `Historique incomplet — ${unresolvedCoverageGaps[0].days} jours non couverts`;
+                        })()
                       : `${unresolvedCoverageGaps.length} trous de couverture — ${totalUnresolvedGapDays} jours au total`
                     : unite.date_mise_en_service &&
                       parseLocalDate(unite.date_mise_en_service) &&
@@ -1473,11 +1478,16 @@ export default function DossierVehiculeDetailPage() {
                       style={styles.coverageGapRow}
                     >
                       <div>
-                        <strong>Écart {index + 1}</strong>
+                        <strong>PEP manquant {index + 1}</strong>
                         <div style={styles.muted}>
-                          {gap.start.toLocaleDateString("fr-CA")} au{" "}
-                          {gap.end.toLocaleDateString("fr-CA")} — {gap.days} jour
-                          {gap.days > 1 ? "s" : ""}
+                          {(() => {
+                            const ctx = getPepGapContext(peps, gap);
+                            const previousDate = getPepDate(ctx.previousPep);
+                            const nextDate = getPepDate(ctx.nextPep);
+                            return previousDate && nextDate && ctx.daysBetweenPeps != null
+                              ? `PEP du ${previousDate.toLocaleDateString("fr-CA")} → PEP du ${nextDate.toLocaleDateString("fr-CA")} — ${ctx.daysBetweenPeps} jours entre les 2 PEP (${gap.days} jours non couverts)`
+                              : `${gap.start.toLocaleDateString("fr-CA")} au ${gap.end.toLocaleDateString("fr-CA")} — ${gap.days} jours non couverts`;
+                          })()}
                         </div>
                       </div>
                       {index === 0 ? (
@@ -1893,7 +1903,9 @@ export default function DossierVehiculeDetailPage() {
               <div>
                 <h2 style={styles.modalTitle}>Accepter l’écart historique</h2>
                 <p style={styles.modalSubtitle}>
-                  Trou de couverture de {coverageGap.days} jours, du {coverageGap.start.toLocaleDateString("fr-CA")} au {coverageGap.end.toLocaleDateString("fr-CA")}.
+                  {selectedGapPepContext.daysBetweenPeps != null
+                    ? `PEP manquant : ${selectedGapPepContext.daysBetweenPeps} jours entre les deux PEP (${coverageGap.days} jours réellement non couverts).`
+                    : `Historique incomplet : ${coverageGap.days} jours non couverts.`}
                 </p>
               </div>
               <button type="button" style={styles.modalCloseBtn} onClick={() => setOverrideOpen(false)} disabled={savingOverride}>×</button>
