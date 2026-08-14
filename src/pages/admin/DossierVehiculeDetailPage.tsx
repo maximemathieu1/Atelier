@@ -299,16 +299,10 @@ function getCoverageGaps(
     if (coveredUntil.getTime() >= today.getTime()) break;
   }
 
-  if (coveredUntil.getTime() < today.getTime()) {
-    gaps.push({
-      start: new Date(coveredUntil),
-      end: new Date(today),
-      days: Math.ceil(
-        (today.getTime() - coveredUntil.getTime()) / 86400000,
-      ),
-    });
-  }
-
+  // Important :
+  // La période entre la dernière couverture PEP/CVM et aujourd'hui n'est
+  // PAS un trou historique. Si le dernier PEP est dépassé, il s'agit d'un
+  // retard courant, déjà géré séparément par pepStatus().
   return gaps;
 }
 
@@ -436,6 +430,7 @@ function getPepOverdueDays(pep?: PepArchiveRow | null) {
   return diff > 0 ? diff : 0;
 }
 
+const AUTO_ACCEPT_PEP_GAP_DAYS = 15;
 const PEP_RETENTION_MONTHS = 33;
 
 function pepRetentionCutoff() {
@@ -753,6 +748,10 @@ export default function DossierVehiculeDetailPage() {
   const unresolvedCoverageGaps = useMemo(
     () =>
       coverageGaps.filter((gap) => {
+        // Un écart historique de moins de 15 jours est automatiquement accepté.
+        // À partir de 15 jours, une justification manuelle est requise.
+        if (gap.days < AUTO_ACCEPT_PEP_GAP_DAYS) return false;
+
         const gapStart = gap.start.toISOString().slice(0, 10);
         const gapEnd = gap.end.toISOString().slice(0, 10);
 
@@ -1892,7 +1891,7 @@ export default function DossierVehiculeDetailPage() {
           <div style={{ ...styles.modalCard, width: "min(520px, 94vw)", maxHeight: "none" }}>
             <div style={styles.modalHeader}>
               <div>
-                <h2 style={styles.modalTitle}>Accepter l’écart</h2>
+                <h2 style={styles.modalTitle}>Accepter l’écart historique</h2>
                 <p style={styles.modalSubtitle}>
                   Trou de couverture de {coverageGap.days} jours, du {coverageGap.start.toLocaleDateString("fr-CA")} au {coverageGap.end.toLocaleDateString("fr-CA")}.
                 </p>
@@ -1963,6 +1962,13 @@ export default function DossierVehiculeDetailPage() {
                     </strong>
                   </div>
                 </div>
+              </div>
+
+              <div style={{ height: 12 }} />
+
+              <div style={styles.autoAcceptHint}>
+                Les écarts de moins de {AUTO_ACCEPT_PEP_GAP_DAYS} jours sont acceptés automatiquement.
+                Celui-ci nécessite une justification puisqu’il atteint ou dépasse {AUTO_ACCEPT_PEP_GAP_DAYS} jours.
               </div>
 
               <div style={{ height: 16 }} />
@@ -2767,6 +2773,15 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 12,
     padding: "7px 0",
     borderBottom: "1px solid #fee2e2",
+  },
+  autoAcceptHint: {
+    padding: "9px 10px",
+    border: "1px solid #dbeafe",
+    borderRadius: 9,
+    background: "#eff6ff",
+    color: "#1e40af",
+    fontSize: 12,
+    fontWeight: 700,
   },
   gapAnalysisBox: {
     padding: 12,
