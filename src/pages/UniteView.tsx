@@ -10,6 +10,8 @@ type Unite = {
 
   statut: string | null;
   km_actuel: number | null;
+  samsara_km_updated_at?: string | null;
+  samsara_km_source?: string | null;
 
   marque: string | null;
   modele: string | null;
@@ -334,6 +336,8 @@ export default function UniteView({
           "actif",
           "statut",
           "km_actuel",
+          "samsara_km_updated_at",
+          "samsara_km_source",
           "marque",
           "modele",
           "annee",
@@ -938,7 +942,14 @@ export default function UniteView({
                   </select>
                 </Row>
 
-                <Row label="KM actuel" hint="Provient du dernier journal KM">
+                <Row
+                  label="KM actuel"
+                  hint={
+                    u.samsara_km_updated_at
+                      ? `Samsara • dernière synchro ${fmtDateTime(u.samsara_km_updated_at)}`
+                      : "Provient du dernier journal KM"
+                  }
+                >
                   <input
                     className="input"
                     value={u.km_actuel ?? ""}
@@ -1461,7 +1472,11 @@ export default function UniteView({
             >
               <MiniPanel title="KM actuel">
                 <div style={{ fontWeight: 900, fontSize: 26 }}>{fmtKm(u.km_actuel)}</div>
-                <div className="muted">Synchronisé avec le dernier enregistrement du journal.</div>
+                <div className="muted">
+                    {u.samsara_km_updated_at
+                      ? `Samsara • dernière synchro ${fmtDateTime(u.samsara_km_updated_at)}`
+                      : "Synchronisé avec le dernier enregistrement du journal."}
+                  </div>
               </MiniPanel>
             </div>
 
