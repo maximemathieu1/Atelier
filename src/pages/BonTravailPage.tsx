@@ -1688,18 +1688,29 @@ export default function BonTravailPage() {
     return { ok: true as const };
   }
 
-  async function syncKmFromSamsara(options?: { applyToBt?: boolean; silent?: boolean }) {
+  async function syncKmFromSamsara(options?: {
+    applyToBt?: boolean;
+    forceApplyToBt?: boolean;
+    silent?: boolean;
+    targetTime?: string | null;
+  }) {
     if (!bt?.id || !unite?.id) return null;
 
     const applyToBt = options?.applyToBt ?? false;
+    const forceApplyToBt = options?.forceApplyToBt ?? false;
     const silent = options?.silent ?? false;
+    const targetTime =
+      options?.targetTime || localToIsoOrNull(dateOuvertureInput) || bt.date_ouverture || null;
 
     setSyncingSamsaraKm(true);
     setSamsaraKmError(null);
 
     try {
       const { data, error } = await supabase.functions.invoke("samsara-odometer", {
-        body: { unite_id: unite.id },
+        body: {
+          unite_id: unite.id,
+          target_time: targetTime,
+        },
       });
 
       if (error) throw error;
@@ -1716,9 +1727,12 @@ export default function BonTravailPage() {
       setSamsaraKm(roundedKm);
       setSamsaraKmAt(measuredAt);
 
-      // Le kilométrage du BT reste un snapshot : on ne l'écrase jamais automatiquement
-      // s'il contient déjà une valeur.
-      if (applyToBt && !isReadOnly && !kmInput.trim()) {
+      // Règle métier : une fois le KM du BT rempli, il reste figé.
+      // Seule une modification de date d'ouverture peut forcer son remplacement.
+      if (
+        !isReadOnly &&
+        ((applyToBt && !kmInput.trim()) || forceApplyToBt)
+      ) {
         setKmInput(String(roundedKm));
       }
 
@@ -1726,9 +1740,8 @@ export default function BonTravailPage() {
         prev
           ? {
               ...prev,
-              km_actuel: Math.max(Number(prev.km_actuel || 0), roundedKm),
-              samsara_vehicle_id: data?.samsara_vehicle_id || prev.samsara_vehicle_id || null,
-              samsara_km_updated_at: measuredAt,
+              samsara_vehicle_id:
+                data?.samsara_vehicle_id || prev.samsara_vehicle_id || null,
             }
           : prev,
       );
@@ -1950,10 +1963,15 @@ export default function BonTravailPage() {
 
   useEffect(() => {
     if (!bt || !unite || loading || isReadOnly) return;
+    if (kmInput.trim()) return;
 
-    // Au chargement d'un BT ouvert, récupère Samsara. Si le BT n'a pas encore de KM,
-    // il est prérempli; sinon on affiche seulement la valeur Samsara courante.
-    void syncKmFromSamsara({ applyToBt: true, silent: true });
+    // Seulement si le BT n'a aucun KM : prendre la lecture Samsara la plus proche
+    // de sa date d'ouverture. Dès qu'un KM existe, il reste figé.
+    void syncKmFromSamsara({
+      applyToBt: true,
+      silent: true,
+      targetTime: bt.date_ouverture || localToIsoOrNull(dateOuvertureInput),
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bt?.id, unite?.id, loading, isReadOnly]);
 
@@ -1968,16 +1986,31 @@ export default function BonTravailPage() {
     if (!bt || !hasKmColumn || loading || isReadOnly) return false;
 
     const rawKm = kmInput.trim();
-    const km = rawKm ? Number(rawKm) : null;
+    let km = rawKm ? Number(rawKm) : null;
     if (rawKm && (km === null || Number.isNaN(km) || km < 0)) return false;
 
     const bon_commande = poInput.trim() || null;
     const date_ouverture = localToIsoOrNull(dateOuvertureInput);
     const date_fermeture = localToIsoOrNull(dateFermetureInput);
+    const openingDateChanged = (date_ouverture || null) !== (bt.date_ouverture || null);
 
     setIsAutoSaving(true);
 
     try {
+      // Exception à la règle du KM figé : si la date d'ouverture change,
+      // rechercher automatiquement la lecture Samsara la plus proche et remplacer le KM.
+      if (openingDateChanged && date_ouverture) {
+        const samsaraResult = await syncKmFromSamsara({
+          forceApplyToBt: true,
+          silent: true,
+          targetTime: date_ouverture,
+        });
+
+        if (samsaraResult?.km != null) {
+          km = samsaraResult.km;
+        }
+      }
+
       const { error } = await supabase
         .from("bons_travail")
         .update({ km, bon_commande, date_ouverture, date_fermeture })
@@ -3471,7 +3504,13 @@ ${noms}`);
                   <button
                     type="button"
                     style={styles.btnPrimary}
-                    onClick={() => void syncKmFromSamsara({ applyToBt: false })}
+                    onClick={() =>
+                      void syncKmFromSamsara({
+                        applyToBt: false,
+                        targetTime:
+                          localToIsoOrNull(dateOuvertureInput) || bt.date_ouverture,
+                      })
+                    }
                     disabled={syncingSamsaraKm}
                   >
                     {syncingSamsaraKm ? "Synchronisation..." : "Actualiser Samsara"}
