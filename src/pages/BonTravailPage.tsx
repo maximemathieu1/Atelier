@@ -28,6 +28,8 @@ type Unite = {
   plaque?: string | null;
   client_id?: string | null;
   type_unite_id?: string | null;
+  samsara_vehicle_id?: string | null;
+  samsara_km_updated_at?: string | null;
 };
 
 type Client = {
@@ -345,6 +347,10 @@ export default function BonTravailPage() {
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [selectedOrder, setSelectedOrder] = useState<string[]>([]);
   const [kmInput, setKmInput] = useState<string>("");
+  const [samsaraKm, setSamsaraKm] = useState<number | null>(null);
+  const [samsaraKmAt, setSamsaraKmAt] = useState<string | null>(null);
+  const [syncingSamsaraKm, setSyncingSamsaraKm] = useState(false);
+  const [samsaraKmError, setSamsaraKmError] = useState<string | null>(null);
   const [poInput, setPoInput] = useState<string>("");
   const [dateOuvertureInput, setDateOuvertureInput] = useState<string>("");
   const [dateFermetureInput, setDateFermetureInput] = useState<string>("");
@@ -830,7 +836,7 @@ export default function BonTravailPage() {
       let query = supabase
         .from("unites")
         .select(
-          "id,no_unite,marque,modele,annee,km_actuel,statut,niv,plaque,client_id,type_unite_id",
+          "id,no_unite,marque,modele,annee,km_actuel,statut,niv,plaque,client_id,type_unite_id,samsara_vehicle_id,samsara_km_updated_at",
         )
         .order("no_unite", { ascending: true })
         .limit(60);
@@ -1682,6 +1688,62 @@ export default function BonTravailPage() {
     return { ok: true as const };
   }
 
+  async function syncKmFromSamsara(options?: { applyToBt?: boolean; silent?: boolean }) {
+    if (!bt?.id || !unite?.id) return null;
+
+    const applyToBt = options?.applyToBt ?? false;
+    const silent = options?.silent ?? false;
+
+    setSyncingSamsaraKm(true);
+    setSamsaraKmError(null);
+
+    try {
+      const { data, error } = await supabase.functions.invoke("samsara-odometer", {
+        body: { unite_id: unite.id },
+      });
+
+      if (error) throw error;
+      if (data?.error) throw new Error(String(data.error));
+
+      const km = Number(data?.km);
+      if (!Number.isFinite(km) || km < 0) {
+        throw new Error("Kilométrage Samsara invalide ou indisponible.");
+      }
+
+      const roundedKm = Math.round(km);
+      const measuredAt = data?.measured_at ? String(data.measured_at) : null;
+
+      setSamsaraKm(roundedKm);
+      setSamsaraKmAt(measuredAt);
+
+      // Le kilométrage du BT reste un snapshot : on ne l'écrase jamais automatiquement
+      // s'il contient déjà une valeur.
+      if (applyToBt && !isReadOnly && !kmInput.trim()) {
+        setKmInput(String(roundedKm));
+      }
+
+      setUnite((prev) =>
+        prev
+          ? {
+              ...prev,
+              km_actuel: Math.max(Number(prev.km_actuel || 0), roundedKm),
+              samsara_vehicle_id: data?.samsara_vehicle_id || prev.samsara_vehicle_id || null,
+              samsara_km_updated_at: measuredAt,
+            }
+          : prev,
+      );
+
+      return { km: roundedKm, measuredAt };
+    } catch (e: any) {
+      const message = e?.message || "Impossible de synchroniser le KM Samsara.";
+      setSamsaraKmError(message);
+      if (!silent) alert(message);
+      return null;
+    } finally {
+      setSyncingSamsaraKm(false);
+    }
+  }
+
   async function loadAll() {
     if (!id) return;
     setLoading(true);
@@ -1885,6 +1947,15 @@ export default function BonTravailPage() {
     loadAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  useEffect(() => {
+    if (!bt || !unite || loading || isReadOnly) return;
+
+    // Au chargement d'un BT ouvert, récupère Samsara. Si le BT n'a pas encore de KM,
+    // il est prérempli; sinon on affiche seulement la valeur Samsara courante.
+    void syncKmFromSamsara({ applyToBt: true, silent: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bt?.id, unite?.id, loading, isReadOnly]);
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -3360,6 +3431,54 @@ ${noms}`);
 
           {activeTab === "details" ? (
             <>
+              <div
+                className="no-print"
+                style={{
+                  ...styles.card,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 12,
+                  flexWrap: "wrap",
+                  padding: "10px 12px",
+                }}
+              >
+                <div>
+                  <div style={{ fontWeight: 900 }}>Kilométrage Samsara</div>
+                  <div style={{ ...styles.muted, fontSize: 13, marginTop: 2 }}>
+                    {samsaraKm != null
+                      ? `${samsaraKm.toLocaleString("fr-CA")} km${
+                          samsaraKmAt
+                            ? ` • ${formatDateTimePrint(samsaraKmAt)}`
+                            : ""
+                        }`
+                      : samsaraKmError
+                        ? samsaraKmError
+                        : "Aucune lecture chargée"}
+                  </div>
+                </div>
+
+                <div style={styles.row}>
+                  {samsaraKm != null && !isReadOnly && String(samsaraKm) !== kmInput.trim() && (
+                    <button
+                      type="button"
+                      style={styles.btn}
+                      onClick={() => setKmInput(String(samsaraKm))}
+                    >
+                      Utiliser {samsaraKm.toLocaleString("fr-CA")} km
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    style={styles.btnPrimary}
+                    onClick={() => void syncKmFromSamsara({ applyToBt: false })}
+                    disabled={syncingSamsaraKm}
+                  >
+                    {syncingSamsaraKm ? "Synchronisation..." : "Actualiser Samsara"}
+                  </button>
+                </div>
+              </div>
+
               <BonTravailHeaderCard
                 bt={bt}
                 unite={unite}
