@@ -116,6 +116,16 @@ type KmRpcResponse = {
   log_id?: string | null;
 };
 
+type SamsaraOdometerResponse = {
+  ok?: boolean;
+  error?: string;
+  km?: number | null;
+  km_rounded?: number | null;
+  measured_at?: string | null;
+  requested_at?: string | null;
+  source?: string | null;
+};
+
 function fmtDateTime(v: string | null | undefined) {
   if (!v) return "—";
   const d = new Date(v);
@@ -728,6 +738,37 @@ export default function OperationTempsReelPage() {
     };
   }
 
+  async function getSamsaraKmForBt(
+    uniteId: string,
+    dateOuverture: string | null | undefined,
+  ): Promise<number | null> {
+    try {
+      const { data, error } = await supabase.functions.invoke("samsara-odometer", {
+        body: {
+          unite_id: uniteId,
+          target_time: dateOuverture || nowIso(),
+        },
+      });
+
+      if (error) {
+        console.warn("Samsara odometer indisponible:", error);
+        return null;
+      }
+
+      const res = (data || {}) as SamsaraOdometerResponse;
+      if (res.ok === false || res.error) {
+        console.warn("Samsara odometer:", res.error || "Réponse invalide");
+        return null;
+      }
+
+      const km = Number(res.km_rounded ?? res.km);
+      return Number.isFinite(km) && km >= 0 ? Math.round(km) : null;
+    } catch (e) {
+      console.warn("Erreur lecture KM Samsara:", e);
+      return null;
+    }
+  }
+
   async function enregistrerKmSurBt(btId: string, uniteId: string, km: number) {
     const {
       data: { user },
@@ -828,9 +869,25 @@ export default function OperationTempsReelPage() {
     }
 
     if (km != null && !Number.isNaN(km)) {
+      // Un KM saisi manuellement demeure prioritaire.
       const ok = await enregistrerKmSurBt(bt.id, unite.id, km);
       if (!ok) {
         throw new Error("Démarrage annulé.");
+      }
+      bt = { ...bt, km };
+    } else if (bt.km == null) {
+      // Aucun KM au BT : chercher automatiquement la lecture Samsara la plus
+      // près de la date d'ouverture. Une fois enregistrée, elle reste figée.
+      const samsaraKm = await getSamsaraKmForBt(
+        unite.id,
+        bt.date_ouverture || nowIso(),
+      );
+
+      if (samsaraKm != null) {
+        const ok = await enregistrerKmSurBt(bt.id, unite.id, samsaraKm);
+        if (ok) {
+          bt = { ...bt, km: samsaraKm };
+        }
       }
     }
 
