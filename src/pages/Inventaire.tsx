@@ -14,6 +14,7 @@ type InventaireItem = {
   quantite: number;
   unite: string | null;
   cout_unitaire: number | null;
+  sans_marge?: boolean | null;
   seuil_alerte: number;
   emplacement: string | null;
   actif: boolean;
@@ -102,6 +103,7 @@ type FormState = {
   quantite: string;
   unite: string;
   cout_unitaire: string;
+  sans_marge: boolean;
   seuil_alerte: string;
   emplacement: string;
   actif: boolean;
@@ -139,6 +141,7 @@ const emptyForm: FormState = {
   quantite: "0",
   unite: "",
   cout_unitaire: "",
+  sans_marge: false,
   seuil_alerte: "0",
   emplacement: "",
   actif: true,
@@ -677,6 +680,7 @@ export default function Inventaire() {
       quantite: String(item.quantite ?? 0),
       unite: item.unite ?? "",
       cout_unitaire: item.cout_unitaire == null ? "" : String(item.cout_unitaire),
+      sans_marge: !!item.sans_marge,
       seuil_alerte: String(item.seuil_alerte ?? 0),
       emplacement: item.emplacement ?? "",
       actif: !!item.actif,
@@ -756,6 +760,7 @@ export default function Inventaire() {
       quantite: toNumberOrZero(form.quantite),
       unite: toNullableText(form.unite),
       cout_unitaire: toNullableNumber(form.cout_unitaire),
+      sans_marge: !!form.sans_marge,
       seuil_alerte: toNumberOrZero(form.seuil_alerte),
       emplacement: toNullableText(form.emplacement),
       actif: !!form.actif,
@@ -1469,6 +1474,7 @@ const isLow = seuil > 0 && quantite <= seuil;
                             <div style={miniInfoText}>{getSousCategorieLabel(item)}</div>
                           )}
                           {item.suivi_actif && <span style={badgeSuivi}>Suivi</span>}
+                          {item.sans_marge && <span style={badgeSansMarge}>Sans marge</span>}
                         </td>
                         <td style={{ ...tdRight, background: bg }}>{fmtQty(item.quantite)}</td>
                         <td style={{ ...td, background: bg }}>{item.unite || "—"}</td>
@@ -2000,6 +2006,12 @@ const isLow = seuil > 0 && quantite <= seuil;
                       <div style={detailValue}>{fmtMoney(selectedItem.cout_unitaire)}</div>
                     </div>
                     <div>
+                      <div style={detailLabel}>Facturation</div>
+                      <div style={detailValue}>
+                        {selectedItem.sans_marge ? "Sans marge" : "Marge normale"}
+                      </div>
+                    </div>
+                    <div>
                       <div style={detailLabel}>Seuil alerte</div>
                       <div style={detailValue}>{fmtQty(selectedItem.seuil_alerte)}</div>
                     </div>
@@ -2377,6 +2389,28 @@ const isLow = seuil > 0 && quantite <= seuil;
                 </div>
 
                 <div>
+                  <label style={label}>Facturation</label>
+                  <div style={sansMargeBox}>
+                    <label style={checkboxWrap}>
+                      <input
+                        type="checkbox"
+                        checked={form.sans_marge}
+                        onChange={(e) =>
+                          setForm((p) => ({
+                            ...p,
+                            sans_marge: e.target.checked,
+                          }))
+                        }
+                      />
+                      <span>Facturer sans marge</span>
+                    </label>
+                    <div style={sansMargeHelp}>
+                      Le prix facturé sera égal au coût de la pièce.
+                    </div>
+                  </div>
+                </div>
+
+                <div>
                   <label style={label}>Seuil alerte</label>
                   <input
                     style={inputClassic}
@@ -2679,6 +2713,32 @@ const badgeSuivi: React.CSSProperties = {
   background: "#eff6ff",
   color: "#1d4ed8",
   marginTop: 6,
+};
+
+const badgeSansMarge: React.CSSProperties = {
+  ...badgeBase,
+  background: "#fff7ed",
+  color: "#9a3412",
+  marginTop: 6,
+};
+
+const sansMargeBox: React.CSSProperties = {
+  border: "1px solid #fed7aa",
+  background: "#fffaf5",
+  borderRadius: 12,
+  padding: "10px 12px",
+  minHeight: 42,
+  display: "flex",
+  flexDirection: "column",
+  justifyContent: "center",
+  gap: 4,
+};
+
+const sansMargeHelp: React.CSSProperties = {
+  color: "#64748b",
+  fontSize: 12,
+  fontWeight: 600,
+  marginLeft: 26,
 };
 
 

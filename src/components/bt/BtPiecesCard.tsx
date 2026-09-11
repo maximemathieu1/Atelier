@@ -17,6 +17,7 @@ export type Piece = {
   quantite: number | string;
   prix_unitaire: number | string;
   marge_pct_snapshot?: number | null;
+  sans_marge_snapshot?: boolean | null;
   prix_facture_unitaire_snapshot?: number | null;
   total_facture_snapshot?: number | null;
 };
@@ -30,6 +31,7 @@ type InventaireItem = {
   unite: string | null;
   cout_unitaire: number | null;
   quantite: number | null;
+  sans_marge?: boolean | null;
 
   actif?: boolean | null;
 
@@ -62,6 +64,7 @@ type PendingPiece = {
   unite: string;
   quantite: string;
   prix_unitaire: string;
+  sans_marge?: boolean;
   is_manual?: boolean;
   matched_by?: "sku" | "supersed" | null;
   suivi_actif?: boolean | null;
@@ -360,9 +363,12 @@ export default function BtPiecesCard({
   }, [suiviLocalisation, suiviActifs, suiviModalOpen, suiviItem]);
 
   function getPieceFactureU(p: Piece) {
+    const sansMarge = p.sans_marge_snapshot === true;
+
     if (isBtOpenPricing) {
       const coutU = toNum(p.prix_unitaire);
-      return coutU * (1 + effectiveMargePiecesPct / 100);
+      const margePct = sansMarge ? 0 : effectiveMargePiecesPct;
+      return coutU * (1 + margePct / 100);
     }
 
     if (p.prix_facture_unitaire_snapshot != null) {
@@ -370,8 +376,9 @@ export default function BtPiecesCard({
     }
 
     const coutU = toNum(p.prix_unitaire);
-    const margePct =
-      p.marge_pct_snapshot != null
+    const margePct = sansMarge
+      ? 0
+      : p.marge_pct_snapshot != null
         ? Number(p.marge_pct_snapshot || 0)
         : effectiveMargePiecesPct;
 
@@ -379,6 +386,7 @@ export default function BtPiecesCard({
   }
 
   function getPieceMargePct(p: Piece) {
+    if (p.sans_marge_snapshot === true) return 0;
     if (isBtOpenPricing) return effectiveMargePiecesPct;
     if (p.marge_pct_snapshot != null) return Number(p.marge_pct_snapshot || 0);
     return effectiveMargePiecesPct;
@@ -444,6 +452,7 @@ export default function BtPiecesCard({
           unite,
           cout_unitaire,
           quantite,
+          sans_marge,
           actif,
           suivi_actif,
           suivi_type,
@@ -502,6 +511,7 @@ export default function BtPiecesCard({
           unite,
           cout_unitaire,
           quantite,
+          sans_marge,
           actif,
           suivi_actif,
           suivi_type,
@@ -653,6 +663,7 @@ export default function BtPiecesCard({
         unite: item.unite || "",
         quantite: "1",
         prix_unitaire: String(Number(item.cout_unitaire || 0)),
+        sans_marge: Boolean(item.sans_marge),
         is_manual: false,
         matched_by: matchedBy,
         suivi_actif: Boolean(item.suivi_actif),
@@ -716,6 +727,7 @@ export default function BtPiecesCard({
           unite,
           cout_unitaire,
           quantite,
+          sans_marge,
           actif,
           suivi_actif,
           suivi_type,
@@ -757,6 +769,7 @@ export default function BtPiecesCard({
         unite: "",
         quantite: "1",
         prix_unitaire: "",
+        sans_marge: false,
         is_manual: true,
         matched_by: null,
       },
@@ -791,6 +804,7 @@ export default function BtPiecesCard({
       quantite: toNumberOrZero(quickCreateForm.quantite),
       unite: toNullableText(quickCreateForm.unite),
       cout_unitaire: toNullableNumber(quickCreateForm.cout_unitaire),
+      sans_marge: false,
       seuil_alerte: toNumberOrZero(quickCreateForm.seuil_alerte),
       emplacement: toNullableText(quickCreateForm.emplacement),
       actif: true,
@@ -811,6 +825,7 @@ export default function BtPiecesCard({
           unite,
           cout_unitaire,
           quantite,
+          sans_marge,
           actif,
           suivi_actif,
           suivi_type,
@@ -1072,7 +1087,8 @@ export default function BtPiecesCard({
         );
       }
 
-      const margePct = effectiveMargePiecesPct;
+      const sansMarge = Boolean(row.sans_marge);
+      const margePct = sansMarge ? 0 : effectiveMargePiecesPct;
       const prixFactureUnitaire = prix_unitaire * (1 + margePct / 100);
       const totalFacture = quantite * prixFactureUnitaire;
 
@@ -1084,6 +1100,7 @@ export default function BtPiecesCard({
         description,
         quantite,
         prix_unitaire,
+        sans_marge_snapshot: sansMarge,
         marge_pct_snapshot: margePct,
         prix_facture_unitaire_snapshot: prixFactureUnitaire,
         total_facture_snapshot: totalFacture,
@@ -1128,11 +1145,14 @@ export default function BtPiecesCard({
     if (!Number.isFinite(quantite) || quantite <= 0) return;
     if (!Number.isFinite(prix_unitaire) || prix_unitaire < 0) return;
 
-    const margePct = isBtOpenPricing
-      ? effectiveMargePiecesPct
-      : row.marge_pct_snapshot != null
-        ? Number(row.marge_pct_snapshot || 0)
-        : effectiveMargePiecesPct;
+    const sansMarge = row.sans_marge_snapshot === true;
+    const margePct = sansMarge
+      ? 0
+      : isBtOpenPricing
+        ? effectiveMargePiecesPct
+        : row.marge_pct_snapshot != null
+          ? Number(row.marge_pct_snapshot || 0)
+          : effectiveMargePiecesPct;
 
     const prixFactureUnitaire = prix_unitaire * (1 + margePct / 100);
     const totalFacture = quantite * prixFactureUnitaire;
@@ -1169,6 +1189,7 @@ export default function BtPiecesCard({
           description,
           quantite: newQty,
           prix_unitaire,
+          sans_marge_snapshot: sansMarge,
           marge_pct_snapshot: margePct,
           prix_facture_unitaire_snapshot: prixFactureUnitaire,
           total_facture_snapshot: totalFacture,
@@ -1228,7 +1249,8 @@ export default function BtPiecesCard({
       const qty = toNum(row.quantite);
       const cost = toNum(row.prix_unitaire);
       if (!Number.isFinite(qty) || !Number.isFinite(cost)) return sum;
-      const factureU = cost * (1 + effectiveMargePiecesPct / 100);
+      const margePct = row.sans_marge ? 0 : effectiveMargePiecesPct;
+      const factureU = cost * (1 + margePct / 100);
       return sum + qty * factureU;
     }, 0);
   }, [pendingPieces, effectiveMargePiecesPct]);
@@ -1508,6 +1530,18 @@ export default function BtPiecesCard({
       borderRadius: 999,
       background: "#eff6ff",
       color: "#1d4ed8",
+      fontSize: 12,
+      fontWeight: 900,
+      marginTop: 8,
+    },
+    badgeSansMarge: {
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 6,
+      padding: "4px 8px",
+      borderRadius: 999,
+      background: "#fff7ed",
+      color: "#9a3412",
       fontSize: 12,
       fontWeight: 900,
       marginTop: 8,
@@ -2092,6 +2126,7 @@ export default function BtPiecesCard({
                         <div style={styles.tiny}>
                           Coût: {money(Number(item.cout_unitaire || 0))} •
                           Stock: {Number(item.quantite || 0)}
+                          {item.sans_marge ? " • Sans marge" : ""}
                         </div>
 
                         {item.matched_by === "supersed" && (
@@ -2205,11 +2240,16 @@ export default function BtPiecesCard({
                           </button>
                         </div>
 
-                        {row.matched_by === "supersed" && (
-                          <div style={styles.badgeSupersed}>
-                            Supersed détecté
-                          </div>
-                        )}
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          {row.matched_by === "supersed" && (
+                            <div style={styles.badgeSupersed}>
+                              Supersed détecté
+                            </div>
+                          )}
+                          {row.sans_marge && (
+                            <div style={styles.badgeSansMarge}>Sans marge</div>
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>
