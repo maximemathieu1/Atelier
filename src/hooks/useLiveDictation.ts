@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { supabase } from "../lib/supabaseClient";
 
 type DictationStatus =
   | "idle"
   | "requesting-mic"
-  | "connecting"
   | "listening"
-  | "stopping"
+  | "transcribing"
   | "error";
 
 type UseLiveDictationOptions = {
@@ -16,24 +16,14 @@ type UseLiveDictationOptions = {
 };
 
 /**
- * Version légère côté page:
- * - ouvre le micro
- * - enregistre par petits chunks
- * - envoie chaque chunk au backend
- * - récupère un texte partiel / final
+ * Dictée haute précision :
+ * - enregistre toute la dictée localement
+ * - n'envoie RIEN pendant que l'utilisateur parle
+ * - au Stop, construit un seul fichier WEBM/Opus
+ * - envoie le fichier complet à la Supabase Edge Function voice-transcribe
+ * - retourne uniquement la transcription finale
  *
- * IMPORTANT:
- * Le backend /api/voice/transcribe-stream est à implémenter.
- * Il doit accepter un FormData avec:
- *   - audio: Blob
- *   - language: string
- *   - finalize: "0" | "1"
- *
- * Réponse JSON attendue:
- * {
- *   text?: string;
- *   isFinal?: boolean;
- * }
+ * Le moteur de transcription est Groq whisper-large-v3 côté backend.
  */
 export function useLiveDictation(options: UseLiveDictationOptions = {}) {
   const {
@@ -50,82 +40,96 @@ export function useLiveDictation(options: UseLiveDictationOptions = {}) {
 
   const streamRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
-  const isStoppingRef = useRef(false);
-  const sessionIdRef = useRef<string>(crypto.randomUUID());
+  const chunksRef = useRef<Blob[]>([]);
+  const mimeTypeRef = useRef("audio/webm");
 
   useEffect(() => {
     const ok =
       typeof window !== "undefined" &&
       !!navigator.mediaDevices?.getUserMedia &&
       typeof MediaRecorder !== "undefined";
+
     setIsSupported(ok);
   }, []);
 
   const cleanupMedia = useCallback(() => {
     try {
-      recorderRef.current?.stream?.getTracks().forEach((t) => t.stop());
+      recorderRef.current?.stream?.getTracks().forEach((track) => track.stop());
     } catch {}
+
     try {
-      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current?.getTracks().forEach((track) => track.stop());
     } catch {}
+
     recorderRef.current = null;
     streamRef.current = null;
   }, []);
 
-  const pushChunk = useCallback(
-    async (blob: Blob, finalize: boolean) => {
-      const form = new FormData();
-      form.append("audio", blob, "chunk.webm");
-      form.append("language", language);
-      form.append("finalize", finalize ? "1" : "0");
-      form.append("sessionId", sessionIdRef.current);
-
-      const res = await fetch("/api/voice/transcribe-stream", {
-        method: "POST",
-        body: form,
-      });
-
-      if (!res.ok) {
-        throw new Error(`Transcription impossible (${res.status})`);
-      }
-
-      const json = (await res.json()) as {
-        text?: string;
-        isFinal?: boolean;
-      };
-
-      const text = (json.text ?? "").trim();
-      if (!text) return;
-
-      if (json.isFinal || finalize) {
-        setLiveText("");
-        onFinalText?.(text);
-      } else {
-        setLiveText(text);
-        onPartialText?.(text);
-      }
+  const fail = useCallback(
+    (message: string) => {
+      setError(message);
+      setStatus("error");
+      onError?.(message);
     },
-    [language, onFinalText, onPartialText]
+    [onError],
+  );
+
+  const transcribeAudio = useCallback(
+    async (audioBlob: Blob) => {
+      if (!audioBlob.size) {
+        throw new Error("Aucun audio n'a été enregistré.");
+      }
+
+      setStatus("transcribing");
+      setLiveText("");
+      onPartialText?.("");
+
+      const form = new FormData();
+      form.append("audio", audioBlob, "dictation.webm");
+      form.append("language", language);
+
+      const { data, error: invokeError } = await supabase.functions.invoke(
+        "voice-transcribe",
+        {
+          body: form,
+        },
+      );
+
+      if (invokeError) {
+        throw new Error(invokeError.message || "Transcription impossible.");
+      }
+
+      const text = String(data?.text ?? "").trim();
+
+      if (!text) {
+        throw new Error("Aucun texte n'a été reconnu dans la dictée.");
+      }
+
+      onFinalText?.(text);
+      setStatus("idle");
+    },
+    [language, onFinalText, onPartialText],
   );
 
   const start = useCallback(async () => {
     if (!isSupported) {
-      const msg = "Dictée vocale non supportée sur cet appareil.";
-      setError(msg);
-      setStatus("error");
-      onError?.(msg);
+      fail("Dictée vocale non supportée sur cet appareil.");
       return;
     }
 
-    if (status === "listening" || status === "connecting" || status === "requesting-mic") {
+    if (
+      status === "requesting-mic" ||
+      status === "listening" ||
+      status === "transcribing"
+    ) {
       return;
     }
 
     setError(null);
     setLiveText("");
+    onPartialText?.("");
+    chunksRef.current = [];
     setStatus("requesting-mic");
-    isStoppingRef.current = false;
-    sessionIdRef.current = crypto.randomUUID();
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -133,6 +137,7 @@ export function useLiveDictation(options: UseLiveDictationOptions = {}) {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
+          channelCount: 1,
         },
         video: false,
       });
@@ -143,88 +148,94 @@ export function useLiveDictation(options: UseLiveDictationOptions = {}) {
         ? "audio/webm;codecs=opus"
         : "audio/webm";
 
-      const recorder = new MediaRecorder(stream, { mimeType });
+      mimeTypeRef.current = mimeType;
+
+      const recorder = new MediaRecorder(stream, {
+        mimeType,
+        audioBitsPerSecond: 64000,
+      });
+
       recorderRef.current = recorder;
 
-      recorder.ondataavailable = async (event: BlobEvent) => {
-        if (!event.data || event.data.size === 0) return;
-
-        try {
-          if (!isStoppingRef.current) {
-            await pushChunk(event.data, false);
-          }
-        } catch (e) {
-          const msg =
-            e instanceof Error ? e.message : "Erreur de transcription.";
-          setError(msg);
-          setStatus("error");
-          onError?.(msg);
+      recorder.ondataavailable = (event: BlobEvent) => {
+        if (event.data && event.data.size > 0) {
+          chunksRef.current.push(event.data);
         }
       };
 
       recorder.onerror = () => {
-        const msg = "Erreur d'enregistrement audio.";
-        setError(msg);
-        setStatus("error");
-        onError?.(msg);
+        cleanupMedia();
+        fail("Erreur d'enregistrement audio.");
       };
 
       recorder.onstop = async () => {
-        setStatus("stopping");
+        const audioBlob = new Blob(chunksRef.current, {
+          type: mimeTypeRef.current,
+        });
+
+        chunksRef.current = [];
+        cleanupMedia();
 
         try {
-          // Petit blob vide final interdit; on force un mini blob si besoin côté backend.
-          // Ici on laisse surtout le backend finaliser la session avec finalize=1.
-          const emptyBlob = new Blob([], { type: mimeType });
-          await pushChunk(emptyBlob, true);
-          setStatus("idle");
+          await transcribeAudio(audioBlob);
         } catch (e) {
-          const msg =
-            e instanceof Error ? e.message : "Erreur à l'arrêt de la dictée.";
-          setError(msg);
-          setStatus("error");
-          onError?.(msg);
-        } finally {
-          cleanupMedia();
+          const message =
+            e instanceof Error ? e.message : "Erreur de transcription.";
+          fail(message);
         }
       };
 
-      setStatus("connecting");
-      recorder.start(1200); // envoie un chunk environ toutes les 1.2 sec
+      // Important : aucun timeslice.
+      // Le navigateur garde toute la dictée jusqu'à recorder.stop().
+      recorder.start();
       setStatus("listening");
     } catch (e) {
       cleanupMedia();
-      const msg =
+      const message =
         e instanceof Error
           ? e.message
           : "Impossible d'accéder au microphone.";
-      setError(msg);
-      setStatus("error");
-      onError?.(msg);
+      fail(message);
     }
-  }, [cleanupMedia, isSupported, onError, pushChunk, status]);
+  }, [cleanupMedia, fail, isSupported, onPartialText, status, transcribeAudio]);
 
-  const stop = useCallback(async () => {
-    if (status !== "listening" && status !== "connecting") return;
+  const stop = useCallback(() => {
+    if (status !== "listening") return;
 
-    isStoppingRef.current = true;
+    const recorder = recorderRef.current;
 
-    try {
-      recorderRef.current?.stop();
-    } catch {
+    if (!recorder || recorder.state === "inactive") {
       cleanupMedia();
       setStatus("idle");
+      return;
     }
-  }, [cleanupMedia, status]);
+
+    try {
+      recorder.stop();
+    } catch {
+      cleanupMedia();
+      fail("Impossible d'arrêter l'enregistrement audio.");
+    }
+  }, [cleanupMedia, fail, status]);
 
   const clear = useCallback(() => {
     setLiveText("");
     setError(null);
-    if (status === "error") setStatus("idle");
-  }, [status]);
+    onPartialText?.("");
+
+    if (status === "error") {
+      setStatus("idle");
+    }
+  }, [onPartialText, status]);
 
   useEffect(() => {
     return () => {
+      try {
+        if (recorderRef.current?.state === "recording") {
+          recorderRef.current.stop();
+        }
+      } catch {}
+
       cleanupMedia();
     };
   }, [cleanupMedia]);
@@ -236,14 +247,11 @@ export function useLiveDictation(options: UseLiveDictationOptions = {}) {
       error,
       liveText,
       isListening: status === "listening",
-      isBusy:
-        status === "requesting-mic" ||
-        status === "connecting" ||
-        status === "stopping",
+      isBusy: status === "requesting-mic" || status === "transcribing",
       start,
       stop,
       clear,
     }),
-    [clear, error, isSupported, liveText, start, status, stop]
+    [clear, error, isSupported, liveText, start, status, stop],
   );
 }
