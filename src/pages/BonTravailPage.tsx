@@ -1,4 +1,4 @@
-import {
+
   useEffect,
   useMemo,
   useRef,
@@ -37,6 +37,8 @@ type Client = {
   nom: string;
 };
 
+type ClientChoice = Client;
+
 type UniteChoice = Unite & {
   client_nom?: string | null;
 };
@@ -71,7 +73,7 @@ type BonTravail = {
   id: string;
   numero?: string | null;
   bon_commande?: string | null;
-  unite_id: string;
+  unite_id: string | null;
   statut: string;
   verrouille?: boolean | null;
   note?: string | null;
@@ -439,6 +441,12 @@ export default function BonTravailPage() {
   const [unitSearchLoading, setUnitSearchLoading] = useState(false);
   const [changingUnite, setChangingUnite] = useState(false);
 
+  const [factureModalOpen, setFactureModalOpen] = useState(false);
+  const [clientSearch, setClientSearch] = useState("");
+  const [clientChoices, setClientChoices] = useState<ClientChoice[]>([]);
+  const [clientSearchLoading, setClientSearchLoading] = useState(false);
+  const [creatingFacture, setCreatingFacture] = useState(false);
+
   const selectedIds = useMemo(() => {
     return selectedOrder.filter((id) => selected[id]);
   }, [selected, selectedOrder]);
@@ -481,6 +489,8 @@ export default function BonTravailPage() {
     () => bt?.client_id || client?.id || unite?.client_id || null,
     [bt, client, unite],
   );
+
+  const isFactureDirecte = useMemo(() => Boolean(bt && !bt.unite_id), [bt]);
 
   const dynamicTauxHoraire = useMemo(() => {
     if (!unite || !clientCfg) return Number(clientCfg?.taux_horaire || 0);
@@ -827,6 +837,73 @@ export default function BonTravailPage() {
     }
   }
 
+  async function loadClientChoices(searchValue = clientSearch) {
+    setClientSearchLoading(true);
+
+    try {
+      const term = searchValue.trim();
+      let query = supabase
+        .from("clients")
+        .select("id,nom")
+        .order("nom", { ascending: true })
+        .limit(80);
+
+      if (term) {
+        const safe = term.replace(/[%_]/g, "");
+        query = query.ilike("nom", `%${safe}%`);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      setClientChoices((data || []) as ClientChoice[]);
+    } catch (e: any) {
+      alert(e?.message || "Erreur chargement des clients.");
+      setClientChoices([]);
+    } finally {
+      setClientSearchLoading(false);
+    }
+  }
+
+  function openFactureModal() {
+    setClientSearch("");
+    setClientChoices([]);
+    setFactureModalOpen(true);
+    void loadClientChoices("");
+  }
+
+  async function createFactureDirecte(targetClient: ClientChoice) {
+    if (!targetClient?.id || creatingFacture) return;
+
+    setCreatingFacture(true);
+    try {
+      const { data, error } = await supabase
+        .from("bons_travail")
+        .insert({
+          unite_id: null,
+          client_id: targetClient.id,
+          client_nom: targetClient.nom,
+          statut: "ouvert",
+          date_ouverture: new Date().toISOString(),
+          km: null,
+        })
+        .select("id")
+        .single();
+
+      if (error) throw error;
+      if (!data?.id) throw new Error("La facture a été créée, mais aucun identifiant n'a été retourné.");
+
+      setFactureModalOpen(false);
+      nav(`/bons-travail/${data.id}`);
+    } catch (e: any) {
+      alert(
+        e?.message ||
+          "Impossible de créer la facture directe. Vérifie que bons_travail.unite_id accepte NULL.",
+      );
+    } finally {
+      setCreatingFacture(false);
+    }
+  }
+
   async function loadUnitChoices(searchValue = unitSearch) {
     setUnitSearchLoading(true);
 
@@ -886,7 +963,7 @@ export default function BonTravailPage() {
   }
 
   function openChangeUniteModal() {
-    if (!bt || !unite) return;
+    if (!bt) return;
 
     if (isReadOnly) {
       alert("BT fermé / verrouillé / facturé : impossible de changer l'unité.");
@@ -1375,6 +1452,7 @@ export default function BonTravailPage() {
   }
 
   async function syncInventaireInstallationsForBt(btId: string) {
+    if (isFactureDirecte) return;
     try {
       const { error } = await supabase.rpc("atelier_sync_installations_bt", {
         p_bt_id: btId,
@@ -1399,56 +1477,53 @@ export default function BonTravailPage() {
 
     const btRow = btRaw as BonTravail;
 
-    const { data: uRaw, error: eU } = await supabase
-      .from("unites")
-      .select("*")
-      .eq("id", btRow.unite_id)
-      .single();
+    let unitRow: Unite | null = null;
+    if (btRow.unite_id) {
+      const { data: uRaw, error: eU } = await supabase
+        .from("unites")
+        .select("*")
+        .eq("id", btRow.unite_id)
+        .single();
 
-    if (eU) throw eU;
-
-    const unitRow = uRaw as Unite;
+      if (eU) throw eU;
+      unitRow = uRaw as Unite;
+    }
 
     let liveCfg: ClientConfig | null = null;
     let liveTaux: ClientTauxMO[] = [];
     let liveParams: ParametresEntreprise | null = null;
 
-    if (unitRow.client_id) {
-      const [cfgRes, tauxRes, paramsRes] = await Promise.all([
+    const pricingClientId = btRow.client_id || unitRow?.client_id || null;
+
+    const paramsRes = await supabase
+      .from("parametres_entreprise")
+      .select("tps_rate,tvq_rate")
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (paramsRes.data) liveParams = paramsRes.data as ParametresEntreprise;
+
+    if (pricingClientId) {
+      const [cfgRes, tauxRes] = await Promise.all([
         supabase
           .from("client_configuration")
           .select(
             "id,client_id,taux_horaire,marge_pieces,frais_atelier_pourcentage,actif,note_facturation",
           )
-          .eq("client_id", unitRow.client_id)
+          .eq("client_id", pricingClientId)
           .maybeSingle(),
         supabase
           .from("client_taux_main_oeuvre")
           .select("id,client_id,type_unite_id,taux_horaire,actif")
-          .eq("client_id", unitRow.client_id),
-        supabase
-          .from("parametres_entreprise")
-          .select("tps_rate,tvq_rate")
-          .order("updated_at", { ascending: false })
-          .limit(1)
-          .maybeSingle(),
+          .eq("client_id", pricingClientId),
       ]);
 
       if (cfgRes.data) liveCfg = cfgRes.data as ClientConfig;
       if (tauxRes.data) liveTaux = (tauxRes.data || []) as ClientTauxMO[];
-      if (paramsRes.data) liveParams = paramsRes.data as ParametresEntreprise;
-    } else {
-      const { data: paramsData } = await supabase
-        .from("parametres_entreprise")
-        .select("tps_rate,tvq_rate")
-        .order("updated_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (paramsData) liveParams = paramsData as ParametresEntreprise;
     }
 
-    const typeId = unitRow.type_unite_id ?? null;
+    const typeId = unitRow?.type_unite_id ?? null;
     const specificRate = liveTaux.find(
       (r) => r.actif && r.type_unite_id === typeId,
     );
@@ -1593,13 +1668,16 @@ export default function BonTravailPage() {
 
   async function reloadPiecesAndRecalc(btId: string) {
     await loadPieces(btId);
-    await syncInventaireInstallationsForBt(btId);
+    if (!isFactureDirecte) {
+      await syncInventaireInstallationsForBt(btId);
+    }
     const totals = await recalcAndPersistTotals(btId);
     setBt((prev) => (prev ? { ...prev, ...totals } : prev));
   }
 
   async function upsertEntretienHistoriqueForTask(t: NoteMeca) {
-    if (!bt) return { ok: false as const, message: "BT introuvable." };
+    if (!bt || !bt.unite_id)
+      return { ok: false as const, message: "Aucune unité liée à cette facture." };
 
     const isEntretienTask =
       !!t.entretien_template_item_id ||
@@ -1793,19 +1871,25 @@ export default function BonTravailPage() {
       });
       lastSavedHeaderRef.current = headerSignature;
 
-      const { data: uData, error: eU } = await supabase
-        .from("unites")
-        .select("*")
-        .eq("id", btRow.unite_id)
-        .single();
+      let unitRow: Unite | null = null;
 
-      if (eU) throw eU;
-      const unitRow = uData as Unite;
-      setUnite(unitRow);
+      if (btRow.unite_id) {
+        const { data: uData, error: eU } = await supabase
+          .from("unites")
+          .select("*")
+          .eq("id", btRow.unite_id)
+          .single();
 
-      await supabase.rpc("sync_entretien_due_tasks", {
-        p_unite_id: btRow.unite_id,
-      });
+        if (eU) throw eU;
+        unitRow = uData as Unite;
+        setUnite(unitRow);
+
+        await supabase.rpc("sync_entretien_due_tasks", {
+          p_unite_id: btRow.unite_id,
+        });
+      } else {
+        setUnite(null);
+      }
 
       let liveClient: Client | null = null;
       let liveCfg: ClientConfig | null = null;
@@ -1823,24 +1907,26 @@ export default function BonTravailPage() {
         liveParams = paramsRes.data as ParametresEntreprise;
       }
 
-      if (unitRow.client_id) {
+      const loadClientId = btRow.client_id || unitRow?.client_id || null;
+
+      if (loadClientId) {
         const [clientRes, cfgRes, tauxRes] = await Promise.all([
           supabase
             .from("clients")
             .select("id,nom")
-            .eq("id", unitRow.client_id)
+            .eq("id", loadClientId)
             .maybeSingle(),
           supabase
             .from("client_configuration")
             .select(
               "id,client_id,taux_horaire,marge_pieces,frais_atelier_pourcentage,actif,note_facturation",
             )
-            .eq("client_id", unitRow.client_id)
+            .eq("client_id", loadClientId)
             .maybeSingle(),
           supabase
             .from("client_taux_main_oeuvre")
             .select("id,client_id,type_unite_id,taux_horaire,actif")
-            .eq("client_id", unitRow.client_id),
+            .eq("client_id", loadClientId),
         ]);
 
         if (!clientRes.error && clientRes.data)
@@ -1851,14 +1937,14 @@ export default function BonTravailPage() {
       }
 
       setClient(liveClient);
-      await loadClientContacts(unitRow.client_id);
+      await loadClientContacts(loadClientId);
       setClientCfg(liveCfg);
       setClientTauxRows(liveTaux);
       setParamEntreprise(liveParams);
 
       const resolvedDynamicRate = (() => {
-        if (!unitRow || !liveCfg) return Number(liveCfg?.taux_horaire || 0);
-        const typeId = unitRow.type_unite_id ?? null;
+        if (!liveCfg) return 0;
+        const typeId = unitRow?.type_unite_id ?? null;
         const specific = liveTaux.find(
           (r) => r.actif && r.type_unite_id === typeId,
         );
@@ -1881,7 +1967,7 @@ export default function BonTravailPage() {
 
       if (needsBtSnapshotUpdate) {
         const btPayload = {
-          client_id: btRow.client_id ?? unitRow.client_id ?? null,
+          client_id: btRow.client_id ?? unitRow?.client_id ?? null,
           client_nom: btRow.client_nom?.trim() || liveClient?.nom || null,
           taux_horaire_snapshot:
             btRow.taux_horaire_snapshot ??
@@ -1912,36 +1998,45 @@ export default function BonTravailPage() {
         };
       }
 
-      const { data: nData, error: eN } = await supabase
-        .from("unite_notes")
-        .select(
-          "id,unite_id,titre,details,created_at,entretien_template_item_id,entretien_unite_item_id,entretien_auto,bt_source_id,suivi_type",
-        )
-        .eq("unite_id", btRow.unite_id)
-        .order("created_at", { ascending: true });
+      if (btRow.unite_id) {
+        const { data: nData, error: eN } = await supabase
+          .from("unite_notes")
+          .select(
+            "id,unite_id,titre,details,created_at,entretien_template_item_id,entretien_unite_item_id,entretien_auto,bt_source_id,suivi_type",
+          )
+          .eq("unite_id", btRow.unite_id)
+          .order("created_at", { ascending: true });
 
-      if (eN) throw eN;
-      setNotes((nData || []) as NoteMeca[]);
+        if (eN) throw eN;
+        setNotes((nData || []) as NoteMeca[]);
+
+        const { data: teData, error: eTe } = await supabase
+          .from("bt_taches_effectuees")
+          .select("*")
+          .eq("bt_id", btRow.id)
+          .order("date_effectuee", { ascending: true });
+
+        if (eTe) throw eTe;
+        setTachesEffectuees((teData || []) as TacheEffectuee[]);
+      } else {
+        setNotes([]);
+        setTachesEffectuees([]);
+        setAutorisationMap({});
+      }
+
       setSelected({});
       setSelectedOrder([]);
-
-      const { data: teData, error: eTe } = await supabase
-        .from("bt_taches_effectuees")
-        .select("*")
-        .eq("bt_id", btRow.id)
-        .order("date_effectuee", { ascending: true });
-
-      if (eTe) throw eTe;
-      setTachesEffectuees((teData || []) as TacheEffectuee[]);
 
       await Promise.all([
         loadPieces(id),
         loadMainOeuvre(id),
         loadPointages(id),
         loadDocuments(id),
-        loadAutorisations(btRow.id),
+        btRow.unite_id ? loadAutorisations(btRow.id) : Promise.resolve(),
       ]);
-      await syncInventaireInstallationsForBt(btRow.id);
+      if (btRow.unite_id) {
+        await syncInventaireInstallationsForBt(btRow.id);
+      }
 
       const persistedTotals = await recalcAndPersistTotals(btRow.id);
 
@@ -2071,7 +2166,10 @@ export default function BonTravailPage() {
   }
 
   async function savePendingTasks() {
-    if (!bt) return;
+    if (!bt || !bt.unite_id) {
+      alert("Les tâches d'unité ne sont pas disponibles sur une facture directe.");
+      return;
+    }
 
     const currentTask = taskModalValue.trim().toUpperCase();
     const tasksToSave = [...pendingTasks, ...(currentTask ? [currentTask] : [])]
@@ -2434,14 +2532,14 @@ export default function BonTravailPage() {
       return;
     }
 
-    if (!hasKmColumn) {
+    if (!isFactureDirecte && !hasKmColumn) {
       alert(
         "La colonne 'km' n'existe pas dans la DB. Ajoute-la via la migration SQL.",
       );
       return;
     }
 
-    const resolvedClientId = bt.client_id || unite.client_id || null;
+    const resolvedClientId = bt.client_id || unite?.client_id || null;
     if (!resolvedClientId) {
       alert(
         "Impossible de fermer ce bon de travail : aucun client n'est assigné à l'unité / au BT.",
@@ -2496,7 +2594,7 @@ ${noms}`);
 
       if (eBt) throw eBt;
 
-      if (km !== null) {
+      if (km !== null && unite) {
         const nextKm = Math.max(unite.km_actuel ?? 0, km);
         const { error: eU } = await supabase
           .from("unites")
@@ -2961,7 +3059,7 @@ ${noms}`);
   }
 
   function handlePrint() {
-    if (!bt || !unite) return;
+    if (!bt) return;
 
     const entrepriseNom = "Atelier";
 
@@ -3077,9 +3175,9 @@ ${noms}`);
       .replace(/{{client_adresse_l1}}/g, "")
       .replace(/{{client_ville}}/g, "")
       .replace(/{{client_telephone}}/g, "")
-      .replace(/{{unite_no}}/g, escapeHtml(unite.no_unite || "—"))
-      .replace(/{{unite_plaque}}/g, escapeHtml(unite.plaque || "—"))
-      .replace(/{{unite_niv}}/g, escapeHtml(unite.niv || "—"))
+      .replace(/{{unite_no}}/g, escapeHtml(unite?.no_unite || (isFactureDirecte ? "Facture directe" : "—")))
+      .replace(/{{unite_plaque}}/g, escapeHtml(unite?.plaque || "—"))
+      .replace(/{{unite_niv}}/g, escapeHtml(unite?.niv || "—"))
       .replace(/{{bt_km}}/g, bt.km != null ? String(bt.km) : "—")
       .replace(/{{taches_effectuees_rows}}/g, tachesEffectueesRowsHtml)
       .replace(/{{taches_ouvertes_section}}/g, tachesOuvertesSection)
@@ -3350,9 +3448,9 @@ ${noms}`);
       >
         <div style={styles.row}>
           <div>
-            <div style={styles.h1}>Bon de travail</div>
+            <div style={styles.h1}>{isFactureDirecte ? "Facture directe" : "Bon de travail"}</div>
             <div style={styles.muted}>
-              Gestion BT
+              {isFactureDirecte ? "Vente / facturation sans unité" : "Gestion BT"}
               {isAutoSaving ? " • Enregistrement..." : " • Sauvegarde auto"}
             </div>
           </div>
@@ -3361,6 +3459,14 @@ ${noms}`);
         <div style={styles.row}>
           <button style={styles.btn} onClick={() => nav(-1)}>
             Retour
+          </button>
+          <button
+            type="button"
+            style={styles.btn}
+            onClick={openFactureModal}
+            disabled={creatingFacture}
+          >
+            Facture
           </button>
 
           {!isClosed ? (
@@ -3426,7 +3532,7 @@ ${noms}`);
         </div>
       )}
 
-      {loading || !bt || !unite ? (
+      {loading || !bt ? (
         <div style={styles.card}>Chargement…</div>
       ) : (
         <>
@@ -3449,21 +3555,24 @@ ${noms}`);
             >
               Documents ({documents.length})
             </button>
-            <button
-              type="button"
-              style={
-                activeTab === "centre_service"
-                  ? styles.tabBtnActive
-                  : styles.tabBtn
-              }
-              onClick={() => setActiveTab("centre_service")}
-            >
-              Centre de service
-            </button>
+            {!isFactureDirecte && (
+              <button
+                type="button"
+                style={
+                  activeTab === "centre_service"
+                    ? styles.tabBtnActive
+                    : styles.tabBtn
+                }
+                onClick={() => setActiveTab("centre_service")}
+              >
+                Centre de service
+              </button>
+            )}
           </div>
 
           {activeTab === "details" ? (
             <>
+              {!isFactureDirecte && (
               <div
                 className="no-print"
                 style={{
@@ -3517,7 +3626,61 @@ ${noms}`);
                   </button>
                 </div>
               </div>
+              )}
 
+              {isFactureDirecte ? (
+                <div style={styles.card}>
+                  <div style={{ ...styles.row, justifyContent: "space-between" }}>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 900, color: "#64748b" }}>
+                        FACTURE DIRECTE
+                      </div>
+                      <div style={{ fontSize: 22, fontWeight: 950, marginTop: 4 }}>
+                        {snapshotClientNom}
+                      </div>
+                      <div style={{ ...styles.muted, marginTop: 4 }}>
+                        Aucune unité liée à cette facture.
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      style={styles.btn}
+                      onClick={() => {
+                        if (resolvedClientId) setClientModalOpen(true);
+                      }}
+                    >
+                      Voir client
+                    </button>
+                  </div>
+                  <div style={{ ...styles.row, marginTop: 14 }}>
+                    <label style={{ display: "grid", gap: 6, fontWeight: 800 }}>
+                      Bon de commande
+                      <input
+                        style={styles.input}
+                        value={poInput}
+                        onChange={(e) => setPoInput(e.target.value)}
+                        disabled={isReadOnly}
+                        placeholder="Optionnel"
+                      />
+                    </label>
+                    <label style={{ display: "grid", gap: 6, fontWeight: 800 }}>
+                      Date d'ouverture
+                      <input
+                        type="datetime-local"
+                        style={styles.input}
+                        value={dateOuvertureInput}
+                        onChange={(e) => setDateOuvertureInput(e.target.value)}
+                        disabled={isReadOnly}
+                      />
+                    </label>
+                  </div>
+                  {clientCfg?.note_facturation && (
+                    <div style={{ marginTop: 12, padding: 10, borderRadius: 10, background: "#f8fafc" }}>
+                      <b>Note de facturation :</b> {clientCfg.note_facturation}
+                    </div>
+                  )}
+                </div>
+              ) : unite ? (
               <BonTravailHeaderCard
                 bt={bt}
                 unite={unite}
@@ -3539,10 +3702,11 @@ ${noms}`);
                 }}
                 onChangeUnite={openChangeUniteModal}
               />
+              ) : null}
 
               <BonTravailOperations
                 btId={id}
-                uniteId={bt.unite_id}
+                uniteId={bt.unite_id || ""}
                 btKm={bt.km}
                 clientId={bt?.client_id || unite?.client_id || null}
                 uniteNo={unite?.no_unite || ""}
@@ -3876,11 +4040,113 @@ ${noms}`);
               isReadOnly={isReadOnly}
               documents={documents}
               btKm={bt.km}
-              vehiculeNiv={unite.niv}
+              vehiculeNiv={unite?.niv || ""}
               onDocumentGenerated={() => loadDocuments(bt.id)}
             />
           )}
         </>
+      )}
+
+      {factureModalOpen && (
+        <div
+          className="no-print"
+          style={styles.modalBackdrop}
+          onClick={() => {
+            if (!creatingFacture) setFactureModalOpen(false);
+          }}
+        >
+          <div
+            style={{ ...styles.modalCard, maxWidth: 760 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={styles.modalHeader}>
+              <h3 style={styles.modalTitle}>Nouvelle facture directe</h3>
+              <button
+                type="button"
+                style={styles.iconCloseBtn}
+                onClick={() => setFactureModalOpen(false)}
+                disabled={creatingFacture}
+              >
+                ×
+              </button>
+            </div>
+
+            <div style={styles.modalBody}>
+              <div style={{ ...styles.muted, marginBottom: 12 }}>
+                Recherche le client. Aucune unité ne sera liée à cette facture.
+              </div>
+
+              <div style={{ ...styles.row, alignItems: "stretch" }}>
+                <input
+                  style={{ ...styles.input, flex: 1, minWidth: 260 }}
+                  placeholder="Rechercher un client..."
+                  value={clientSearch}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setClientSearch(value);
+                    void loadClientChoices(value);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void loadClientChoices(clientSearch);
+                  }}
+                  disabled={creatingFacture}
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  style={styles.btnPrimary}
+                  onClick={() => void loadClientChoices(clientSearch)}
+                  disabled={creatingFacture || clientSearchLoading}
+                >
+                  {clientSearchLoading ? "Recherche..." : "Rechercher"}
+                </button>
+              </div>
+
+              <div
+                style={{
+                  marginTop: 14,
+                  border: "1px solid rgba(0,0,0,.08)",
+                  borderRadius: 12,
+                  maxHeight: 420,
+                  overflowY: "auto",
+                }}
+              >
+                {clientChoices.length === 0 ? (
+                  <div style={{ padding: 16, ...styles.muted }}>
+                    {clientSearchLoading ? "Recherche..." : "Aucun client trouvé."}
+                  </div>
+                ) : (
+                  clientChoices.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => void createFactureDirecte(c)}
+                      disabled={creatingFacture}
+                      style={{
+                        width: "100%",
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        gap: 12,
+                        padding: "13px 14px",
+                        border: "none",
+                        borderBottom: "1px solid rgba(0,0,0,.06)",
+                        background: "#fff",
+                        textAlign: "left",
+                        cursor: creatingFacture ? "default" : "pointer",
+                      }}
+                    >
+                      <span style={{ fontWeight: 900 }}>{c.nom}</span>
+                      <span style={{ fontWeight: 900, color: "#2563eb" }}>
+                        Créer la facture
+                      </span>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {sendChoiceModalOpen && (
