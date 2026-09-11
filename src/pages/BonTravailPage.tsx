@@ -2931,13 +2931,14 @@ ${noms}`);
 
     try {
       const { data, error } = await supabase.functions.invoke(
-        "send-bt-invoice-only",
+        "smart-function",
         {
           body: {
-            bt_id: bt.id,
-            to_email: sendToEmail.trim(),
-            to_name: sendToName.trim(),
-            commentaire: sendCommentaire.trim(),
+            bon_travail_id: bt.id,
+            email_facturation: sendToEmail.trim(),
+            client_contact_nom: sendToName.trim() || undefined,
+            kind: "facture_bt",
+            commentaire: sendCommentaire.trim() || null,
           },
         },
       );
