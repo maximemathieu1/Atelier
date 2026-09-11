@@ -29,6 +29,17 @@ type Unite = {
 type Client = {
   id: string;
   nom: string;
+  telephone?: string | null;
+  courriel?: string | null;
+  adresse?: string | null;
+  adresse_numero?: string | null;
+  adresse_rue?: string | null;
+  adresse_ville?: string | null;
+  adresse_province?: string | null;
+  adresse_code_postal?: string | null;
+  ville?: string | null;
+  province?: string | null;
+  code_postal?: string | null;
 };
 
 
@@ -71,6 +82,7 @@ type BonTravail = {
   verrouille?: boolean | null;
   note?: string | null;
   description_facture?: string | null;
+  frais_atelier_actif?: boolean | null;
   date_ouverture?: string | null;
   date_fermeture?: string | null;
   km?: number | null;
@@ -349,6 +361,7 @@ export default function BonTravailPage() {
   const [samsaraKmError, setSamsaraKmError] = useState<string | null>(null);
   const [poInput, setPoInput] = useState<string>("");
   const [descriptionFacture, setDescriptionFacture] = useState<string>("");
+  const [fraisAtelierActif, setFraisAtelierActif] = useState(true);
   const [dateOuvertureInput, setDateOuvertureInput] = useState<string>("");
   const [dateFermetureInput, setDateFermetureInput] = useState<string>("");
 
@@ -623,10 +636,15 @@ export default function BonTravailPage() {
     [totalPointagesMainOeuvre, totalMainOeuvreManuelle],
   );
 
-  const totalFraisAtelier = useMemo(
-    () => totalMainOeuvre * (effectiveFraisAtelierPct / 100),
-    [totalMainOeuvre, effectiveFraisAtelierPct],
-  );
+  const totalFraisAtelier = useMemo(() => {
+    if (isFactureDirecte && !fraisAtelierActif) return 0;
+    return totalMainOeuvre * (effectiveFraisAtelierPct / 100);
+  }, [
+    totalMainOeuvre,
+    effectiveFraisAtelierPct,
+    isFactureDirecte,
+    fraisAtelierActif,
+  ]);
 
   const totalGeneral = useMemo(
     () => totalPiecesFacture + totalMainOeuvre + totalFraisAtelier,
@@ -691,6 +709,7 @@ export default function BonTravailPage() {
       km: rawKm && km !== null && Number.isFinite(km) ? km : null,
       bon_commande: poInput.trim() || null,
       description_facture: descriptionFacture.trim() || null,
+      frais_atelier_actif: fraisAtelierActif,
       date_ouverture: localToIsoOrNull(dateOuvertureInput),
       date_fermeture: localToIsoOrNull(dateFermetureInput),
     });
@@ -698,6 +717,7 @@ export default function BonTravailPage() {
     kmInput,
     poInput,
     descriptionFacture,
+    fraisAtelierActif,
     dateOuvertureInput,
     dateFermetureInput,
   ]);
@@ -1561,8 +1581,12 @@ export default function BonTravailPage() {
 
     const recalcTotalMainOeuvre =
       recalcTotalPointagesMainOeuvre + recalcTotalMainOeuvreManuelle;
-    const recalcTotalFraisAtelier =
-      recalcTotalMainOeuvre * (recalcFraisAtelierPct / 100);
+    const recalcFraisAtelierActif =
+      btRow.unite_id ? true : btRow.frais_atelier_actif !== false;
+
+    const recalcTotalFraisAtelier = recalcFraisAtelierActif
+      ? recalcTotalMainOeuvre * (recalcFraisAtelierPct / 100)
+      : 0;
     const recalcTotalGeneral =
       recalcTotalPieces + recalcTotalMainOeuvre + recalcTotalFraisAtelier;
     const recalcTotalTps = round2(recalcTotalGeneral * recalcTpsRate);
@@ -1785,12 +1809,14 @@ export default function BonTravailPage() {
         kmVal === null || kmVal === undefined ? "" : String(kmVal);
       const nextPoInput = String(btRow.bon_commande ?? "");
       const nextDescriptionFacture = String(btRow.description_facture ?? "");
+      const nextFraisAtelierActif = btRow.frais_atelier_actif !== false;
       const nextDateOuvertureInput = isoToDateTimeLocal(btRow.date_ouverture);
       const nextDateFermetureInput = isoToDateTimeLocal(btRow.date_fermeture);
 
       setKmInput(nextKmInput);
       setPoInput(nextPoInput);
       setDescriptionFacture(nextDescriptionFacture);
+      setFraisAtelierActif(nextFraisAtelierActif);
       setDateOuvertureInput(nextDateOuvertureInput);
       setDateFermetureInput(nextDateFermetureInput);
 
@@ -1798,6 +1824,7 @@ export default function BonTravailPage() {
         km: kmVal == null ? null : Number(kmVal),
         bon_commande: btRow.bon_commande?.trim() || null,
         description_facture: btRow.description_facture?.trim() || null,
+        frais_atelier_actif: nextFraisAtelierActif,
         date_ouverture: btRow.date_ouverture ?? null,
         date_fermeture: btRow.date_fermeture ?? null,
       });
@@ -1845,7 +1872,9 @@ export default function BonTravailPage() {
         const [clientRes, cfgRes, tauxRes] = await Promise.all([
           supabase
             .from("clients")
-            .select("id,nom")
+            .select(
+              "id,nom,telephone,courriel,adresse,adresse_numero,adresse_rue,adresse_ville,adresse_province,adresse_code_postal,ville,province,code_postal",
+            )
             .eq("id", loadClientId)
             .maybeSingle(),
           supabase
@@ -2018,6 +2047,7 @@ export default function BonTravailPage() {
 
     const bon_commande = poInput.trim() || null;
     const description_facture = descriptionFacture.trim() || null;
+    const frais_atelier_actif = isFactureDirecte ? fraisAtelierActif : true;
     const date_ouverture = localToIsoOrNull(dateOuvertureInput);
     const date_fermeture = localToIsoOrNull(dateFermetureInput);
     const openingDateChanged = (date_ouverture || null) !== (bt.date_ouverture || null);
@@ -2045,6 +2075,7 @@ export default function BonTravailPage() {
           km,
           bon_commande,
           description_facture,
+          frais_atelier_actif,
           date_ouverture,
           date_fermeture,
         })
@@ -2056,6 +2087,7 @@ export default function BonTravailPage() {
         km,
         bon_commande,
         description_facture,
+        frais_atelier_actif,
         date_ouverture,
         date_fermeture,
       });
@@ -2068,6 +2100,7 @@ export default function BonTravailPage() {
               km,
               bon_commande,
               description_facture,
+              frais_atelier_actif,
               date_ouverture,
               date_fermeture,
             }
@@ -2521,6 +2554,7 @@ ${noms}`);
 
     const bon_commande = poInput.trim() || null;
     const description_facture = descriptionFacture.trim() || null;
+    const frais_atelier_actif = isFactureDirecte ? fraisAtelierActif : true;
     const date_ouverture = localToIsoOrNull(dateOuvertureInput);
     const date_fermeture =
       forcedDateFermeture || localToIsoOrNull(dateFermetureInput) || todayIso();
@@ -2535,6 +2569,7 @@ ${noms}`);
           km,
           bon_commande,
           description_facture,
+          frais_atelier_actif,
           statut: nouveauStatut,
           date_ouverture,
           date_fermeture,
@@ -2566,6 +2601,7 @@ ${noms}`);
               km,
               bon_commande,
               description_facture,
+              frais_atelier_actif,
               date_ouverture,
               date_fermeture,
               ...totals,
@@ -3122,7 +3158,49 @@ ${noms}`);
     );
     const totalHeuresGlobal = totalHeuresPointages + totalHeuresMainOeuvre;
 
-    const html = btPrintTemplate
+    const clientAdressePrint =
+      String(client?.adresse ?? "").trim() ||
+      [client?.adresse_numero, client?.adresse_rue]
+        .filter(Boolean)
+        .join(" ")
+        .trim();
+
+    const clientVillePrint =
+      [client?.adresse_ville, client?.adresse_province, client?.adresse_code_postal]
+        .filter(Boolean)
+        .join(" ")
+        .trim() ||
+      [client?.ville, client?.province, client?.code_postal]
+        .filter(Boolean)
+        .join(" ")
+        .trim();
+
+    const clientTelephonePrint = String(client?.telephone ?? "").trim();
+    const clientCourrielPrint = String(client?.courriel ?? "").trim();
+
+    let printTemplate = btPrintTemplate;
+
+    if (isFactureDirecte) {
+      printTemplate = printTemplate
+        .replace(
+          '<div class="vehicle-label">Unité</div>',
+          '<div class="vehicle-label">Adresse</div>',
+        )
+        .replace(
+          '<div class="vehicle-label">Plaque</div>',
+          '<div class="vehicle-label">Ville</div>',
+        )
+        .replace(
+          '<div class="vehicle-label">NIV</div>',
+          '<div class="vehicle-label">Téléphone</div>',
+        )
+        .replace(
+          '<div class="vehicle-label">Kilométrage</div>',
+          '<div class="vehicle-label">Courriel</div>',
+        );
+    }
+
+    const html = printTemplate
       .replace(/{{entreprise_nom_affiche}}/g, escapeHtml(entrepriseNom))
       .replace(/{{entreprise_adresse_l1}}/g, "")
       .replace(/{{entreprise_ville}}/g, "")
@@ -3137,10 +3215,40 @@ ${noms}`);
       .replace(/{{client_adresse_l1}}/g, "")
       .replace(/{{client_ville}}/g, "")
       .replace(/{{client_telephone}}/g, "")
-      .replace(/{{unite_no}}/g, escapeHtml(unite?.no_unite || (isFactureDirecte ? "Facture directe" : "—")))
-      .replace(/{{unite_plaque}}/g, escapeHtml(unite?.plaque || "—"))
-      .replace(/{{unite_niv}}/g, escapeHtml(unite?.niv || "—"))
-      .replace(/{{bt_km}}/g, bt.km != null ? String(bt.km) : "—")
+      .replace(
+        /{{unite_no}}/g,
+        escapeHtml(
+          isFactureDirecte
+            ? clientAdressePrint || "—"
+            : unite?.no_unite || "—",
+        ),
+      )
+      .replace(
+        /{{unite_plaque}}/g,
+        escapeHtml(
+          isFactureDirecte
+            ? clientVillePrint || "—"
+            : unite?.plaque || "—",
+        ),
+      )
+      .replace(
+        /{{unite_niv}}/g,
+        escapeHtml(
+          isFactureDirecte
+            ? clientTelephonePrint || "—"
+            : unite?.niv || "—",
+        ),
+      )
+      .replace(
+        /{{bt_km}}/g,
+        escapeHtml(
+          isFactureDirecte
+            ? clientCourrielPrint || "—"
+            : bt.km != null
+              ? String(bt.km)
+              : "—",
+        ),
+      )
       .replace(/{{taches_effectuees_rows}}/g, tachesEffectueesRowsHtml)
       .replace(/{{taches_ouvertes_section}}/g, tachesOuvertesSection)
       .replace(/{{pieces_rows}}/g, piecesRowsHtml)
@@ -3678,6 +3786,30 @@ ${noms}`);
                     placeholder="Ex. Vente de pièces, réparation sur une unité temporaire, diagnostic, installation..."
                     disabled={isReadOnly}
                   />
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 9,
+                      marginTop: 12,
+                      paddingTop: 12,
+                      borderTop: "1px solid rgba(0,0,0,.08)",
+                      fontWeight: 800,
+                      cursor: isReadOnly ? "default" : "pointer",
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={fraisAtelierActif}
+                      onChange={(e) => setFraisAtelierActif(e.target.checked)}
+                      disabled={isReadOnly}
+                    />
+                    Appliquer les frais d’atelier
+                    <span style={{ ...styles.muted, fontWeight: 600 }}>
+                      ({effectiveFraisAtelierPct.toFixed(2)} %)
+                    </span>
+                  </label>
+
                   <div style={{ ...styles.muted, marginTop: 7, fontSize: 12 }}>
                     {isAutoSaving ? "Enregistrement..." : "Enregistrement automatique"}
                   </div>
@@ -3767,7 +3899,11 @@ ${noms}`);
                 totalTPS={totalTPS}
                 totalTVQ={totalTVQ}
                 totalFinal={totalFinal}
-                effectiveFraisAtelierPct={effectiveFraisAtelierPct}
+                effectiveFraisAtelierPct={
+                  isFactureDirecte && !fraisAtelierActif
+                    ? 0
+                    : effectiveFraisAtelierPct
+                }
                 effectiveTpsRate={effectiveTpsRate}
                 effectiveTvqRate={effectiveTvqRate}
               />

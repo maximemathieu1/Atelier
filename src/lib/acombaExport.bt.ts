@@ -235,26 +235,13 @@ async function loadClientAndUnite(bt: any) {
     throw new Error("Client manquant sur le bon de travail.");
   }
 
-  if (!bt.unite_id) {
-    throw new Error("Unité manquante sur le bon de travail.");
-  }
-
-  const [{ data: client, error: clientError }, { data: unite, error: uniteError }] =
-    await Promise.all([
-      supabase
-        .from("clients")
-        .select("id, nom, acomba_client_code")
-        .eq("id", bt.client_id)
-        .maybeSingle(),
-      supabase
-        .from("unites")
-        .select("id, mode_comptable")
-        .eq("id", bt.unite_id)
-        .maybeSingle(),
-    ]);
+  const { data: client, error: clientError } = await supabase
+    .from("clients")
+    .select("id, nom, acomba_client_code")
+    .eq("id", bt.client_id)
+    .maybeSingle();
 
   if (clientError) throw new Error(clientError.message);
-  if (uniteError) throw new Error(uniteError.message);
 
   const clientCode = String((client as any)?.acomba_client_code ?? "")
     .trim()
@@ -265,6 +252,25 @@ async function loadClientAndUnite(bt: any) {
   }
 
   const clientName = String((client as any)?.nom ?? "").trim() || "";
+
+  // Facture directe : aucune unité n'est requise.
+  // Une vente/facture sans unité est comptabilisée comme un travail externe.
+  if (!bt.unite_id) {
+    return {
+      clientCode,
+      clientName,
+      modeComptable: "externe",
+      isFactureDirecte: true,
+    };
+  }
+
+  const { data: unite, error: uniteError } = await supabase
+    .from("unites")
+    .select("id, mode_comptable")
+    .eq("id", bt.unite_id)
+    .maybeSingle();
+
+  if (uniteError) throw new Error(uniteError.message);
 
   const modeComptable = String((unite as any)?.mode_comptable ?? "")
     .trim()
@@ -278,7 +284,12 @@ async function loadClientAndUnite(bt: any) {
     throw new Error("Mode comptable invalide sur l’unité.");
   }
 
-  return { clientCode, clientName, modeComptable };
+  return {
+    clientCode,
+    clientName,
+    modeComptable,
+    isFactureDirecte: false,
+  };
 }
 
 type BuiltBtExport = {

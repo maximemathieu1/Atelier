@@ -21,6 +21,7 @@ type BtFacturationRow = {
   taux_horaire_snapshot?: number | null;
   marge_pieces_snapshot?: number | null;
   frais_atelier_pct_snapshot?: number | null;
+  frais_atelier_actif?: boolean | null;
   tps_rate_snapshot?: number | null;
   tvq_rate_snapshot?: number | null;
   facture_email_sent_at: string | null;
@@ -150,7 +151,11 @@ async function recalcBtTotalsForFacturation(row: BtFacturationRow) {
   }, 0);
 
   const totalMainOeuvre = totalPointagesMainOeuvre + totalMainOeuvreManuelle;
-  const totalFraisAtelier = totalMainOeuvre * (fraisAtelierPct / 100);
+  const fraisAtelierActif =
+    row.unite_id ? true : row.frais_atelier_actif !== false;
+  const totalFraisAtelier = fraisAtelierActif
+    ? totalMainOeuvre * (fraisAtelierPct / 100)
+    : 0;
   const totalGeneral = totalPieces + totalMainOeuvre + totalFraisAtelier;
   const totalTps = round2(totalGeneral * tpsRate);
   const totalTvq = round2(totalGeneral * tvqRate);
@@ -253,6 +258,7 @@ export default function FacturationBT() {
           taux_horaire_snapshot,
           marge_pieces_snapshot,
           frais_atelier_pct_snapshot,
+          frais_atelier_actif,
           tps_rate_snapshot,
           tvq_rate_snapshot,
           facture_email_sent_at,

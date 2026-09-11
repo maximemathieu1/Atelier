@@ -466,6 +466,16 @@ export default function BtCentreServiceCard({
     }, 0);
   }, [pieces, payeur, repartition.pieces]);
 
+  const nbPiecesFabricant = useMemo(() => {
+    return pieces.filter((piece) => {
+      return (
+        payeur === "fabricant" ||
+        (payeur === "partage" &&
+          repartition.pieces[piece.id] === "fabricant")
+      );
+    }).length;
+  }, [pieces, payeur, repartition.pieces]);
+
   const repartitionComplete = useMemo(() => {
     if (payeur !== "partage") return true;
     return (
@@ -636,7 +646,7 @@ export default function BtCentreServiceCard({
       params["Temps de réparation standard / Standard repair time (SRT)"] =
         totalReclame.toFixed(2);
     }
-    if (totalPiecesFabricant > 0) {
+    if (nbPiecesFabricant > 0) {
       params["Coûts total (pièces) / Total cost (parts)"] =
         totalPiecesFabricant.toFixed(2);
     }
