@@ -24,7 +24,7 @@ type Client = {
 type BT = {
   id: string;
   numero?: string | null;
-  unite_id: string;
+  unite_id: string | null;
   statut: string;
   km?: number | null;
   date_ouverture?: string | null;
@@ -175,6 +175,12 @@ export default function BTListe() {
   const [creating, setCreating] = useState(false);
   const [createErr, setCreateErr] = useState<string | null>(null);
 
+  const [showInvoiceModal, setShowInvoiceModal] = useState(false);
+  const [invoiceClientSearch, setInvoiceClientSearch] = useState("");
+  const [selectedInvoiceClientId, setSelectedInvoiceClientId] = useState<string>("");
+  const [creatingInvoice, setCreatingInvoice] = useState(false);
+  const [invoiceErr, setInvoiceErr] = useState<string | null>(null);
+
   const [unitSearch, setUnitSearch] = useState("");
   const [showUnitDropdown, setShowUnitDropdown] = useState(false);
 
@@ -266,7 +272,7 @@ export default function BTListe() {
     if (bt.client_nom?.trim()) return bt.client_nom.trim();
     if (bt.client_id && clientsById[bt.client_id]?.nom) return clientsById[bt.client_id].nom;
 
-    const u = unitesById[bt.unite_id];
+    const u = bt.unite_id ? unitesById[bt.unite_id] : undefined;
     if (u?.client_id && clientsById[u.client_id]?.nom) return clientsById[u.client_id].nom;
 
     return "—";
@@ -314,7 +320,7 @@ export default function BTListe() {
   }
 
   function sortValue(bt: BT, key: string) {
-    const u = unitesById[bt.unite_id];
+    const u = bt.unite_id ? unitesById[bt.unite_id] : undefined;
 
     switch (key) {
       case "numero":
@@ -347,7 +353,7 @@ export default function BTListe() {
       if (!matchesStatutFilter(bt.statut)) return false;
       if (!term) return true;
 
-      const u = unitesById[bt.unite_id];
+      const u = bt.unite_id ? unitesById[bt.unite_id] : undefined;
       const client = resolveClientName(bt);
       const totalPiecesAtelier = resolvePiecesAtelier(bt);
       const totalMo = resolveMainOeuvre(bt);
@@ -453,6 +459,98 @@ export default function BTListe() {
       })
       .slice(0, 80);
   }, [unites, unitSearch, clientsById]);
+
+  const filteredInvoiceClients = useMemo(() => {
+    const term = invoiceClientSearch.trim().toLowerCase();
+    const list = Object.values(clientsById).sort((a, b) =>
+      a.nom.localeCompare(b.nom, "fr-CA", { sensitivity: "base" }),
+    );
+
+    if (!term) return list.slice(0, 100);
+
+    return list
+      .filter((c) => c.nom.toLowerCase().includes(term))
+      .slice(0, 100);
+  }, [clientsById, invoiceClientSearch]);
+
+  const selectedInvoiceClient = useMemo(
+    () =>
+      selectedInvoiceClientId
+        ? clientsById[selectedInvoiceClientId] ?? null
+        : null,
+    [clientsById, selectedInvoiceClientId],
+  );
+
+  function openInvoiceModal() {
+    setInvoiceErr(null);
+    setInvoiceClientSearch("");
+    setSelectedInvoiceClientId("");
+    setShowInvoiceModal(true);
+  }
+
+  function closeInvoiceModal() {
+    if (creatingInvoice) return;
+    setInvoiceErr(null);
+    setShowInvoiceModal(false);
+  }
+
+  function selectInvoiceClient(c: Client) {
+    setSelectedInvoiceClientId(c.id);
+    setInvoiceClientSearch(c.nom);
+    setInvoiceErr(null);
+  }
+
+  async function createDirectInvoice() {
+    setInvoiceErr(null);
+
+    if (!selectedInvoiceClient) {
+      setInvoiceErr("Sélectionne un client.");
+      return;
+    }
+
+    setCreatingInvoice(true);
+
+    try {
+      const now = new Date();
+      const annee = now.getFullYear();
+      const mois = now.getMonth() + 1;
+
+      const { data, error } = await supabase
+        .from("bons_travail")
+        .insert({
+          unite_id: null,
+          client_id: selectedInvoiceClient.id,
+          client_nom: selectedInvoiceClient.nom,
+          statut: "ouvert",
+          verrouille: false,
+          titre: `Facture directe - ${selectedInvoiceClient.nom}`,
+          annee,
+          mois,
+          date_ouverture: now.toISOString(),
+          date_fermeture: null,
+          km: null,
+          total_pieces: 0,
+          total_main_oeuvre: 0,
+          total_frais_atelier: 0,
+          total_general: 0,
+        })
+        .select("id")
+        .single();
+
+      if (error) throw error;
+      if (!data?.id) throw new Error("Aucun identifiant retourné.");
+
+      setShowInvoiceModal(false);
+      nav(`/bt/${data.id}`);
+    } catch (e: any) {
+      setInvoiceErr(
+        e?.message ??
+          "Erreur lors de la création de la facture directe.",
+      );
+    } finally {
+      setCreatingInvoice(false);
+    }
+  }
 
   function openNewModal() {
     setCreateErr(null);
@@ -603,6 +701,19 @@ export default function BTListe() {
       fontWeight: 900,
       cursor: "pointer",
       boxShadow: "0 1px 0 rgba(255,255,255,.22) inset",
+    },
+
+    invoiceBtn: {
+      height: 40,
+      padding: "0 18px",
+      borderRadius: 14,
+      border: "1px solid #0f172a",
+      background: "#0f172a",
+      color: "#fff",
+      fontSize: 15,
+      fontWeight: 900,
+      cursor: "pointer",
+      boxShadow: "0 1px 0 rgba(255,255,255,.15) inset",
     },
 
     primaryBtnDisabled: {
@@ -1046,6 +1157,10 @@ return (
         <button type="button" style={styles.primaryBtn} onClick={openNewModal}>
           + Nouveau BT
         </button>
+
+        <button type="button" style={styles.invoiceBtn} onClick={openInvoiceModal}>
+          + Facture
+        </button>
       </div>
     </div>
 
@@ -1119,7 +1234,7 @@ return (
                   </tr>
                 ) : (
                   paginatedRows.map((bt, index) => {
-                    const u = unitesById[bt.unite_id];
+                    const u = bt.unite_id ? unitesById[bt.unite_id] : undefined;
                     const kmVal = (bt as any).km ?? (bt as any).kilometrage ?? null;
                     const opened = (bt as any).date_ouverture ?? (bt as any).created_at ?? null;
                     const client = resolveClientName(bt);
@@ -1160,7 +1275,7 @@ return (
                               letterSpacing: "0.3px",
                             }}
                           >
-                            {u?.no_unite ?? "—"}
+                            {u?.no_unite ?? (bt.unite_id ? "—" : "Facture directe")}
                           </div>
 
                           <div style={styles.cellMuted}>
@@ -1278,6 +1393,106 @@ return (
         resolveClientName={resolveClientName}
         onDone={loadAll}
       />
+
+      {showInvoiceModal && (
+        <div style={styles.modalOverlay} onMouseDown={closeInvoiceModal}>
+          <div style={styles.modalCard} onMouseDown={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <h2 style={styles.modalTitle}>Nouvelle facture</h2>
+              <button
+                type="button"
+                style={styles.iconBtn}
+                onClick={closeInvoiceModal}
+                disabled={creatingInvoice}
+                aria-label="Fermer"
+                title="Fermer"
+              >
+                ×
+              </button>
+            </div>
+
+            <div style={styles.fieldBlock}>
+              <label style={styles.fieldLabel}>Client</label>
+
+              <div style={styles.unitPickerWrap}>
+                <input
+                  style={styles.modalInput}
+                  value={invoiceClientSearch}
+                  placeholder="Taper le nom du client..."
+                  onChange={(e) => {
+                    setInvoiceClientSearch(e.target.value);
+                    setSelectedInvoiceClientId("");
+                  }}
+                  disabled={creatingInvoice}
+                  autoFocus
+                />
+
+                <div style={styles.pickerInfo}>
+                  {selectedInvoiceClient
+                    ? `Sélectionné : ${selectedInvoiceClient.nom}`
+                    : "Sélectionne un client pour créer la facture sans unité."}
+                </div>
+
+                {!selectedInvoiceClient && (
+                  <div
+                    style={{
+                      ...styles.unitDropdown,
+                      position: "relative",
+                      top: 8,
+                      maxHeight: 320,
+                    }}
+                  >
+                    {filteredInvoiceClients.length === 0 ? (
+                      <div style={styles.unitOption}>
+                        <div style={styles.unitTop}>Aucun client trouvé</div>
+                      </div>
+                    ) : (
+                      filteredInvoiceClients.map((c) => (
+                        <div
+                          key={c.id}
+                          style={styles.unitOption}
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            selectInvoiceClient(c);
+                          }}
+                        >
+                          <div style={styles.unitTop}>{c.nom}</div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {invoiceErr ? <div style={styles.modalError}>{invoiceErr}</div> : null}
+
+            <div style={styles.modalFooter}>
+              <button
+                type="button"
+                style={styles.ghostBtn}
+                onClick={closeInvoiceModal}
+                disabled={creatingInvoice}
+              >
+                Annuler
+              </button>
+
+              <button
+                type="button"
+                style={
+                  creatingInvoice || !selectedInvoiceClient
+                    ? styles.primaryBtnDisabled
+                    : styles.invoiceBtn
+                }
+                onClick={createDirectInvoice}
+                disabled={creatingInvoice || !selectedInvoiceClient}
+              >
+                {creatingInvoice ? "Création…" : "Créer la facture"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showNewModal && (
         <div style={styles.modalOverlay} onMouseDown={closeNewModal}>

@@ -31,7 +31,6 @@ type Client = {
   nom: string;
 };
 
-type ClientChoice = Client;
 
 type UniteChoice = Unite & {
   client_nom?: string | null;
@@ -435,12 +434,6 @@ export default function BonTravailPage() {
   const [unitSearchLoading, setUnitSearchLoading] = useState(false);
   const [changingUnite, setChangingUnite] = useState(false);
 
-  const [factureModalOpen, setFactureModalOpen] = useState(false);
-  const [clientSearch, setClientSearch] = useState("");
-  const [clientChoices, setClientChoices] = useState<ClientChoice[]>([]);
-  const [clientSearchLoading, setClientSearchLoading] = useState(false);
-  const [creatingFacture, setCreatingFacture] = useState(false);
-
   const selectedIds = useMemo(() => {
     return selectedOrder.filter((id) => selected[id]);
   }, [selected, selectedOrder]);
@@ -828,73 +821,6 @@ export default function BonTravailPage() {
     } catch (e) {
       console.error("Erreur chargement contacts client:", e);
       setClientContacts([]);
-    }
-  }
-
-  async function loadClientChoices(searchValue = clientSearch) {
-    setClientSearchLoading(true);
-
-    try {
-      const term = searchValue.trim();
-      let query = supabase
-        .from("clients")
-        .select("id,nom")
-        .order("nom", { ascending: true })
-        .limit(80);
-
-      if (term) {
-        const safe = term.replace(/[%_]/g, "");
-        query = query.ilike("nom", `%${safe}%`);
-      }
-
-      const { data, error } = await query;
-      if (error) throw error;
-      setClientChoices((data || []) as ClientChoice[]);
-    } catch (e: any) {
-      alert(e?.message || "Erreur chargement des clients.");
-      setClientChoices([]);
-    } finally {
-      setClientSearchLoading(false);
-    }
-  }
-
-  function openFactureModal() {
-    setClientSearch("");
-    setClientChoices([]);
-    setFactureModalOpen(true);
-    void loadClientChoices("");
-  }
-
-  async function createFactureDirecte(targetClient: ClientChoice) {
-    if (!targetClient?.id || creatingFacture) return;
-
-    setCreatingFacture(true);
-    try {
-      const { data, error } = await supabase
-        .from("bons_travail")
-        .insert({
-          unite_id: null,
-          client_id: targetClient.id,
-          client_nom: targetClient.nom,
-          statut: "ouvert",
-          date_ouverture: new Date().toISOString(),
-          km: null,
-        })
-        .select("id")
-        .single();
-
-      if (error) throw error;
-      if (!data?.id) throw new Error("La facture a été créée, mais aucun identifiant n'a été retourné.");
-
-      setFactureModalOpen(false);
-      nav(`/bons-travail/${data.id}`);
-    } catch (e: any) {
-      alert(
-        e?.message ||
-          "Impossible de créer la facture directe. Vérifie que bons_travail.unite_id accepte NULL.",
-      );
-    } finally {
-      setCreatingFacture(false);
     }
   }
 
@@ -3454,14 +3380,6 @@ ${noms}`);
           <button style={styles.btn} onClick={() => nav(-1)}>
             Retour
           </button>
-          <button
-            type="button"
-            style={styles.btn}
-            onClick={openFactureModal}
-            disabled={creatingFacture}
-          >
-            Facture
-          </button>
 
           {!isClosed ? (
             <>
@@ -4039,108 +3957,6 @@ ${noms}`);
             />
           )}
         </>
-      )}
-
-      {factureModalOpen && (
-        <div
-          className="no-print"
-          style={styles.modalBackdrop}
-          onClick={() => {
-            if (!creatingFacture) setFactureModalOpen(false);
-          }}
-        >
-          <div
-            style={{ ...styles.modalCard, maxWidth: 760 }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div style={styles.modalHeader}>
-              <h3 style={styles.modalTitle}>Nouvelle facture directe</h3>
-              <button
-                type="button"
-                style={styles.iconCloseBtn}
-                onClick={() => setFactureModalOpen(false)}
-                disabled={creatingFacture}
-              >
-                ×
-              </button>
-            </div>
-
-            <div style={styles.modalBody}>
-              <div style={{ ...styles.muted, marginBottom: 12 }}>
-                Recherche le client. Aucune unité ne sera liée à cette facture.
-              </div>
-
-              <div style={{ ...styles.row, alignItems: "stretch" }}>
-                <input
-                  style={{ ...styles.input, flex: 1, minWidth: 260 }}
-                  placeholder="Rechercher un client..."
-                  value={clientSearch}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    setClientSearch(value);
-                    void loadClientChoices(value);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") void loadClientChoices(clientSearch);
-                  }}
-                  disabled={creatingFacture}
-                  autoFocus
-                />
-                <button
-                  type="button"
-                  style={styles.btnPrimary}
-                  onClick={() => void loadClientChoices(clientSearch)}
-                  disabled={creatingFacture || clientSearchLoading}
-                >
-                  {clientSearchLoading ? "Recherche..." : "Rechercher"}
-                </button>
-              </div>
-
-              <div
-                style={{
-                  marginTop: 14,
-                  border: "1px solid rgba(0,0,0,.08)",
-                  borderRadius: 12,
-                  maxHeight: 420,
-                  overflowY: "auto",
-                }}
-              >
-                {clientChoices.length === 0 ? (
-                  <div style={{ padding: 16, ...styles.muted }}>
-                    {clientSearchLoading ? "Recherche..." : "Aucun client trouvé."}
-                  </div>
-                ) : (
-                  clientChoices.map((c) => (
-                    <button
-                      key={c.id}
-                      type="button"
-                      onClick={() => void createFactureDirecte(c)}
-                      disabled={creatingFacture}
-                      style={{
-                        width: "100%",
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        gap: 12,
-                        padding: "13px 14px",
-                        border: "none",
-                        borderBottom: "1px solid rgba(0,0,0,.06)",
-                        background: "#fff",
-                        textAlign: "left",
-                        cursor: creatingFacture ? "default" : "pointer",
-                      }}
-                    >
-                      <span style={{ fontWeight: 900 }}>{c.nom}</span>
-                      <span style={{ fontWeight: 900, color: "#2563eb" }}>
-                        Créer la facture
-                      </span>
-                    </button>
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
       )}
 
       {sendChoiceModalOpen && (
