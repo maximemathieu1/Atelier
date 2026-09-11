@@ -1387,7 +1387,9 @@ return (
       <BtFusionModal
         open={showFusionModal}
         onClose={() => setShowFusionModal(false)}
-        bts={bts}
+        bts={bts.filter(
+          (bt): bt is BT & { unite_id: string } => Boolean(bt.unite_id),
+        )}
         unitesById={unitesById}
         clientsById={clientsById}
         resolveClientName={resolveClientName}
