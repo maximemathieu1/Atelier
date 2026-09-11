@@ -70,6 +70,7 @@ type BonTravail = {
   statut: string;
   verrouille?: boolean | null;
   note?: string | null;
+  description_facture?: string | null;
   date_ouverture?: string | null;
   date_fermeture?: string | null;
   km?: number | null;
@@ -347,6 +348,7 @@ export default function BonTravailPage() {
   const [syncingSamsaraKm, setSyncingSamsaraKm] = useState(false);
   const [samsaraKmError, setSamsaraKmError] = useState<string | null>(null);
   const [poInput, setPoInput] = useState<string>("");
+  const [descriptionFacture, setDescriptionFacture] = useState<string>("");
   const [dateOuvertureInput, setDateOuvertureInput] = useState<string>("");
   const [dateFermetureInput, setDateFermetureInput] = useState<string>("");
 
@@ -688,10 +690,17 @@ export default function BonTravailPage() {
     return JSON.stringify({
       km: rawKm && km !== null && Number.isFinite(km) ? km : null,
       bon_commande: poInput.trim() || null,
+      description_facture: descriptionFacture.trim() || null,
       date_ouverture: localToIsoOrNull(dateOuvertureInput),
       date_fermeture: localToIsoOrNull(dateFermetureInput),
     });
-  }, [kmInput, poInput, dateOuvertureInput, dateFermetureInput]);
+  }, [
+    kmInput,
+    poInput,
+    descriptionFacture,
+    dateOuvertureInput,
+    dateFermetureInput,
+  ]);
 
   useEffect(() => {
     if (effectiveTauxHoraire > 0 && !newMoTaux.trim()) {
@@ -1775,17 +1784,20 @@ export default function BonTravailPage() {
       const nextKmInput =
         kmVal === null || kmVal === undefined ? "" : String(kmVal);
       const nextPoInput = String(btRow.bon_commande ?? "");
+      const nextDescriptionFacture = String(btRow.description_facture ?? "");
       const nextDateOuvertureInput = isoToDateTimeLocal(btRow.date_ouverture);
       const nextDateFermetureInput = isoToDateTimeLocal(btRow.date_fermeture);
 
       setKmInput(nextKmInput);
       setPoInput(nextPoInput);
+      setDescriptionFacture(nextDescriptionFacture);
       setDateOuvertureInput(nextDateOuvertureInput);
       setDateFermetureInput(nextDateFermetureInput);
 
       const headerSignature = JSON.stringify({
         km: kmVal == null ? null : Number(kmVal),
         bon_commande: btRow.bon_commande?.trim() || null,
+        description_facture: btRow.description_facture?.trim() || null,
         date_ouverture: btRow.date_ouverture ?? null,
         date_fermeture: btRow.date_fermeture ?? null,
       });
@@ -2005,6 +2017,7 @@ export default function BonTravailPage() {
     if (rawKm && (km === null || Number.isNaN(km) || km < 0)) return false;
 
     const bon_commande = poInput.trim() || null;
+    const description_facture = descriptionFacture.trim() || null;
     const date_ouverture = localToIsoOrNull(dateOuvertureInput);
     const date_fermeture = localToIsoOrNull(dateFermetureInput);
     const openingDateChanged = (date_ouverture || null) !== (bt.date_ouverture || null);
@@ -2028,7 +2041,13 @@ export default function BonTravailPage() {
 
       const { error } = await supabase
         .from("bons_travail")
-        .update({ km, bon_commande, date_ouverture, date_fermeture })
+        .update({
+          km,
+          bon_commande,
+          description_facture,
+          date_ouverture,
+          date_fermeture,
+        })
         .eq("id", bt.id);
 
       if (error) throw error;
@@ -2036,6 +2055,7 @@ export default function BonTravailPage() {
       const savedSignature = JSON.stringify({
         km,
         bon_commande,
+        description_facture,
         date_ouverture,
         date_fermeture,
       });
@@ -2043,7 +2063,14 @@ export default function BonTravailPage() {
       lastSavedHeaderRef.current = savedSignature;
       setBt((prev) =>
         prev
-          ? { ...prev, km, bon_commande, date_ouverture, date_fermeture }
+          ? {
+              ...prev,
+              km,
+              bon_commande,
+              description_facture,
+              date_ouverture,
+              date_fermeture,
+            }
           : prev,
       );
       setErr(null);
@@ -2445,7 +2472,7 @@ export default function BonTravailPage() {
     mode: "facturer" | "fermer",
     forcedDateFermeture?: string,
   ) {
-    if (!bt || !unite) return;
+    if (!bt) return;
 
     if (Boolean(bt.verrouille) || isFacturedStatut(bt.statut)) {
       alert("BT verrouillé / facturé : impossible de modifier.");
@@ -2493,6 +2520,7 @@ ${noms}`);
     }
 
     const bon_commande = poInput.trim() || null;
+    const description_facture = descriptionFacture.trim() || null;
     const date_ouverture = localToIsoOrNull(dateOuvertureInput);
     const date_fermeture =
       forcedDateFermeture || localToIsoOrNull(dateFermetureInput) || todayIso();
@@ -2506,6 +2534,7 @@ ${noms}`);
         .update({
           km,
           bon_commande,
+          description_facture,
           statut: nouveauStatut,
           date_ouverture,
           date_fermeture,
@@ -2536,6 +2565,7 @@ ${noms}`);
               statut: nouveauStatut,
               km,
               bon_commande,
+              description_facture,
               date_ouverture,
               date_fermeture,
               ...totals,
@@ -3010,8 +3040,20 @@ ${noms}`);
         </tr>
       `;
 
-    const tachesOuvertesSection =
-      notes.length > 0
+    const tachesOuvertesSection = isFactureDirecte
+      ? descriptionFacture.trim()
+        ? `
+        <div class="section">
+          <div class="section-h">Description</div>
+          <div class="section-b">
+            <div style="white-space:pre-wrap;line-height:1.5;">${escapeHtml(
+              descriptionFacture.trim(),
+            )}</div>
+          </div>
+        </div>
+      `
+        : ""
+      : notes.length > 0
         ? `
         <div class="section">
           <div class="section-h">Tâches ouvertes</div>
@@ -3616,6 +3658,41 @@ ${noms}`);
               />
               ) : null}
 
+              {isFactureDirecte && (
+                <div style={styles.card}>
+                  <div style={{ fontSize: 16, fontWeight: 950, marginBottom: 10 }}>
+                    Description
+                  </div>
+                  <textarea
+                    style={{
+                      ...styles.input,
+                      width: "100%",
+                      minWidth: 0,
+                      minHeight: 120,
+                      resize: "vertical",
+                      boxSizing: "border-box",
+                      lineHeight: 1.5,
+                    }}
+                    value={descriptionFacture}
+                    onChange={(e) => setDescriptionFacture(e.target.value)}
+                    placeholder="Ex. Vente de pièces, réparation sur une unité temporaire, diagnostic, installation..."
+                    disabled={isReadOnly}
+                  />
+                  <div style={{ ...styles.muted, marginTop: 7, fontSize: 12 }}>
+                    {isAutoSaving ? "Enregistrement..." : "Enregistrement automatique"}
+                  </div>
+                </div>
+              )}
+
+              {isFactureDirecte && (
+                <style>{`
+                  .facture-directe-operations > div:first-child {
+                    display: none !important;
+                  }
+                `}</style>
+              )}
+
+              <div className={isFactureDirecte ? "facture-directe-operations" : undefined}>
               <BonTravailOperations
                 btId={id}
                 uniteId={bt.unite_id || ""}
@@ -3694,6 +3771,7 @@ ${noms}`);
                 effectiveTpsRate={effectiveTpsRate}
                 effectiveTvqRate={effectiveTvqRate}
               />
+              </div>
             </>
           ) : activeTab === "documents" ? (
             <div style={styles.card}>
