@@ -155,30 +155,6 @@ type KmRpcResponse = {
   log_id?: string | null;
 };
 
-type SpeechRecognitionLike = {
-  lang: string;
-  interimResults: boolean;
-  continuous: boolean;
-  maxAlternatives?: number;
-  onstart: null | (() => void);
-  onerror: null | ((event: { error?: string }) => void);
-  onend: null | (() => void);
-  onresult: null | ((event: any) => void);
-  start: () => void;
-  stop: () => void;
-};
-
-type WindowWithSpeechRecognition = Window & {
-  SpeechRecognition?: new () => SpeechRecognitionLike;
-  webkitSpeechRecognition?: new () => SpeechRecognitionLike;
-};
-
-type VoiceCorrection = {
-  id: string;
-  entendu: string;
-  remplacement: string;
-  actif: boolean;
-};
 
 type AutorisationDecision = "autorise" | "refuse" | "attente" | "a_discuter";
 
@@ -238,113 +214,6 @@ function daysBetween(a: Date, b: Date) {
   return Math.ceil((b.getTime() - a.getTime()) / 86400000);
 }
 
-function normalizeText(value: string) {
-  return value
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[’']/g, "'")
-    .replace(/[^a-z0-9'\s]/g, " ")
-    .replace(/\b(c|ce|cest|c'est)\b/g, "cest")
-    .replace(/\s{2,}/g, " ")
-    .trim();
-}
-
-function levenshtein(a: string, b: string) {
-  const aa = normalizeText(a);
-  const bb = normalizeText(b);
-
-  const rows = aa.length + 1;
-  const cols = bb.length + 1;
-  const dp: number[][] = Array.from({ length: rows }, () =>
-    Array(cols).fill(0),
-  );
-
-  for (let i = 0; i < rows; i += 1) dp[i][0] = i;
-  for (let j = 0; j < cols; j += 1) dp[0][j] = j;
-
-  for (let i = 1; i < rows; i += 1) {
-    for (let j = 1; j < cols; j += 1) {
-      const cost = aa[i - 1] === bb[j - 1] ? 0 : 1;
-      dp[i][j] = Math.min(
-        dp[i - 1][j] + 1,
-        dp[i][j - 1] + 1,
-        dp[i - 1][j - 1] + cost,
-      );
-    }
-  }
-
-  return dp[rows - 1][cols - 1];
-}
-
-function areTokensClose(a: string, b: string) {
-  const aa = normalizeText(a);
-  const bb = normalizeText(b);
-
-  if (!aa || !bb) return false;
-  if (aa === bb) return true;
-
-  const dist = levenshtein(aa, bb);
-  const maxLen = Math.max(aa.length, bb.length);
-
-  if (maxLen <= 4) return dist <= 1;
-  if (maxLen <= 7) return dist <= 2;
-  return dist <= 3;
-}
-
-function normalizeVoiceNote(input: string, corrections: VoiceCorrection[]) {
-  let text = input.toLowerCase();
-
-  // 1️⃣ expressions longues en premier
-  const multiWordRules = corrections
-    .filter((c) => c.actif && c.entendu.includes(" "))
-    .sort((a, b) => b.entendu.length - a.entendu.length);
-
-  for (const rule of multiWordRules) {
-    const pattern = normalizeText(rule.entendu);
-    const replacement = rule.remplacement.toLowerCase();
-
-    if (!pattern) continue;
-
-    if (normalizeText(text).includes(pattern)) {
-      const regex = new RegExp(rule.entendu, "gi");
-      text = text.replace(regex, replacement);
-    }
-  }
-
-  // 2️⃣ correction mot par mot (très important)
-  const words = text.split(/\s+/);
-
-  const singleWordRules = corrections.filter(
-    (c) => c.actif && !c.entendu.includes(" "),
-  );
-
-  const correctedWords = words.map((word) => {
-    const normWord = normalizeText(word);
-
-    // 🔒 FIX BUG GAUCHE
-    if (normWord === "gauche") return word;
-
-    for (const rule of singleWordRules) {
-      const normRule = normalizeText(rule.entendu);
-
-      if (areTokensClose(normWord, normRule)) {
-        return rule.remplacement.toLowerCase();
-      }
-    }
-
-    return word;
-  });
-
-  text = correctedWords.join(" ");
-
-  // nettoyage
-  return text
-    .replace(/\s+,/g, ",")
-    .replace(/\s+\./g, ".")
-    .replace(/\s{2,}/g, " ")
-    .trim();
-}
 function dueStatus(row: ItemRow, currentKm: number | null) {
   const h = row.lastDone;
   const today = new Date();
@@ -475,12 +344,15 @@ export default function BonTravailMecanoPage() {
     Record<string, AutorisationInfo>
   >({});
   const [newTask, setNewTask] = useState("");
-  const [taskInterim, setTaskInterim] = useState("");
   const [speechSupported, setSpeechSupported] = useState(false);
   const [speechError, setSpeechError] = useState<string | null>(null);
   const [speechListening, setSpeechListening] = useState(false);
+  const [speechBusy, setSpeechBusy] = useState(false);
 
-  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const discardDictationRef = useRef(false);
 
   const [assignedTemplates, setAssignedTemplates] = useState<
     UniteEntretienTemplate[]
@@ -515,132 +387,195 @@ export default function BonTravailMecanoPage() {
     SuiviTacheType | ""
   >("");
 
-  const [voiceCorrections, setVoiceCorrections] = useState<VoiceCorrection[]>(
-    [],
-  );
-
   useEffect(() => {
-    const w = window as WindowWithSpeechRecognition;
-    setSpeechSupported(
-      Boolean(w.SpeechRecognition || w.webkitSpeechRecognition),
-    );
+    const supported =
+      typeof window !== "undefined" &&
+      Boolean(navigator.mediaDevices?.getUserMedia) &&
+      typeof MediaRecorder !== "undefined";
+
+    setSpeechSupported(supported);
   }, []);
+
+  function cleanupDictationMedia() {
+    try {
+      mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+    } catch {}
+
+    mediaStreamRef.current = null;
+    mediaRecorderRef.current = null;
+  }
 
   useEffect(() => {
     return () => {
+      discardDictationRef.current = true;
+
       try {
-        recognitionRef.current?.stop();
+        const recorder = mediaRecorderRef.current;
+        if (recorder && recorder.state !== "inactive") {
+          recorder.stop();
+        }
       } catch {}
-      recognitionRef.current = null;
+
+      cleanupDictationMedia();
     };
   }, []);
 
-  async function loadVoiceCorrections() {
-    try {
-      const { data, error } = await supabase
-        .from("systeme_dictee_corrections")
-        .select("id,entendu,remplacement,actif")
-        .eq("actif", true)
-        .order("entendu", { ascending: true });
+  function stopDictation() {
+    const recorder = mediaRecorderRef.current;
+    if (!recorder || recorder.state === "inactive") return;
 
-      if (error) throw error;
-      setVoiceCorrections((data || []) as VoiceCorrection[]);
-    } catch {
-      setVoiceCorrections([]);
+    setSpeechBusy(true);
+
+    try {
+      recorder.stop();
+    } catch (e: any) {
+      setSpeechListening(false);
+      setSpeechBusy(false);
+      setSpeechError(e?.message || "Impossible d'arrêter la dictée.");
+      cleanupDictationMedia();
     }
   }
 
-  useEffect(() => {
-    loadVoiceCorrections();
-  }, []);
-
-  function stopDictation() {
-    try {
-      recognitionRef.current?.stop();
-    } catch {}
-  }
-
-  function startDictation() {
-    const w = window as WindowWithSpeechRecognition;
-    const RecognitionCtor = w.SpeechRecognition || w.webkitSpeechRecognition;
-
-    if (!RecognitionCtor) {
+  async function startDictation() {
+    if (!speechSupported) {
       setSpeechError("Dictée vocale non supportée sur cet appareil.");
       return;
     }
 
+    if (speechListening || speechBusy) return;
+
     setSpeechError(null);
+    setSpeechBusy(true);
+    discardDictationRef.current = false;
+    audioChunksRef.current = [];
 
     try {
-      stopDictation();
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+        video: false,
+      });
 
-      const recognition = new RecognitionCtor();
-      recognition.lang = "fr-CA";
-      recognition.interimResults = true;
-      recognition.continuous = true;
-      recognition.maxAlternatives = 1;
+      mediaStreamRef.current = stream;
 
-      recognition.onstart = () => {
-        setSpeechListening(true);
-      };
+      const preferredTypes = [
+        "audio/webm;codecs=opus",
+        "audio/webm",
+        "audio/mp4",
+      ];
 
-      recognition.onerror = (event) => {
-        const errCode = event?.error || "Erreur de dictée vocale.";
-        if (errCode === "not-allowed") {
-          setSpeechError("Accès au micro refusé.");
-        } else if (errCode === "no-speech") {
-          setSpeechError("Aucune voix détectée.");
-        } else if (errCode === "audio-capture") {
-          setSpeechError("Microphone introuvable.");
-        } else {
-          setSpeechError(errCode);
+      const mimeType =
+        preferredTypes.find((type) => MediaRecorder.isTypeSupported(type)) || "";
+
+      const recorder = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream);
+
+      mediaRecorderRef.current = recorder;
+
+      recorder.ondataavailable = (event: BlobEvent) => {
+        if (event.data && event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
         }
-        setSpeechListening(false);
       };
 
-      recognition.onend = () => {
+      recorder.onerror = () => {
         setSpeechListening(false);
-        recognitionRef.current = null;
+        setSpeechBusy(false);
+        setSpeechError("Erreur d'enregistrement audio.");
+        cleanupDictationMedia();
       };
 
-      recognition.onresult = (e: any) => {
-        let interim = "";
-        let final = "";
+      recorder.onstop = async () => {
+        setSpeechListening(false);
 
-        for (let i = e.resultIndex; i < e.results.length; i += 1) {
-          const txt = e.results[i][0]?.transcript ?? "";
-          if (e.results[i].isFinal) final += txt;
-          else interim += txt;
+        const shouldDiscard = discardDictationRef.current;
+        const chunks = [...audioChunksRef.current];
+        audioChunksRef.current = [];
+
+        if (shouldDiscard) {
+          setSpeechBusy(false);
+          cleanupDictationMedia();
+          return;
         }
 
-        setTaskInterim(interim.trim());
+        try {
+          const finalMimeType =
+            recorder.mimeType || mimeType || "audio/webm;codecs=opus";
 
-        if (final.trim()) {
-          const corrected = normalizeVoiceNote(final.trim(), voiceCorrections);
+          const audioBlob = new Blob(chunks, { type: finalMimeType });
+
+          if (!audioBlob.size) {
+            throw new Error("Aucun son n'a été enregistré.");
+          }
+
+          const extension = finalMimeType.includes("mp4") ? "mp4" : "webm";
+          const formData = new FormData();
+
+          formData.append("audio", audioBlob, `dictation.${extension}`);
+          formData.append("language", "fr");
+
+          const { data, error } = await supabase.functions.invoke(
+            "voice-transcribe",
+            {
+              body: formData,
+            },
+          );
+
+          if (error) {
+            throw new Error(error.message || "Transcription impossible.");
+          }
+
+          const transcript = String(
+            (data as any)?.text ?? (data as any)?.transcript ?? "",
+          ).trim();
+
+          if (!transcript) {
+            throw new Error("Aucun texte reconnu.");
+          }
 
           setNewTask((prev) => {
             const base = prev.trim();
-            return base ? `${base} ${corrected}` : corrected;
+            return base ? `${base} ${transcript}` : transcript;
           });
-
-          setTaskInterim("");
+        } catch (e: any) {
+          setSpeechError(e?.message || "Erreur lors de la transcription.");
+        } finally {
+          setSpeechBusy(false);
+          cleanupDictationMedia();
         }
       };
 
-      recognitionRef.current = recognition;
-      recognition.start();
+      // Aucun découpage en petits segments :
+      // l'enregistrement complet est envoyé à Whisper au moment du Stop.
+      recorder.start();
+      setSpeechListening(true);
+      setSpeechBusy(false);
     } catch (e: any) {
+      cleanupDictationMedia();
       setSpeechListening(false);
-      setSpeechError(e?.message || "Impossible de démarrer la dictée.");
-      recognitionRef.current = null;
+      setSpeechBusy(false);
+
+      const name = String(e?.name || "");
+      if (name === "NotAllowedError") {
+        setSpeechError("Accès au micro refusé.");
+      } else if (name === "NotFoundError") {
+        setSpeechError("Microphone introuvable.");
+      } else {
+        setSpeechError(e?.message || "Impossible de démarrer la dictée.");
+      }
     }
   }
 
   function resetTaskModalState() {
+    discardDictationRef.current = true;
     stopDictation();
     setSpeechListening(false);
+    setSpeechBusy(false);
     setSpeechError(null);
-    setTaskInterim("");
     setNewTask("");
     setPendingTasks([]);
     setTaskSuiviType("");
@@ -666,12 +601,7 @@ export default function BonTravailMecanoPage() {
     return Number(clientCfg?.marge_pieces || 0);
   }, [isBtOpenPricing, bt, clientCfg]);
 
-  const displayTaskValue = useMemo(() => {
-    const base = newTask.trim();
-    const interim = taskInterim.trim();
-    if (!interim) return newTask;
-    return base ? `${base} ${interim}` : interim;
-  }, [newTask, taskInterim]);
+  const displayTaskValue = newTask;
 
   const selectedOpenTaskIds = useMemo(
     () => Object.entries(selected).filter(([, value]) => value).map(([key]) => key),
@@ -1157,7 +1087,6 @@ export default function BonTravailMecanoPage() {
     stopDictation();
     setSpeechListening(false);
     setSpeechError(null);
-    setTaskInterim("");
     setPendingTasks((prev) => [...prev, titre]);
     setNewTask("");
   }
@@ -2702,8 +2631,7 @@ export default function BonTravailMecanoPage() {
                 value={displayTaskValue}
                 onChange={(e) => {
                   setNewTask(e.target.value);
-                  setTaskInterim("");
-                }}
+                              }}
                 autoFocus
               />
 
@@ -2712,18 +2640,20 @@ export default function BonTravailMecanoPage() {
                 style={speechListening ? styles.micBtnActive : styles.micBtn}
                 onClick={() => {
                   if (speechListening) stopDictation();
-                  else startDictation();
+                  else void startDictation();
                 }}
-                disabled={!speechSupported}
+                disabled={!speechSupported || speechBusy}
                 title={
                   !speechSupported
                     ? "Dictée non supportée"
-                    : speechListening
-                      ? "Arrêter la dictée"
-                      : "Démarrer la dictée"
+                    : speechBusy
+                      ? "Transcription en cours"
+                      : speechListening
+                        ? "Arrêter la dictée"
+                        : "Démarrer la dictée"
                 }
               >
-                {speechListening ? "⏹" : "🎤"}
+                {speechBusy ? "…" : speechListening ? "⏹" : "🎤"}
               </button>
             </div>
 
@@ -2733,7 +2663,11 @@ export default function BonTravailMecanoPage() {
               </div>
             ) : speechListening ? (
               <div style={styles.helperText}>
-                Écoute en cours… parle normalement.
+                Écoute en cours… parle normalement, puis clique sur Stop.
+              </div>
+            ) : speechBusy ? (
+              <div style={styles.helperText}>
+                Transcription Whisper en cours…
               </div>
             ) : (
               <div style={styles.helperText}>
@@ -2815,7 +2749,12 @@ export default function BonTravailMecanoPage() {
                 Annuler
               </button>
 
-              <button style={styles.btn} type="button" onClick={addPendingTask}>
+              <button
+                style={styles.btn}
+                type="button"
+                onClick={addPendingTask}
+                disabled={speechListening || speechBusy}
+              >
                 Ajouter à la liste
               </button>
 
@@ -2823,6 +2762,7 @@ export default function BonTravailMecanoPage() {
                 style={styles.btnPrimary}
                 type="button"
                 onClick={savePendingTasks}
+                disabled={speechListening || speechBusy}
               >
                 Enregistrer tout
               </button>
