@@ -1,14 +1,8 @@
-
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type CSSProperties,
-  type SetStateAction,
-} from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties, SetStateAction } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
-import { type Piece } from "../components/bt/BtPiecesCard";
+import type { Piece } from "../components/bt/BtPiecesCard";
 import BonTravailHeaderCard from "../components/bt/BonTravailHeaderCard";
 import BonTravailOperations from "../components/bt/BonTravailOperations";
 import btPrintTemplate from "../templates/btPrintTemplate";
