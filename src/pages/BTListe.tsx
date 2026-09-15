@@ -56,7 +56,7 @@ function money(v: number) {
 }
 
 function isOpenStatut(statut: string | null | undefined) {
-  return statut === "ouvert" || statut === "a_faire" || statut === "en_cours";
+  return statut === "ouvert" || statut === "a_faire" || statut === "en_cours" || statut === "verrouille";
 }
 
 function isClosedStatut(statut: string | null | undefined) {
@@ -72,7 +72,6 @@ function statutLabel(s: string) {
   if (isClosedStatut(s)) return "Fermé";
   if (isFacturedStatut(s)) return "Facturé";
   if (s === "fusionne") return "Fusionné";
-  if (s === "verrouille") return "Verrouillé";
   return s || "—";
 }
 
@@ -88,22 +87,18 @@ function statutTone(
   if (isFacturedStatut(s)) {
     return { bg: "#ecfdf3", border: "#bbf7d0", color: "#15803d" };
   }
-  if (s === "verrouille") {
-    return { bg: "#fff7ed", border: "#fed7aa", color: "#c2410c" };
-  }
   if (s === "fusionne") {
     return { bg: "#f1f5f9", border: "#cbd5e1", color: "#475569" };
   }
   return { bg: "#f8fafc", border: "#e2e8f0", color: "#334155" };
 }
 
-function readStatutParam(value: string | null): "tous" | "ouvert" | "ferme" | "facture" | "verrouille" {
+function readStatutParam(value: string | null): "tous" | "ouvert" | "ferme" | "facture" {
   if (
     value === "tous" ||
     value === "ouvert" ||
     value === "ferme" ||
-    value === "facture" ||
-    value === "verrouille"
+    value === "facture"
   ) {
     return value;
   }
@@ -154,8 +149,11 @@ export default function BTListe() {
 
   const [q, setQ] = useState(searchParams.get("q") || "");
   const [statut, setStatut] = useState<
-    "tous" | "ouvert" | "ferme" | "facture" | "verrouille"
+    "tous" | "ouvert" | "ferme" | "facture"
   >(readStatutParam(searchParams.get("statut")));
+  const [clientScope, setClientScope] = useState<"tous" | "externes">(
+    searchParams.get("clients") === "externes" ? "externes" : "tous",
+  );
 
   const [sortKey, setSortKey] = useState<
     "numero" | "unite" | "client" | "km" | "date" | "pieces" | "mo" | "total" | "statut"
@@ -191,13 +189,14 @@ export default function BTListe() {
 
     if (q.trim()) next.set("q", q.trim());
     if (statut !== "ouvert") next.set("statut", statut);
+    if (clientScope !== "tous") next.set("clients", clientScope);
     if (page !== 1) next.set("page", String(page));
     if (pageSize !== 25) next.set("pageSize", String(pageSize));
     if (sortKey !== "date") next.set("sort", sortKey);
     if (sortDir !== "desc") next.set("dir", sortDir);
 
     setSearchParams(next, { replace: true });
-  }, [q, statut, page, pageSize, sortKey, sortDir, setSearchParams]);
+  }, [q, statut, clientScope, page, pageSize, sortKey, sortDir, setSearchParams]);
 
   async function loadAll() {
     setLoading(true);
@@ -283,6 +282,28 @@ export default function BTListe() {
     return clientsById[u.client_id]?.nom || "—";
   }
 
+  function normalizeClientName(value: string | null | undefined) {
+    return String(value || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim()
+      .toLowerCase();
+  }
+
+  function isExternalClient(bt: BT) {
+    const name = normalizeClientName(resolveClientName(bt));
+    if (!name || name === "—") return false;
+
+    const internalNames = [
+      "groupe breton",
+      "autobus breton",
+      "autobus champagne",
+      "transport securitaire",
+    ];
+
+    return !internalNames.some((internalName) => name.includes(internalName));
+  }
+
   function resolvePiecesAtelier(bt: BT) {
     const pieces = Number(bt.total_pieces || 0);
     const atelier = Number(bt.total_frais_atelier || 0);
@@ -304,7 +325,6 @@ export default function BTListe() {
     if (statut === "ouvert") return isOpenStatut(btStatut);
     if (statut === "ferme") return isClosedStatut(btStatut);
     if (statut === "facture") return isFacturedStatut(btStatut);
-    if (statut === "verrouille") return btStatut === "verrouille";
     return true;
   }
 
@@ -351,6 +371,7 @@ export default function BTListe() {
 
     const list = bts.filter((bt) => {
       if (!matchesStatutFilter(bt.statut)) return false;
+      if (clientScope === "externes" && !isExternalClient(bt)) return false;
       if (!term) return true;
 
       const u = bt.unite_id ? unitesById[bt.unite_id] : undefined;
@@ -400,7 +421,7 @@ export default function BTListe() {
     });
 
     return list;
-  }, [bts, q, statut, sortKey, sortDir, unitesById, clientsById]);
+  }, [bts, q, statut, clientScope, sortKey, sortDir, unitesById, clientsById]);
 
   useEffect(() => {
     if (!didInitResetRef.current) {
@@ -409,7 +430,7 @@ export default function BTListe() {
     }
 
     setPage(1);
-  }, [q, statut, pageSize]);
+  }, [q, statut, clientScope, pageSize]);
 
   const totalPages = Math.max(1, Math.ceil(filteredSorted.length / pageSize));
 
@@ -1183,7 +1204,15 @@ return (
         <option value="ouvert">Ouvert</option>
         <option value="ferme">Fermé</option>
         <option value="facture">Facturé</option>
-        <option value="verrouille">Verrouillé</option>
+      </select>
+
+      <select
+        style={styles.select}
+        value={clientScope}
+        onChange={(e) => setClientScope(e.target.value as "tous" | "externes")}
+      >
+        <option value="tous">Tous les clients</option>
+        <option value="externes">Clients externes seulement</option>
       </select>
 
       <select
@@ -1319,9 +1348,6 @@ return (
                             {statutLabel(bt.statut)}
                           </span>
 
-                          {Boolean(bt.verrouille) && (
-                            <span style={styles.lockPill}>Verrouillé</span>
-                          )}
                         </td>
                       </tr>
                     );

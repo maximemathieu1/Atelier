@@ -256,6 +256,7 @@ export default function OperationTempsReelPage() {
 
   const [uniteInput, setUniteInput] = useState("");
   const [kmInput, setKmInput] = useState("");
+  const [samsaraError, setSamsaraError] = useState<string | null>(null);
 
   const [previewUnite, setPreviewUnite] = useState<UniteRow | null>(null);
   const [previewBt, setPreviewBt] = useState<BtRow | null>(null);
@@ -742,6 +743,8 @@ export default function OperationTempsReelPage() {
     uniteId: string,
     dateOuverture: string | null | undefined,
   ): Promise<number | null> {
+    setSamsaraError(null);
+
     try {
       const { data, error } = await supabase.functions.invoke("samsara-odometer", {
         body: {
@@ -751,20 +754,32 @@ export default function OperationTempsReelPage() {
       });
 
       if (error) {
+        const message = error.message || "Erreur de communication avec Samsara.";
         console.warn("Samsara odometer indisponible:", error);
+        setSamsaraError(message);
         return null;
       }
 
       const res = (data || {}) as SamsaraOdometerResponse;
       if (res.ok === false || res.error) {
-        console.warn("Samsara odometer:", res.error || "Réponse invalide");
+        const message = res.error || "Réponse Samsara invalide.";
+        console.warn("Samsara odometer:", message);
+        setSamsaraError(message);
         return null;
       }
 
       const km = Number(res.km_rounded ?? res.km);
-      return Number.isFinite(km) && km >= 0 ? Math.round(km) : null;
-    } catch (e) {
+      if (!Number.isFinite(km) || km < 0) {
+        setSamsaraError("Kilométrage Samsara invalide ou indisponible.");
+        return null;
+      }
+
+      setSamsaraError(null);
+      return Math.round(km);
+    } catch (e: any) {
+      const message = e?.message || "Erreur lors de la lecture du kilométrage Samsara.";
       console.warn("Erreur lecture KM Samsara:", e);
+      setSamsaraError(message);
       return null;
     }
   }
@@ -1978,6 +1993,7 @@ export default function OperationTempsReelPage() {
                           onChange={(e) => {
                             const v = e.target.value;
                             setUniteInput(v);
+                            setSamsaraError(null);
                             setUniteMenuOpen(true);
                             refreshPreviewUnite(v);
                           }}
@@ -2037,6 +2053,12 @@ export default function OperationTempsReelPage() {
                     </div>
                   </div>
                 </div>
+
+                {samsaraError && (
+                  <div style={{ ...styles.errorBox, marginTop: 14, marginBottom: 0 }}>
+                    <b>Erreur Samsara :</b> {samsaraError}
+                  </div>
+                )}
 
                 <div style={styles.vehicleStrip}>
                   <div style={styles.infoTile}>
