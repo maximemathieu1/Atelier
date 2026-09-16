@@ -3,7 +3,7 @@ type BarcodeItem = {
   nom: string;
 };
 
-type BarcodeFormat = "17x54" | "29x90" | "62x29" | "62x38" | "62x100";
+type BarcodeFormat = "17x54" | "29x90" | "62x20" | "62x29" | "62x38" | "62x100";
 
 type PrintBarcodeOptions = {
   format?: string;
@@ -42,6 +42,16 @@ const LABEL_FORMATS: Record<
     nameFontSize: "10pt",
     skuFontSize: "8.5pt",
     padding: "1.5mm 2mm",
+  },
+  "62x20": {
+    width: "62mm",
+    height: "20mm",
+    barcodeWidth: "56mm",
+    barcodeSvgHeight: "7mm",
+    barcodeHeight: 24,
+    nameFontSize: "7pt",
+    skuFontSize: "6.5pt",
+    padding: "0.7mm 2mm",
   },
   "62x29": {
     width: "62mm",
@@ -87,13 +97,14 @@ function escapeHtml(value: string) {
 function normalizeFormat(format?: string): BarcodeFormat {
   if (
     format === "29x90" ||
+    format === "62x20" ||
     format === "62x29" ||
     format === "62x38" ||
     format === "62x100"
   ) {
     return format;
   }
-  return "17x54";
+  return "62x20";
 }
 
 export function useBarcodeLabels() {
@@ -176,7 +187,7 @@ export function useBarcodeLabels() {
             font-size: ${format.nameFontSize};
             font-weight: 700;
             text-align: center;
-            margin-bottom: 0.7mm;
+            margin-bottom: 0.35mm;
             line-height: 1;
             white-space: nowrap;
             overflow: hidden;
@@ -190,7 +201,7 @@ export function useBarcodeLabels() {
 
           .sku {
             font-size: ${format.skuFontSize};
-            margin-top: 0.7mm;
+            margin-top: 0.35mm;
             text-align: center;
             line-height: 1;
             white-space: nowrap;
