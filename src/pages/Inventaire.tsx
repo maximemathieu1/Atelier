@@ -210,7 +210,7 @@ export default function Inventaire() {
 
   const [barcodeModalOpen, setBarcodeModalOpen] = useState(false);
   const [barcodeItem, setBarcodeItem] = useState<InventaireItem | null>(null);
-  const [barcodeFormat, setBarcodeFormat] = useState("29x90");
+  const [barcodeFormat, setBarcodeFormat] = useState("62x20");
   const [barcodeQty, setBarcodeQty] = useState(1);
 
   const [items, setItems] = useState<InventaireItem[]>([]);
@@ -1585,7 +1585,7 @@ const isLow = seuil > 0 && quantite <= seuil;
               style={dropdownItem}
               onClick={() => {
                 setBarcodeItem(menuItem);
-                setBarcodeFormat("29x90");
+                setBarcodeFormat("62x20");
                 setBarcodeQty(1);
                 setBarcodeModalOpen(true);
                 setMenuOpen(null);
@@ -1870,6 +1870,7 @@ const isLow = seuil > 0 && quantite <= seuil;
                   value={barcodeFormat}
                   onChange={(e) => setBarcodeFormat(e.target.value)}
                 >
+                  <option value="62x20">62 x 20 mm — rouleau continu</option>
                   <option value="17x54">17 x 54,3 mm</option>
                   <option value="29x90">29 x 90 mm</option>
                   <option value="62x29">62 x 29 mm</option>
