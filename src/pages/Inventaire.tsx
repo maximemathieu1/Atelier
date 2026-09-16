@@ -210,7 +210,7 @@ export default function Inventaire() {
 
   const [barcodeModalOpen, setBarcodeModalOpen] = useState(false);
   const [barcodeItem, setBarcodeItem] = useState<InventaireItem | null>(null);
-  const [barcodeFormat, setBarcodeFormat] = useState("17x54");
+  const [barcodeFormat, setBarcodeFormat] = useState("29x90");
   const [barcodeQty, setBarcodeQty] = useState(1);
 
   const [items, setItems] = useState<InventaireItem[]>([]);
@@ -1585,7 +1585,7 @@ const isLow = seuil > 0 && quantite <= seuil;
               style={dropdownItem}
               onClick={() => {
                 setBarcodeItem(menuItem);
-                setBarcodeFormat("17x54");
+                setBarcodeFormat("29x90");
                 setBarcodeQty(1);
                 setBarcodeModalOpen(true);
                 setMenuOpen(null);
@@ -1871,6 +1871,7 @@ const isLow = seuil > 0 && quantite <= seuil;
                   onChange={(e) => setBarcodeFormat(e.target.value)}
                 >
                   <option value="17x54">17 x 54,3 mm</option>
+                  <option value="29x90">29 x 90 mm</option>
                   <option value="62x29">62 x 29 mm</option>
                   <option value="62x38">62 x 38 mm</option>
                   <option value="62x100">62 x 100 mm</option>
