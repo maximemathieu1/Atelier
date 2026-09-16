@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useBtFusion, type BtFusionBt, type BtFusionClient, type BtFusionUnite } from "../hooks/useBtFusion";
 
 type Props = {
@@ -40,6 +40,16 @@ function statusLabel(value: string | null | undefined) {
   return value || "—";
 }
 
+function isActiveStatus(value: string | null | undefined) {
+  return value === "ouvert" || value === "a_faire" || value === "en_cours";
+}
+
+function btDateValue(bt: BtFusionBt) {
+  const raw = bt.date_ouverture || bt.created_at || "";
+  const value = new Date(raw).getTime();
+  return Number.isFinite(value) ? value : 0;
+}
+
 export default function BtFusionModal({
   open,
   onClose,
@@ -49,42 +59,102 @@ export default function BtFusionModal({
   resolveClientName,
   onDone,
 }: Props) {
+  const activeBts = useMemo(
+    () => bts.filter((bt) => isActiveStatus(bt.statut)),
+    [bts],
+  );
+
   const fusion = useBtFusion({
-    bts,
+    bts: activeBts,
     unitesById,
     clientsById,
     resolveClientName,
     onDone,
   });
 
-  if (!open) return null;
-
   const group = fusion.selectedGroup;
+  const [selectedBtIds, setSelectedBtIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!open || !group) {
+      setSelectedBtIds([]);
+      return;
+    }
+
+    // On conserve le comportement actuel par défaut : tous les BT actifs du groupe sont cochés.
+    // L'utilisateur peut ensuite décocher ceux qu'il ne veut pas fusionner.
+    setSelectedBtIds(group.bts.map((bt) => bt.id));
+  }, [open, group?.key]);
+
+  const selectedBts = useMemo(() => {
+    if (!group) return [];
+    const selected = new Set(selectedBtIds);
+    return group.bts.filter((bt) => selected.has(bt.id));
+  }, [group, selectedBtIds]);
+
+  const selectedMergeGroup = useMemo(() => {
+    if (!group || selectedBts.length < 2) return null;
+
+    const sortedNewestFirst = [...selectedBts].sort(
+      (a, b) => btDateValue(b) - btDateValue(a),
+    );
+    const destination = sortedNewestFirst[0];
+    if (!destination) return null;
+
+    const oldest = [...selectedBts].sort(
+      (a, b) => btDateValue(a) - btDateValue(b),
+    )[0];
+
+    return {
+      ...group,
+      bts: selectedBts,
+      destination,
+      sources: selectedBts.filter((bt) => bt.id !== destination.id),
+      oldestDateOuverture: oldest?.date_ouverture || oldest?.created_at || null,
+    };
+  }, [group, selectedBts]);
+
+  function toggleBt(btId: string) {
+    if (fusion.busy) return;
+    setSelectedBtIds((current) =>
+      current.includes(btId)
+        ? current.filter((id) => id !== btId)
+        : [...current, btId],
+    );
+  }
+
+  function toggleAll() {
+    if (!group || fusion.busy) return;
+    const allSelected = group.bts.every((bt) => selectedBtIds.includes(bt.id));
+    setSelectedBtIds(allSelected ? [] : group.bts.map((bt) => bt.id));
+  }
 
   async function handleMerge() {
-    if (!group || fusion.busy) return;
+    if (!selectedMergeGroup || fusion.busy) return;
 
-    const sourceList = group.sources
+    const sourceList = selectedMergeGroup.sources
       .map((bt) => bt.numero || "BT")
       .join(", ");
 
     const ok = window.confirm(
-      `Fusionner ${group.sources.length} BT dans ${group.destination.numero || "le BT destination"} ?\n\n` +
-        `Destination : ${group.destination.numero || "—"}\n` +
+      `Fusionner ${selectedMergeGroup.bts.length} BT ?\n\n` +
+        `Destination : ${selectedMergeGroup.destination.numero || "—"}\n` +
         `Sources : ${sourceList}\n\n` +
         `Les pièces, temps, pointages, tâches, documents, confirmations client et photos seront transférés.\n` +
-        `Les anciens BT deviendront Fusionné.`,
+        `Les BT sources deviendront Fusionné.`,
     );
 
     if (!ok) return;
 
     try {
-      await fusion.mergeGroup(group);
+      await fusion.mergeGroup(selectedMergeGroup);
       onClose();
     } catch {
       // L'erreur est affichée dans le modal.
     }
   }
+
+  if (!open) return null;
 
   return (
     <div style={styles.backdrop} onMouseDown={() => !fusion.busy && onClose()}>
@@ -93,7 +163,7 @@ export default function BtFusionModal({
           <div>
             <h2 style={styles.title}>Fusionner des bons de travail</h2>
             <div style={styles.subtitle}>
-              Seuls les groupes avec même unité, même client, non facturés et non verrouillés sont affichés.
+              Seuls les BT actifs avec la même unité et le même client sont affichés.
             </div>
           </div>
 
@@ -132,25 +202,48 @@ export default function BtFusionModal({
                       <div style={styles.groupTitle}>Unité {group.uniteLabel}</div>
                       <div style={styles.groupSub}>Client : {group.clientLabel}</div>
                     </div>
-                    <div style={styles.badge}>{group.bts.length} BT</div>
+                    <div style={styles.badge}>
+                      {selectedBts.length} / {group.bts.length} BT cochés
+                    </div>
                   </div>
 
-                  <div style={styles.ruleBox}>
-                    <div>
-                      <b>Destination automatique :</b> {group.destination.numero || "—"}
+                  {selectedMergeGroup ? (
+                    <div style={styles.ruleBox}>
+                      <div>
+                        <b>Destination automatique :</b>{" "}
+                        {selectedMergeGroup.destination.numero || "—"}
+                      </div>
+                      <div>
+                        <b>Date d’ouverture après fusion :</b>{" "}
+                        {fmtDate(selectedMergeGroup.oldestDateOuverture)}
+                      </div>
+                      <div style={styles.ruleMuted}>
+                        Parmi les BT cochés, le plus récent conserve son numéro et reprend la date d’ouverture du plus ancien.
+                      </div>
                     </div>
-                    <div>
-                      <b>Date d’ouverture après fusion :</b> {fmtDate(group.oldestDateOuverture)}
+                  ) : (
+                    <div style={styles.selectionWarning}>
+                      Coche au moins 2 BT pour pouvoir les fusionner.
                     </div>
-                    <div style={styles.ruleMuted}>
-                      Le BT le plus récent conserve son numéro, mais reprend la date d’ouverture du plus ancien BT.
-                    </div>
-                  </div>
+                  )}
 
                   <div style={styles.tableWrap}>
                     <table style={styles.table}>
                       <thead>
                         <tr>
+                          <th style={{ ...styles.th, width: 52 }}>
+                            <input
+                              type="checkbox"
+                              checked={
+                                group.bts.length > 0 &&
+                                group.bts.every((bt) => selectedBtIds.includes(bt.id))
+                              }
+                              onChange={toggleAll}
+                              disabled={fusion.busy}
+                              aria-label="Tout sélectionner"
+                              style={styles.checkbox}
+                            />
+                          </th>
                           <th style={styles.th}>Rôle</th>
                           <th style={styles.th}>BT</th>
                           <th style={styles.th}>Ouverture</th>
@@ -159,12 +252,44 @@ export default function BtFusionModal({
                       </thead>
                       <tbody>
                         {group.bts.map((bt) => {
-                          const isDestination = bt.id === group.destination.id;
+                          const isSelected = selectedBtIds.includes(bt.id);
+                          const isDestination =
+                            isSelected && bt.id === selectedMergeGroup?.destination.id;
+
                           return (
-                            <tr key={bt.id} style={isDestination ? styles.destinationRow : undefined}>
-                              <td style={styles.td}>{isDestination ? "Destination" : "Source"}</td>
+                            <tr
+                              key={bt.id}
+                              style={
+                                isDestination
+                                  ? styles.destinationRow
+                                  : !isSelected
+                                    ? styles.unselectedRow
+                                    : undefined
+                              }
+                              onClick={() => toggleBt(bt.id)}
+                            >
+                              <td style={styles.tdCheckbox}>
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => toggleBt(bt.id)}
+                                  onClick={(e) => e.stopPropagation()}
+                                  disabled={fusion.busy}
+                                  aria-label={`Sélectionner ${bt.numero || "BT"}`}
+                                  style={styles.checkbox}
+                                />
+                              </td>
+                              <td style={styles.td}>
+                                {!isSelected
+                                  ? "Ignoré"
+                                  : isDestination
+                                    ? "Destination"
+                                    : "Source"}
+                              </td>
                               <td style={styles.tdStrong}>{bt.numero || "—"}</td>
-                              <td style={styles.td}>{fmtDateTime(bt.date_ouverture || bt.created_at)}</td>
+                              <td style={styles.td}>
+                                {fmtDateTime(bt.date_ouverture || bt.created_at)}
+                              </td>
                               <td style={styles.td}>{statusLabel(bt.statut)}</td>
                             </tr>
                           );
@@ -190,11 +315,15 @@ export default function BtFusionModal({
           </button>
           <button
             type="button"
-            style={!group || fusion.busy ? styles.btnPrimaryDisabled : styles.btnPrimary}
+            style={!selectedMergeGroup || fusion.busy ? styles.btnPrimaryDisabled : styles.btnPrimary}
             onClick={handleMerge}
-            disabled={!group || fusion.busy}
+            disabled={!selectedMergeGroup || fusion.busy}
           >
-            {fusion.busy ? "Fusion en cours..." : "Fusionner"}
+            {fusion.busy
+              ? "Fusion en cours..."
+              : selectedMergeGroup
+                ? `Fusionner ${selectedMergeGroup.bts.length} BT`
+                : "Fusionner"}
           </button>
         </div>
       </div>
@@ -337,6 +466,15 @@ const styles: Record<string, CSSProperties> = {
     fontSize: 12,
     fontWeight: 700,
   },
+  selectionWarning: {
+    padding: 14,
+    borderRadius: 16,
+    border: "1px solid #fde68a",
+    background: "#fffbeb",
+    color: "#92400e",
+    fontSize: 13,
+    fontWeight: 800,
+  },
   tableWrap: {
     overflowX: "auto",
     border: "1px solid #e2e8f0",
@@ -369,8 +507,24 @@ const styles: Record<string, CSSProperties> = {
     fontSize: 14,
     fontWeight: 950,
   },
+  tdCheckbox: {
+    padding: "12px 14px",
+    borderBottom: "1px solid #eef2f7",
+    textAlign: "center",
+  },
+  checkbox: {
+    width: 18,
+    height: 18,
+    cursor: "pointer",
+  },
   destinationRow: {
     background: "#f0fdf4",
+    cursor: "pointer",
+  },
+  unselectedRow: {
+    background: "#f8fafc",
+    opacity: 0.55,
+    cursor: "pointer",
   },
   noticeBox: {
     padding: 13,
