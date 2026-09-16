@@ -21,6 +21,7 @@ const LABEL_FORMATS: Record<
     nameFontSize: string;
     skuFontSize: string;
     padding: string;
+    rotateContent?: boolean;
   }
 > = {
   "17x54": {
@@ -44,14 +45,17 @@ const LABEL_FORMATS: Record<
     padding: "1.5mm 2mm",
   },
   "62x20": {
-    width: "62mm",
-    height: "20mm",
+    // Brother décrit le rouleau continu selon largeur du média x longueur.
+    // Chromium envoie la page dans l'ordre inverse au pilote : 20 x 62.
+    width: "20mm",
+    height: "62mm",
     barcodeWidth: "56mm",
     barcodeSvgHeight: "7mm",
     barcodeHeight: 24,
     nameFontSize: "7pt",
     skuFontSize: "6.5pt",
     padding: "0.7mm 2mm",
+    rotateContent: true,
   },
   "62x29": {
     width: "62mm",
@@ -135,9 +139,11 @@ export function useBarcodeLabels() {
       .map(
         (_, index) => `
           <div class="label">
-            <div class="name">${safeNom}</div>
-            <svg id="barcode-${index}" class="barcode"></svg>
-            <div class="sku">${safeSku}</div>
+            <div class="label-content">
+              <div class="name">${safeNom}</div>
+              <svg id="barcode-${index}" class="barcode"></svg>
+              <div class="sku">${safeSku}</div>
+            </div>
           </div>
         `
       )
@@ -167,14 +173,26 @@ export function useBarcodeLabels() {
             width: ${format.width};
             height: ${format.height};
             display: flex;
+            align-items: center;
+            justify-content: center;
+            box-sizing: border-box;
+            page-break-after: always;
+            break-after: page;
+            overflow: hidden;
+          }
+
+          .label-content {
+            width: ${format.rotateContent ? format.height : format.width};
+            height: ${format.rotateContent ? format.width : format.height};
+            display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
             box-sizing: border-box;
             padding: ${format.padding};
-            page-break-after: always;
-            break-after: page;
-            overflow: hidden;
+            transform: ${format.rotateContent ? "rotate(90deg)" : "none"};
+            transform-origin: center;
+            flex: 0 0 auto;
           }
 
           .label:last-child {
@@ -183,7 +201,7 @@ export function useBarcodeLabels() {
           }
 
           .name {
-            max-width: calc(${format.width} - 4mm);
+            max-width: calc(${format.rotateContent ? format.height : format.width} - 4mm);
             font-size: ${format.nameFontSize};
             font-weight: 700;
             text-align: center;
