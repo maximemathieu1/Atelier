@@ -433,23 +433,6 @@ export default function ScannerPiecesPage() {
     await processBarcode(scanValue);
   }
 
-  function handleScanValueChange(value: string) {
-    setScanValue(value);
-
-    if (scanDebounceRef.current) {
-      clearTimeout(scanDebounceRef.current);
-    }
-
-    const clean = value.trim();
-    if (!clean) return;
-
-    // Plusieurs scanners Android injectent le code comme clavier mais
-    // n'envoient pas toujours ENTER. Après une courte pause, on considère
-    // que le scan est terminé et on le traite automatiquement.
-    scanDebounceRef.current = setTimeout(() => {
-      void processBarcode(clean);
-    }, 180);
-  }
 
   function decrementPart(key: string) {
     setParts((current) =>
