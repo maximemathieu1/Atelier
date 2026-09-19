@@ -323,14 +323,15 @@ export default function ScannerPiecesPage() {
       );
     } finally {
       setExistingPartBusyId(null);
-      window.setTimeout(() => {
-        scanInputRef.current?.focus({ preventScroll: true });
-        hideVirtualKeyboard();
-      }, 40);
     }
   }
 
   function chooseBt(bt: WorkOrder) {
+    const active = document.activeElement;
+    if (active instanceof HTMLElement) {
+      active.blur();
+    }
+
     setSelectedBt(bt);
     setParts([]);
     setExistingParts([]);
@@ -434,10 +435,6 @@ export default function ScannerPiecesPage() {
     } finally {
       setScanBusy(false);
       processingBarcodeRef.current = "";
-      window.setTimeout(() => {
-        scanInputRef.current?.focus({ preventScroll: true });
-        hideVirtualKeyboard();
-      }, 40);
     }
   }
 
@@ -478,10 +475,7 @@ export default function ScannerPiecesPage() {
         )
         .filter((row) => row.quantity > 0),
     );
-    window.setTimeout(() => {
-      scanInputRef.current?.focus({ preventScroll: true });
-      hideVirtualKeyboard();
-    }, 40);
+    // Aucun refocus automatique : évite l'ouverture du clavier Android.
   }
 
   function updateManualDescription(key: string, value: string) {
@@ -979,20 +973,11 @@ export default function ScannerPiecesPage() {
               }}
               value={scanValue}
               onChange={(e) => handleScanValueChange(e.target.value)}
-              onBlur={(e) => {
-                const next = e.relatedTarget as HTMLElement | null;
-                const isManualDescription =
-                  next instanceof HTMLInputElement &&
-                  next.getAttribute("data-manual-description") === "true";
-
-                if (!isManualDescription) {
-                  window.setTimeout(() => scanInputRef.current?.focus(), 60);
-                }
-              }}
               placeholder={scanBusy ? "Recherche…" : "Prêt à scanner"}
               autoComplete="off"
               spellCheck={false}
               inputMode="text"
+              tabIndex={-1}
               disabled={scanBusy || saving}
             />
           </form>
@@ -1104,12 +1089,6 @@ export default function ScannerPiecesPage() {
                         onChange={(e) =>
                           updateManualDescription(part.key, e.target.value)
                         }
-                        onBlur={() => {
-                          window.setTimeout(() => {
-                            scanInputRef.current?.focus({ preventScroll: true });
-                            hideVirtualKeyboard();
-                          }, 100);
-                        }}
                         autoComplete="off"
                       />
                     ) : (
