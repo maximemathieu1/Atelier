@@ -82,12 +82,15 @@ export default function ScannerPiecesPage() {
 
   const scanInputRef = useRef<HTMLInputElement | null>(null);
   const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scanDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const processingBarcodeRef = useRef<string>("");
 
   useEffect(() => {
     void loadBts();
 
     return () => {
       if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
+      if (scanDebounceRef.current) clearTimeout(scanDebounceRef.current);
     };
   }, []);
 
@@ -152,12 +155,13 @@ export default function ScannerPiecesPage() {
     setNotice(null);
   }
 
-  async function handleScan(e: FormEvent) {
-    e.preventDefault();
+  async function processBarcode(rawCode: string) {
+    const barcode = rawCode.trim();
 
-    const barcode = scanValue.trim();
-    if (!barcode || scanBusy) return;
+    if (!barcode || scanBusy || saving) return;
+    if (processingBarcodeRef.current === barcode) return;
 
+    processingBarcodeRef.current = barcode;
     setScanValue("");
     setScanBusy(true);
 
@@ -245,8 +249,38 @@ export default function ScannerPiecesPage() {
       navigator.vibrate?.([150, 70, 150]);
     } finally {
       setScanBusy(false);
+      processingBarcodeRef.current = "";
       window.setTimeout(() => scanInputRef.current?.focus(), 20);
     }
+  }
+
+  async function handleScan(e: FormEvent) {
+    e.preventDefault();
+
+    if (scanDebounceRef.current) {
+      clearTimeout(scanDebounceRef.current);
+      scanDebounceRef.current = null;
+    }
+
+    await processBarcode(scanValue);
+  }
+
+  function handleScanValueChange(value: string) {
+    setScanValue(value);
+
+    if (scanDebounceRef.current) {
+      clearTimeout(scanDebounceRef.current);
+    }
+
+    const clean = value.trim();
+    if (!clean) return;
+
+    // Plusieurs scanners Android injectent le code comme clavier mais
+    // n'envoient pas toujours ENTER. Après une courte pause, on considère
+    // que le scan est terminé et on le traite automatiquement.
+    scanDebounceRef.current = setTimeout(() => {
+      void processBarcode(clean);
+    }, 180);
   }
 
   function decrementPart(key: string) {
@@ -733,11 +767,11 @@ export default function ScannerPiecesPage() {
               ref={scanInputRef}
               style={s.scanInput}
               value={scanValue}
-              onChange={(e) => setScanValue(e.target.value)}
+              onChange={(e) => handleScanValueChange(e.target.value)}
               placeholder={scanBusy ? "Recherche…" : "Prêt à scanner"}
               autoComplete="off"
               spellCheck={false}
-              inputMode="none"
+              inputMode="text"
               disabled={scanBusy || saving}
             />
           </form>
