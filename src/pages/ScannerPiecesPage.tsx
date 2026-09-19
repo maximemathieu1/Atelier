@@ -111,6 +111,30 @@ export default function ScannerPiecesPage() {
   }, []);
 
   useEffect(() => {
+    const handleAndroidScan = (event: Event) => {
+      const customEvent = event as CustomEvent<{
+        barcode?: string;
+        source?: string;
+      }>;
+
+      const barcode = String(customEvent.detail?.barcode || "").trim();
+      if (!barcode) return;
+
+      void processBarcode(barcode);
+    };
+
+    window.addEventListener("gb-barcode-scan", handleAndroidScan as EventListener);
+
+    return () => {
+      window.removeEventListener(
+        "gb-barcode-scan",
+        handleAndroidScan as EventListener,
+      );
+    };
+  }, [selectedBt, scanBusy, saving]);
+
+
+  useEffect(() => {
     if (!selectedBt) return;
 
     const flushHardwareBuffer = () => {
