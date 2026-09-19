@@ -399,8 +399,8 @@ export default function App() {
 
   const pathRef = useRef(loc.pathname);
   const isPublicAutorisationRoute = loc.pathname.startsWith("/autorisation-bt/");
+  const isPublicScannerRoute = loc.pathname === "/scanner-pieces";
   const isBackupLoginRoute = loc.pathname === "/login";
-  const isScannerRoute = loc.pathname === "/scanner-pieces";
 
   // Mode développement : bypass complet de l’authentification
   const DEV_BYPASS =
@@ -446,6 +446,7 @@ export default function App() {
 
           if (
             !pathRef.current.startsWith("/autorisation-bt/") &&
+            pathRef.current !== "/scanner-pieces" &&
             pathRef.current !== "/login"
           ) {
             setTimeout(() => {
@@ -479,6 +480,7 @@ export default function App() {
 
         if (
           !pathRef.current.startsWith("/autorisation-bt/") &&
+          pathRef.current !== "/scanner-pieces" &&
           pathRef.current !== "/login"
         ) {
           setTimeout(() => {
@@ -526,16 +528,16 @@ export default function App() {
     );
   }
 
-  if (DEV_BYPASS) {
-    if (isScannerRoute) {
-      return (
-        <Routes>
-          <Route path="/scanner-pieces" element={<ScannerPiecesPage />} />
-          <Route path="*" element={<Navigate to="/scanner-pieces" replace />} />
-        </Routes>
-      );
-    }
+  if (isPublicScannerRoute) {
+    return (
+      <Routes>
+        <Route path="/scanner-pieces" element={<ScannerPiecesPage />} />
+        <Route path="*" element={<Navigate to="/scanner-pieces" replace />} />
+      </Routes>
+    );
+  }
 
+  if (DEV_BYPASS) {
     return <AppShell onLogout={() => {}} />;
   }
 
@@ -560,18 +562,6 @@ export default function App() {
       <div style={{ padding: 16 }}>
         {ssoError || "Redirection vers Suite GB…"}
       </div>
-    );
-  }
-
-  // Page fantôme dédiée au terminal de scan.
-  // Elle reste authentifiée, mais contourne volontairement AppShell et
-  // PhoneRedirectGuard pour utiliser tout l'écran du terminal 5,5".
-  if (isScannerRoute) {
-    return (
-      <Routes>
-        <Route path="/scanner-pieces" element={<ScannerPiecesPage />} />
-        <Route path="*" element={<Navigate to="/scanner-pieces" replace />} />
-      </Routes>
     );
   }
 
