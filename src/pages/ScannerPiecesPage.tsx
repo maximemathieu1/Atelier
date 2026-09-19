@@ -112,6 +112,11 @@ export default function ScannerPiecesPage() {
 
   useEffect(() => {
     if (!selectedBt) return;
+    refocusScannerCapture(120);
+  }, [selectedBt]);
+
+  useEffect(() => {
+    if (!selectedBt) return;
 
     const flushHardwareBuffer = () => {
       const code = hardwareBufferRef.current.trim();
@@ -312,6 +317,7 @@ export default function ScannerPiecesPage() {
       );
     } finally {
       setExistingPartBusyId(null);
+      refocusScannerCapture(60);
     }
   }
 
@@ -419,6 +425,7 @@ export default function ScannerPiecesPage() {
     } finally {
       setScanBusy(false);
       processingBarcodeRef.current = "";
+      refocusScannerCapture(60);
     }
   }
 
@@ -434,6 +441,21 @@ export default function ScannerPiecesPage() {
   }
 
 
+  function handleHiddenScannerInput(value: string) {
+    setScanValue(value);
+
+    if (scanDebounceRef.current) {
+      clearTimeout(scanDebounceRef.current);
+    }
+
+    const clean = value.trim();
+    if (!clean) return;
+
+    scanDebounceRef.current = setTimeout(() => {
+      void processBarcode(clean);
+    }, 160);
+  }
+
   function decrementPart(key: string) {
     setParts((current) =>
       current
@@ -442,6 +464,7 @@ export default function ScannerPiecesPage() {
         )
         .filter((row) => row.quantity > 0),
     );
+    refocusScannerCapture(60);
   }
 
   function updateManualDescription(key: string, value: string) {
@@ -450,6 +473,12 @@ export default function ScannerPiecesPage() {
         row.key === key ? { ...row, description: value } : row,
       ),
     );
+  }
+
+  function refocusScannerCapture(delay = 80) {
+    window.setTimeout(() => {
+      scanInputRef.current?.focus({ preventScroll: true });
+    }, delay);
   }
 
   function cancelSession() {
@@ -621,18 +650,30 @@ export default function ScannerPiecesPage() {
       fontWeight: 900,
       marginBottom: 9,
     },
-    scanInput: {
-      width: "100%",
-      height: 54,
+    scannerReady: {
+      minHeight: 54,
       borderRadius: 12,
-      border: "2px solid #2563eb",
-      background: "#fff",
+      border: "1px solid #cbd5e1",
+      background: "#f8fafc",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
       padding: "0 14px",
       boxSizing: "border-box",
-      fontSize: 18,
-      outline: "none",
-      color: "#111827",
-      fontWeight: 700,
+      fontSize: 16,
+      fontWeight: 900,
+      color: "#334155",
+    },
+    scanInput: {
+      position: "fixed",
+      left: -10000,
+      top: 0,
+      width: 1,
+      height: 1,
+      opacity: 0,
+      pointerEvents: "none",
+      border: 0,
+      padding: 0,
     },
     noticeBase: {
       marginTop: 10,
@@ -931,15 +972,19 @@ export default function ScannerPiecesPage() {
               ref={scanInputRef}
               style={s.scanInput}
               value={scanValue}
-              placeholder={scanBusy ? "Recherche…" : "Scanner physique prêt"}
+              onChange={(e) => handleHiddenScannerInput(e.target.value)}
               autoComplete="off"
               spellCheck={false}
               inputMode="none"
-              readOnly
+              enterKeyHint="done"
               tabIndex={-1}
-              disabled={scanBusy || saving}
+              aria-hidden="true"
             />
           </form>
+
+          <div style={s.scannerReady}>
+            {scanBusy ? "Recherche de la pièce…" : "Scanner prêt"}
+          </div>
 
           {notice && noticeStyle ? (
             <div style={noticeStyle}>{notice.message}</div>
@@ -1048,6 +1093,12 @@ export default function ScannerPiecesPage() {
                         onChange={(e) =>
                           updateManualDescription(part.key, e.target.value)
                         }
+                        onFocus={() => {
+                          if (scanDebounceRef.current) {
+                            clearTimeout(scanDebounceRef.current);
+                          }
+                        }}
+                        onBlur={() => refocusScannerCapture(100)}
                         autoComplete="off"
                       />
                     ) : (
