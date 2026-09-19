@@ -192,16 +192,6 @@ export default function ScannerPiecesPage() {
     };
   }, [selectedBt, scanBusy, saving]);
 
-  function hideVirtualKeyboard() {
-    try {
-      const nav = navigator as Navigator & {
-        virtualKeyboard?: { hide?: () => void };
-      };
-      nav.virtualKeyboard?.hide?.();
-    } catch {
-      // Non supporté sur certains navigateurs Android.
-    }
-  }
 
   async function loadBts() {
     setLoadingBts(true);
