@@ -481,9 +481,28 @@ export default function ScannerPiecesPage() {
     );
   }
 
+  function hideVirtualKeyboard() {
+    try {
+      const nav = navigator as Navigator & {
+        virtualKeyboard?: { hide?: () => void };
+      };
+      nav.virtualKeyboard?.hide?.();
+    } catch {
+      // API non disponible: on laisse simplement le scanner garder le focus.
+    }
+  }
+
   function refocusScannerCapture(delay = 80) {
     window.setTimeout(() => {
-      scanInputRef.current?.focus({ preventScroll: true });
+      const el = scanInputRef.current;
+      if (!el) return;
+
+      el.focus({ preventScroll: true });
+      hideVirtualKeyboard();
+
+      // Certains Chrome Android rouvrent le clavier quelques ms plus tard.
+      window.setTimeout(() => hideVirtualKeyboard(), 40);
+      window.setTimeout(() => hideVirtualKeyboard(), 140);
     }, delay);
   }
 
@@ -675,14 +694,19 @@ export default function ScannerPiecesPage() {
     },
     scanInput: {
       position: "fixed",
-      left: -10000,
+      left: -9999,
       top: 0,
-      width: 1,
-      height: 1,
-      opacity: 0,
-      pointerEvents: "none",
+      width: 2,
+      height: 2,
+      opacity: 0.01,
       border: 0,
       padding: 0,
+      margin: 0,
+      outline: "none",
+      background: "transparent",
+      color: "transparent",
+      caretColor: "transparent",
+      zIndex: -1,
     },
     noticeBase: {
       marginTop: 10,
@@ -980,14 +1004,19 @@ export default function ScannerPiecesPage() {
             <input
               ref={scanInputRef}
               style={s.scanInput}
+              type="text"
               value={scanValue}
               onChange={(e) => handleHiddenScannerInput(e.target.value)}
+              onFocus={() => hideVirtualKeyboard()}
               autoComplete="off"
+              autoCapitalize="off"
+              autoCorrect="off"
               spellCheck={false}
-              inputMode="none"
+              inputMode="text"
               enterKeyHint="done"
               tabIndex={-1}
-              aria-hidden="true"
+              aria-label="Capture scanner"
+              {...({ virtualkeyboardpolicy: "manual" } as any)}
             />
           </form>
 
@@ -1013,7 +1042,7 @@ export default function ScannerPiecesPage() {
                 display: "inline-block",
               }}
             />
-            {scanBusy ? "Recherche de la pièce…" : "Scanner prêt"}
+            {scanBusy ? "Recherche de la pièce…" : "Scanner prêt — lecteur actif"}
           </div>
 
           {notice && noticeStyle ? (
