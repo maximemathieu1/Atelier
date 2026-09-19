@@ -96,6 +96,7 @@ export default function ScannerPiecesPage() {
   const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scanDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const processingBarcodeRef = useRef<string>("");
+  const scanValueRef = useRef<string>("");
   const hardwareBufferRef = useRef<string>("");
   const hardwareTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastHardwareKeyAtRef = useRef<number>(0);
@@ -325,6 +326,7 @@ export default function ScannerPiecesPage() {
     setSelectedBt(bt);
     setParts([]);
     setExistingParts([]);
+    scanValueRef.current = "";
     setScanValue("");
     setNotice(null);
     void loadExistingParts(bt.id);
@@ -337,6 +339,7 @@ export default function ScannerPiecesPage() {
     if (processingBarcodeRef.current === barcode) return;
 
     processingBarcodeRef.current = barcode;
+    scanValueRef.current = "";
     setScanValue("");
     setScanBusy(true);
 
@@ -437,11 +440,14 @@ export default function ScannerPiecesPage() {
       scanDebounceRef.current = null;
     }
 
-    await processBarcode(scanValue);
+    const code = scanValueRef.current.trim();
+    if (code) {
+      await processBarcode(code);
+    }
   }
 
-
   function handleHiddenScannerInput(value: string) {
+    scanValueRef.current = value;
     setScanValue(value);
 
     if (scanDebounceRef.current) {
@@ -453,7 +459,7 @@ export default function ScannerPiecesPage() {
 
     scanDebounceRef.current = setTimeout(() => {
       void processBarcode(clean);
-    }, 160);
+    }, 180);
   }
 
   function decrementPart(key: string) {
@@ -489,6 +495,7 @@ export default function ScannerPiecesPage() {
     setSelectedBt(null);
     setParts([]);
     setExistingParts([]);
+    scanValueRef.current = "";
     setScanValue("");
     setNotice(null);
   }
@@ -513,6 +520,7 @@ export default function ScannerPiecesPage() {
       navigator.vibrate?.([60, 40, 60]);
       setParts([]);
       setSelectedBt(null);
+      scanValueRef.current = "";
       setScanValue("");
       setNotice(null);
       await loadBts();
@@ -653,16 +661,17 @@ export default function ScannerPiecesPage() {
     scannerReady: {
       minHeight: 54,
       borderRadius: 12,
-      border: "1px solid #cbd5e1",
-      background: "#f8fafc",
+      border: "1px solid #86efac",
+      background: "#ecfdf5",
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
+      gap: 8,
       padding: "0 14px",
       boxSizing: "border-box",
       fontSize: 16,
-      fontWeight: 900,
-      color: "#334155",
+      fontWeight: 950,
+      color: "#166534",
     },
     scanInput: {
       position: "fixed",
@@ -982,7 +991,28 @@ export default function ScannerPiecesPage() {
             />
           </form>
 
-          <div style={s.scannerReady}>
+          <div
+            style={{
+              ...s.scannerReady,
+              ...(scanBusy
+                ? {
+                    background: "#eff6ff",
+                    borderColor: "#93c5fd",
+                    color: "#1d4ed8",
+                  }
+                : {}),
+            }}
+          >
+            <span
+              aria-hidden="true"
+              style={{
+                width: 10,
+                height: 10,
+                borderRadius: 999,
+                background: scanBusy ? "#2563eb" : "#16a34a",
+                display: "inline-block",
+              }}
+            />
             {scanBusy ? "Recherche de la pièce…" : "Scanner prêt"}
           </div>
 
