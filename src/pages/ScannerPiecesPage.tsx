@@ -96,6 +96,9 @@ export default function ScannerPiecesPage() {
   const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scanDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const processingBarcodeRef = useRef<string>("");
+  const hardwareBufferRef = useRef<string>("");
+  const hardwareTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastHardwareKeyAtRef = useRef<number>(0);
 
   useEffect(() => {
     void loadBts();
@@ -103,14 +106,91 @@ export default function ScannerPiecesPage() {
     return () => {
       if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
       if (scanDebounceRef.current) clearTimeout(scanDebounceRef.current);
+      if (hardwareTimerRef.current) clearTimeout(hardwareTimerRef.current);
     };
   }, []);
 
   useEffect(() => {
     if (!selectedBt) return;
-    const timer = window.setTimeout(() => scanInputRef.current?.focus(), 80);
-    return () => window.clearTimeout(timer);
-  }, [selectedBt]);
+
+    const flushHardwareBuffer = () => {
+      const code = hardwareBufferRef.current.trim();
+      hardwareBufferRef.current = "";
+
+      if (hardwareTimerRef.current) {
+        clearTimeout(hardwareTimerRef.current);
+        hardwareTimerRef.current = null;
+      }
+
+      if (code.length >= 2) {
+        void processBarcode(code);
+      }
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (scanBusy || saving) return;
+
+      const target = event.target as HTMLElement | null;
+      const isEditable =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        Boolean(target?.isContentEditable);
+
+      // Si l'utilisateur est en train d'écrire une description manuelle,
+      // on ne détourne pas ses touches.
+      if (
+        isEditable &&
+        target !== scanInputRef.current &&
+        target instanceof HTMLInputElement &&
+        target.getAttribute("data-manual-description") === "true"
+      ) {
+        return;
+      }
+
+      if (event.key === "Enter" || event.key === "Tab") {
+        if (hardwareBufferRef.current.trim()) {
+          event.preventDefault();
+          flushHardwareBuffer();
+        }
+        return;
+      }
+
+      if (event.key.length !== 1 || event.ctrlKey || event.altKey || event.metaKey) {
+        return;
+      }
+
+      const now = performance.now();
+      const gap = now - lastHardwareKeyAtRef.current;
+      lastHardwareKeyAtRef.current = now;
+
+      // Un scanner envoie généralement les caractères très rapidement.
+      // Si la pause est longue, on repart un nouveau buffer.
+      if (gap > 250) {
+        hardwareBufferRef.current = "";
+      }
+
+      hardwareBufferRef.current += event.key;
+
+      if (hardwareTimerRef.current) {
+        clearTimeout(hardwareTimerRef.current);
+      }
+
+      hardwareTimerRef.current = setTimeout(() => {
+        flushHardwareBuffer();
+      }, 160);
+    };
+
+    window.addEventListener("keydown", onKeyDown, true);
+
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      if (hardwareTimerRef.current) {
+        clearTimeout(hardwareTimerRef.current);
+        hardwareTimerRef.current = null;
+      }
+      hardwareBufferRef.current = "";
+    };
+  }, [selectedBt, scanBusy, saving]);
 
   async function loadBts() {
     setLoadingBts(true);
@@ -232,7 +312,6 @@ export default function ScannerPiecesPage() {
       );
     } finally {
       setExistingPartBusyId(null);
-      window.setTimeout(() => scanInputRef.current?.focus(), 20);
     }
   }
 
@@ -340,7 +419,6 @@ export default function ScannerPiecesPage() {
     } finally {
       setScanBusy(false);
       processingBarcodeRef.current = "";
-      window.setTimeout(() => scanInputRef.current?.focus(), 20);
     }
   }
 
@@ -381,7 +459,6 @@ export default function ScannerPiecesPage() {
         )
         .filter((row) => row.quantity > 0),
     );
-    window.setTimeout(() => scanInputRef.current?.focus(), 20);
   }
 
   function updateManualDescription(key: string, value: string) {
@@ -871,11 +948,12 @@ export default function ScannerPiecesPage() {
               ref={scanInputRef}
               style={s.scanInput}
               value={scanValue}
-              onChange={(e) => handleScanValueChange(e.target.value)}
-              placeholder={scanBusy ? "Recherche…" : "Prêt à scanner"}
+              placeholder={scanBusy ? "Recherche…" : "Scanner physique prêt"}
               autoComplete="off"
               spellCheck={false}
-              inputMode="text"
+              inputMode="none"
+              readOnly
+              tabIndex={-1}
               disabled={scanBusy || saving}
             />
           </form>
@@ -981,6 +1059,7 @@ export default function ScannerPiecesPage() {
                     {part.isManual ? (
                       <input
                         style={s.manualInput}
+                        data-manual-description="true"
                         placeholder="Description..."
                         value={part.description}
                         onChange={(e) =>
