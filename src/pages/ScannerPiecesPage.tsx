@@ -1,5 +1,5 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Check, Minus, PackageSearch, RotateCcw, Search, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { FormEvent } from "react";
 import { supabase } from "../lib/supabaseClient";
 
 /**
@@ -577,10 +577,12 @@ export default function ScannerPiecesPage() {
           </header>
 
           <div className="relative mb-3">
-            <Search
-              className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400"
+            <span
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-lg text-slate-400"
               aria-hidden="true"
-            />
+            >
+              ⌕
+            </span>
             <input
               id="bt-search"
               autoFocus
@@ -659,7 +661,7 @@ export default function ScannerPiecesPage() {
               className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white active:bg-slate-100"
               aria-label="Retour"
             >
-              <ArrowLeft className="h-5 w-5" />
+              <span aria-hidden="true" className="text-xl leading-none">←</span>
             </button>
 
             <div className="min-w-0 flex-1">
@@ -689,10 +691,12 @@ export default function ScannerPiecesPage() {
             </label>
 
             <div className="relative">
-              <PackageSearch
-                className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400"
+              <span
+                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-lg text-slate-400"
                 aria-hidden="true"
-              />
+              >
+                ▦
+              </span>
               <input
                 ref={scanInputRef}
                 id="scanner-input"
@@ -722,9 +726,9 @@ export default function ScannerPiecesPage() {
               aria-live="polite"
             >
               {notice.type === "success" ? (
-                <Check className="h-5 w-5 shrink-0" />
+                <span aria-hidden="true" className="shrink-0 text-lg font-black">✓</span>
               ) : notice.type === "error" ? (
-                <X className="h-5 w-5 shrink-0" />
+                <span aria-hidden="true" className="shrink-0 text-lg font-black">×</span>
               ) : null}
               <span className="min-w-0 truncate">{notice.message}</span>
             </div>
@@ -744,7 +748,7 @@ export default function ScannerPiecesPage() {
           <div className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-slate-200 bg-white">
             {parts.length === 0 ? (
               <div className="flex min-h-56 flex-col items-center justify-center px-6 text-center text-slate-400">
-                <PackageSearch className="mb-3 h-10 w-10" />
+                <div aria-hidden="true" className="mb-3 text-4xl leading-none">▦</div>
                 <div className="text-base font-semibold text-slate-500">
                   Aucun scan
                 </div>
@@ -796,7 +800,7 @@ export default function ScannerPiecesPage() {
                           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-300 bg-white active:bg-slate-100"
                           aria-label={`Retirer une unité de ${part.description || part.partNumber || "la pièce"}`}
                         >
-                          <Minus className="h-4 w-4" />
+                          <span aria-hidden="true" className="text-xl font-black leading-none">−</span>
                         </button>
 
                         <div className="flex h-9 min-w-8 items-center justify-center rounded-lg bg-slate-100 px-2 text-lg font-extrabold tabular-nums">
@@ -818,7 +822,7 @@ export default function ScannerPiecesPage() {
             disabled={saving}
             className="flex h-14 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white text-base font-bold text-slate-800 active:bg-slate-100 disabled:opacity-50"
           >
-            <RotateCcw className="h-5 w-5" />
+            <span aria-hidden="true" className="text-lg leading-none">↶</span>
             Annuler
           </button>
 
@@ -832,7 +836,7 @@ export default function ScannerPiecesPage() {
             }
             className="flex h-14 items-center justify-center gap-2 rounded-xl bg-emerald-600 text-base font-extrabold text-white active:bg-emerald-700 disabled:bg-slate-300"
           >
-            <Check className="h-5 w-5" />
+            <span aria-hidden="true" className="text-lg font-black leading-none">✓</span>
             {saving ? "Enregistrement..." : "Terminer"}
           </button>
         </footer>
