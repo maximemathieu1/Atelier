@@ -96,7 +96,6 @@ export default function ScannerPiecesPage() {
   const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scanDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const processingBarcodeRef = useRef<string>("");
-  const scanValueRef = useRef<string>("");
   const hardwareBufferRef = useRef<string>("");
   const hardwareTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastHardwareKeyAtRef = useRef<number>(0);
@@ -113,7 +112,14 @@ export default function ScannerPiecesPage() {
 
   useEffect(() => {
     if (!selectedBt) return;
-    refocusScannerCapture(120);
+
+    const timer = window.setTimeout(() => {
+      scanInputRef.current?.focus({ preventScroll: true });
+      hideVirtualKeyboard();
+      window.setTimeout(() => hideVirtualKeyboard(), 80);
+    }, 120);
+
+    return () => window.clearTimeout(timer);
   }, [selectedBt]);
 
   useEffect(() => {
@@ -197,6 +203,17 @@ export default function ScannerPiecesPage() {
       hardwareBufferRef.current = "";
     };
   }, [selectedBt, scanBusy, saving]);
+
+  function hideVirtualKeyboard() {
+    try {
+      const nav = navigator as Navigator & {
+        virtualKeyboard?: { hide?: () => void };
+      };
+      nav.virtualKeyboard?.hide?.();
+    } catch {
+      // Non supporté sur certains navigateurs Android.
+    }
+  }
 
   async function loadBts() {
     setLoadingBts(true);
@@ -318,7 +335,10 @@ export default function ScannerPiecesPage() {
       );
     } finally {
       setExistingPartBusyId(null);
-      refocusScannerCapture(60);
+      window.setTimeout(() => {
+        scanInputRef.current?.focus({ preventScroll: true });
+        hideVirtualKeyboard();
+      }, 40);
     }
   }
 
@@ -326,7 +346,6 @@ export default function ScannerPiecesPage() {
     setSelectedBt(bt);
     setParts([]);
     setExistingParts([]);
-    scanValueRef.current = "";
     setScanValue("");
     setNotice(null);
     void loadExistingParts(bt.id);
@@ -339,7 +358,6 @@ export default function ScannerPiecesPage() {
     if (processingBarcodeRef.current === barcode) return;
 
     processingBarcodeRef.current = barcode;
-    scanValueRef.current = "";
     setScanValue("");
     setScanBusy(true);
 
@@ -428,7 +446,10 @@ export default function ScannerPiecesPage() {
     } finally {
       setScanBusy(false);
       processingBarcodeRef.current = "";
-      refocusScannerCapture(60);
+      window.setTimeout(() => {
+        scanInputRef.current?.focus({ preventScroll: true });
+        hideVirtualKeyboard();
+      }, 40);
     }
   }
 
@@ -440,14 +461,10 @@ export default function ScannerPiecesPage() {
       scanDebounceRef.current = null;
     }
 
-    const code = scanValueRef.current.trim();
-    if (code) {
-      await processBarcode(code);
-    }
+    await processBarcode(scanValue);
   }
 
-  function handleHiddenScannerInput(value: string) {
-    scanValueRef.current = value;
+  function handleScanValueChange(value: string) {
     setScanValue(value);
 
     if (scanDebounceRef.current) {
@@ -457,6 +474,9 @@ export default function ScannerPiecesPage() {
     const clean = value.trim();
     if (!clean) return;
 
+    // Plusieurs scanners Android injectent le code comme clavier mais
+    // n'envoient pas toujours ENTER. Après une courte pause, on considère
+    // que le scan est terminé et on le traite automatiquement.
     scanDebounceRef.current = setTimeout(() => {
       void processBarcode(clean);
     }, 180);
@@ -470,7 +490,10 @@ export default function ScannerPiecesPage() {
         )
         .filter((row) => row.quantity > 0),
     );
-    refocusScannerCapture(60);
+    window.setTimeout(() => {
+      scanInputRef.current?.focus({ preventScroll: true });
+      hideVirtualKeyboard();
+    }, 40);
   }
 
   function updateManualDescription(key: string, value: string) {
@@ -481,31 +504,6 @@ export default function ScannerPiecesPage() {
     );
   }
 
-  function hideVirtualKeyboard() {
-    try {
-      const nav = navigator as Navigator & {
-        virtualKeyboard?: { hide?: () => void };
-      };
-      nav.virtualKeyboard?.hide?.();
-    } catch {
-      // API non disponible: on laisse simplement le scanner garder le focus.
-    }
-  }
-
-  function refocusScannerCapture(delay = 80) {
-    window.setTimeout(() => {
-      const el = scanInputRef.current;
-      if (!el) return;
-
-      el.focus({ preventScroll: true });
-      hideVirtualKeyboard();
-
-      // Certains Chrome Android rouvrent le clavier quelques ms plus tard.
-      window.setTimeout(() => hideVirtualKeyboard(), 40);
-      window.setTimeout(() => hideVirtualKeyboard(), 140);
-    }, delay);
-  }
-
   function cancelSession() {
     if (parts.length && !window.confirm("Annuler tous les scans courants ?")) {
       return;
@@ -514,7 +512,6 @@ export default function ScannerPiecesPage() {
     setSelectedBt(null);
     setParts([]);
     setExistingParts([]);
-    scanValueRef.current = "";
     setScanValue("");
     setNotice(null);
   }
@@ -539,7 +536,6 @@ export default function ScannerPiecesPage() {
       navigator.vibrate?.([60, 40, 60]);
       setParts([]);
       setSelectedBt(null);
-      scanValueRef.current = "";
       setScanValue("");
       setNotice(null);
       await loadBts();
@@ -677,36 +673,20 @@ export default function ScannerPiecesPage() {
       fontWeight: 900,
       marginBottom: 9,
     },
-    scannerReady: {
-      minHeight: 54,
+    scanInput: {
+      width: "100%",
+      height: 54,
       borderRadius: 12,
-      border: "1px solid #86efac",
+      border: "2px solid #86efac",
       background: "#ecfdf5",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      gap: 8,
       padding: "0 14px",
       boxSizing: "border-box",
-      fontSize: 16,
-      fontWeight: 950,
-      color: "#166534",
-    },
-    scanInput: {
-      position: "fixed",
-      left: -9999,
-      top: 0,
-      width: 2,
-      height: 2,
-      opacity: 0.01,
-      border: 0,
-      padding: 0,
-      margin: 0,
+      fontSize: 17,
       outline: "none",
-      background: "transparent",
-      color: "transparent",
+      color: "#166534",
+      fontWeight: 950,
+      textAlign: "center",
       caretColor: "transparent",
-      zIndex: -1,
     },
     noticeBase: {
       marginTop: 10,
@@ -1003,47 +983,31 @@ export default function ScannerPiecesPage() {
           <form onSubmit={handleScan}>
             <input
               ref={scanInputRef}
-              style={s.scanInput}
-              type="text"
+              style={{
+                ...s.scanInput,
+                ...(scanValue
+                  ? { color: "transparent", caretColor: "transparent" }
+                  : {}),
+              }}
               value={scanValue}
-              onChange={(e) => handleHiddenScannerInput(e.target.value)}
-              onFocus={() => hideVirtualKeyboard()}
+              onChange={(e) => handleScanValueChange(e.target.value)}
+              onBlur={(e) => {
+                const next = e.relatedTarget as HTMLElement | null;
+                const isManualDescription =
+                  next instanceof HTMLInputElement &&
+                  next.getAttribute("data-manual-description") === "true";
+
+                if (!isManualDescription) {
+                  window.setTimeout(() => scanInputRef.current?.focus(), 60);
+                }
+              }}
+              placeholder={scanBusy ? "Recherche…" : "Prêt à scanner"}
               autoComplete="off"
-              autoCapitalize="off"
-              autoCorrect="off"
               spellCheck={false}
               inputMode="text"
-              enterKeyHint="done"
-              tabIndex={-1}
-              aria-label="Capture scanner"
-              {...({ virtualkeyboardpolicy: "manual" } as any)}
+              disabled={scanBusy || saving}
             />
           </form>
-
-          <div
-            style={{
-              ...s.scannerReady,
-              ...(scanBusy
-                ? {
-                    background: "#eff6ff",
-                    borderColor: "#93c5fd",
-                    color: "#1d4ed8",
-                  }
-                : {}),
-            }}
-          >
-            <span
-              aria-hidden="true"
-              style={{
-                width: 10,
-                height: 10,
-                borderRadius: 999,
-                background: scanBusy ? "#2563eb" : "#16a34a",
-                display: "inline-block",
-              }}
-            />
-            {scanBusy ? "Recherche de la pièce…" : "Scanner prêt — lecteur actif"}
-          </div>
 
           {notice && noticeStyle ? (
             <div style={noticeStyle}>{notice.message}</div>
@@ -1152,12 +1116,12 @@ export default function ScannerPiecesPage() {
                         onChange={(e) =>
                           updateManualDescription(part.key, e.target.value)
                         }
-                        onFocus={() => {
-                          if (scanDebounceRef.current) {
-                            clearTimeout(scanDebounceRef.current);
-                          }
+                        onBlur={() => {
+                          window.setTimeout(() => {
+                            scanInputRef.current?.focus({ preventScroll: true });
+                            hideVirtualKeyboard();
+                          }, 100);
                         }}
-                        onBlur={() => refocusScannerCapture(100)}
                         autoComplete="off"
                       />
                     ) : (
