@@ -29,6 +29,7 @@ import FacturationBT from "./pages/FacturationBT";
 import FacturesFournisseurs from "./pages/FacturesFournisseurs";
 import RapportFacturationAtelier from "./pages/RapportFacturationAtelier";
 import AutorisationBtClientPage from "./pages/AutorisationBtClientPage";
+import ScannerPiecesPage from "./pages/ScannerPiecesPage";
 
 import DossiersVehiculesPage from "./pages/admin/DossiersVehiculesPage";
 import DossierVehiculeDetailPage from "./pages/admin/DossierVehiculeDetailPage";
@@ -399,6 +400,7 @@ export default function App() {
   const pathRef = useRef(loc.pathname);
   const isPublicAutorisationRoute = loc.pathname.startsWith("/autorisation-bt/");
   const isBackupLoginRoute = loc.pathname === "/login";
+  const isScannerRoute = loc.pathname === "/scanner-pieces";
 
   // Mode développement : bypass complet de l’authentification
   const DEV_BYPASS =
@@ -525,6 +527,15 @@ export default function App() {
   }
 
   if (DEV_BYPASS) {
+    if (isScannerRoute) {
+      return (
+        <Routes>
+          <Route path="/scanner-pieces" element={<ScannerPiecesPage />} />
+          <Route path="*" element={<Navigate to="/scanner-pieces" replace />} />
+        </Routes>
+      );
+    }
+
     return <AppShell onLogout={() => {}} />;
   }
 
@@ -549,6 +560,18 @@ export default function App() {
       <div style={{ padding: 16 }}>
         {ssoError || "Redirection vers Suite GB…"}
       </div>
+    );
+  }
+
+  // Page fantôme dédiée au terminal de scan.
+  // Elle reste authentifiée, mais contourne volontairement AppShell et
+  // PhoneRedirectGuard pour utiliser tout l'écran du terminal 5,5".
+  if (isScannerRoute) {
+    return (
+      <Routes>
+        <Route path="/scanner-pieces" element={<ScannerPiecesPage />} />
+        <Route path="*" element={<Navigate to="/scanner-pieces" replace />} />
+      </Routes>
     );
   }
 
