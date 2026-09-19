@@ -30,6 +30,15 @@ type ScannedPart = InventoryPart & {
   isManual: boolean;
 };
 
+type ExistingBtPart = {
+  id: string;
+  inventoryItemId: string | null;
+  sku: string | null;
+  description: string;
+  quantity: number;
+  suiviActif: boolean;
+};
+
 type Notice =
   | { type: "success" | "error" | "warning"; message: string }
   | null;
@@ -76,6 +85,9 @@ export default function ScannerPiecesPage() {
   const [selectedBt, setSelectedBt] = useState<WorkOrder | null>(null);
   const [scanValue, setScanValue] = useState("");
   const [parts, setParts] = useState<ScannedPart[]>([]);
+  const [existingParts, setExistingParts] = useState<ExistingBtPart[]>([]);
+  const [existingPartsLoading, setExistingPartsLoading] = useState(false);
+  const [existingPartBusyId, setExistingPartBusyId] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice>(null);
   const [scanBusy, setScanBusy] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -148,11 +160,89 @@ export default function ScannerPiecesPage() {
     [parts],
   );
 
+  async function loadExistingParts(btId: string) {
+    setExistingPartsLoading(true);
+
+    try {
+      const rows = await scannerApi<ExistingBtPart[]>("get_bt_parts", { btId });
+      setExistingParts(rows || []);
+    } catch (e: any) {
+      console.error(e);
+      setExistingParts([]);
+      showNotice(
+        {
+          type: "error",
+          message: e?.message || "Impossible de charger les pièces du BT.",
+        },
+        4000,
+      );
+    } finally {
+      setExistingPartsLoading(false);
+    }
+  }
+
+  async function decrementExistingPart(part: ExistingBtPart) {
+    if (!selectedBt || existingPartBusyId) return;
+
+    if (part.suiviActif) {
+      showNotice(
+        {
+          type: "warning",
+          message: `${part.sku || part.description} est une pièce suivie. Retire-la depuis le BT.`,
+        },
+        4000,
+      );
+      return;
+    }
+
+    setExistingPartBusyId(part.id);
+
+    try {
+      await scannerApi("decrement_bt_part", {
+        btId: selectedBt.id,
+        btPartId: part.id,
+      });
+
+      setExistingParts((current) =>
+        current
+          .map((row) =>
+            row.id === part.id
+              ? { ...row, quantity: row.quantity - 1 }
+              : row,
+          )
+          .filter((row) => row.quantity > 0),
+      );
+
+      showNotice({
+        type: "success",
+        message:
+          part.quantity <= 1
+            ? `${part.description} retiré du BT`
+            : `${part.description} : quantité réduite`,
+      });
+
+      navigator.vibrate?.(60);
+    } catch (e: any) {
+      showNotice(
+        {
+          type: "error",
+          message: e?.message || "Impossible de modifier cette pièce.",
+        },
+        4000,
+      );
+    } finally {
+      setExistingPartBusyId(null);
+      window.setTimeout(() => scanInputRef.current?.focus(), 20);
+    }
+  }
+
   function chooseBt(bt: WorkOrder) {
     setSelectedBt(bt);
     setParts([]);
+    setExistingParts([]);
     setScanValue("");
     setNotice(null);
+    void loadExistingParts(bt.id);
   }
 
   async function processBarcode(rawCode: string) {
@@ -309,6 +399,7 @@ export default function ScannerPiecesPage() {
 
     setSelectedBt(null);
     setParts([]);
+    setExistingParts([]);
     setScanValue("");
     setNotice(null);
   }
@@ -489,6 +580,19 @@ export default function ScannerPiecesPage() {
       padding: "10px 12px",
       fontSize: 13,
       fontWeight: 800,
+    },
+    existingCard: {
+      marginTop: 12,
+      background: "#fff",
+      border: "1px solid rgba(15,23,42,.08)",
+      borderRadius: 16,
+      boxShadow: "0 8px 24px rgba(15,23,42,.05)",
+      overflow: "hidden",
+      flexShrink: 0,
+    },
+    existingBody: {
+      maxHeight: 210,
+      overflowY: "auto",
     },
     scansCard: {
       minHeight: 0,
@@ -779,6 +883,78 @@ export default function ScannerPiecesPage() {
           {notice && noticeStyle ? (
             <div style={noticeStyle}>{notice.message}</div>
           ) : null}
+        </div>
+
+        <div style={s.existingCard}>
+          <div style={s.scansHead}>
+            <div style={{ fontSize: 17, fontWeight: 950 }}>Déjà sur le BT</div>
+            <div style={s.badge}>
+              {existingParts.reduce((sum, row) => sum + row.quantity, 0)} article(s)
+            </div>
+          </div>
+
+          <div style={s.tableHeader}>
+            <div>SKU</div>
+            <div>Nom</div>
+            <div style={{ textAlign: "center" }}>Qté</div>
+          </div>
+
+          <div style={s.existingBody}>
+            {existingPartsLoading ? (
+              <div style={{ ...s.empty, minHeight: 90 }}>Chargement…</div>
+            ) : existingParts.length === 0 ? (
+              <div style={{ ...s.empty, minHeight: 90 }}>
+                Aucune pièce déjà inscrite.
+              </div>
+            ) : (
+              existingParts.map((part) => (
+                <div key={part.id} style={s.tableRow}>
+                  <div style={s.sku}>{part.sku || "—"}</div>
+
+                  <div style={s.name}>
+                    {part.description}
+                    {part.suiviActif ? (
+                      <div
+                        style={{
+                          marginTop: 3,
+                          fontSize: 10,
+                          color: "#92400e",
+                          fontWeight: 850,
+                        }}
+                      >
+                        Pièce suivie
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div style={s.qtyWrap}>
+                    <button
+                      type="button"
+                      style={{
+                        ...s.minus,
+                        ...(part.suiviActif || existingPartBusyId === part.id
+                          ? { opacity: 0.4, cursor: "not-allowed" }
+                          : {}),
+                      }}
+                      onClick={() => void decrementExistingPart(part)}
+                      disabled={
+                        part.suiviActif || existingPartBusyId === part.id
+                      }
+                      title={
+                        part.suiviActif
+                          ? "Retirer cette pièce depuis le BT normal"
+                          : "Retirer 1"
+                      }
+                    >
+                      −
+                    </button>
+
+                    <div style={s.qty}>{part.quantity}</div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
         </div>
 
         <div style={s.scansCard}>
