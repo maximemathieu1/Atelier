@@ -113,18 +113,6 @@ export default function ScannerPiecesPage() {
   useEffect(() => {
     if (!selectedBt) return;
 
-    const timer = window.setTimeout(() => {
-      scanInputRef.current?.focus({ preventScroll: true });
-      hideVirtualKeyboard();
-      window.setTimeout(() => hideVirtualKeyboard(), 80);
-    }, 120);
-
-    return () => window.clearTimeout(timer);
-  }, [selectedBt]);
-
-  useEffect(() => {
-    if (!selectedBt) return;
-
     const flushHardwareBuffer = () => {
       const code = hardwareBufferRef.current.trim();
       hardwareBufferRef.current = "";
