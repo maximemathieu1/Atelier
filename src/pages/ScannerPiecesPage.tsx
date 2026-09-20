@@ -936,6 +936,89 @@ export default function ScannerPiecesPage() {
         <div style={s.scanSection}>
           <div style={s.sectionTitle}>Scanner une pièce</div>
 
+          <div
+            style={{
+              minHeight: 58,
+              borderRadius: 12,
+              border: "1px solid #86efac",
+              background: "#ecfdf5",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 10,
+              padding: "0 14px",
+              boxSizing: "border-box",
+              fontSize: 16,
+              fontWeight: 950,
+              color: "#166534",
+            }}
+          >
+            <span
+              aria-hidden="true"
+              style={{
+                width: 11,
+                height: 11,
+                borderRadius: 999,
+                background: "#16a34a",
+                display: "inline-block",
+                animation: "gb-scan-pulse 1.6s infinite",
+                flexShrink: 0,
+              }}
+            />
+
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 7,
+                whiteSpace: "nowrap",
+              }}
+            >
+              Prêt à scanner
+              <span
+                aria-hidden="true"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4,
+                }}
+              >
+                <span
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: 999,
+                    background: "#16a34a",
+                    display: "inline-block",
+                    animation: "gb-scan-bounce 1s infinite ease-in-out",
+                  }}
+                />
+                <span
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: 999,
+                    background: "#16a34a",
+                    display: "inline-block",
+                    animation: "gb-scan-bounce 1s infinite ease-in-out",
+                    animationDelay: "0.15s",
+                  }}
+                />
+                <span
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: 999,
+                    background: "#16a34a",
+                    display: "inline-block",
+                    animation: "gb-scan-bounce 1s infinite ease-in-out",
+                    animationDelay: "0.3s",
+                  }}
+                />
+              </span>
+            </span>
+          </div>
+
           {notice && noticeStyle ? (
             <div style={noticeStyle}>{notice.message}</div>
           ) : null}
