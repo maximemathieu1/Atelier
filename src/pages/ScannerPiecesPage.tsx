@@ -731,6 +731,46 @@ export default function ScannerPiecesPage() {
       maxHeight: 210,
       overflowY: "auto",
     },
+    scannerStatus: {
+      minHeight: 58,
+      borderRadius: 12,
+      border: "1px solid #86efac",
+      background: "#ecfdf5",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 8,
+      padding: "0 14px",
+      boxSizing: "border-box",
+      fontSize: 16,
+      fontWeight: 950,
+      color: "#166534",
+      overflow: "hidden",
+    },
+    scannerStatusText: {
+      display: "inline-flex",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 8,
+      maxWidth: "100%",
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      whiteSpace: "nowrap",
+    },
+    scannerDots: {
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 4,
+      marginLeft: 2,
+    },
+    scannerDot: {
+      width: 6,
+      height: 6,
+      borderRadius: 999,
+      background: "#16a34a",
+      display: "inline-block",
+      animation: "gb-scan-bounce 1s infinite ease-in-out",
+    },
     scansCard: {
       minHeight: 0,
       flex: 1,
@@ -1009,25 +1049,72 @@ export default function ScannerPiecesPage() {
         <div style={s.scanSection}>
           <div style={s.sectionTitle}>Scanner une pièce</div>
 
-          <form onSubmit={handleScan}>
+          <form
+            onSubmit={handleScan}
+            style={{
+              position: "absolute",
+              width: 1,
+              height: 1,
+              overflow: "hidden",
+              opacity: 0,
+              pointerEvents: "none",
+            }}
+          >
             <input
               ref={scanInputRef}
-              style={{
-                ...s.scanInput,
-                ...(scanValue
-                  ? { color: "transparent", caretColor: "transparent" }
-                  : {}),
-              }}
               value={scanValue}
               onChange={(e) => handleScanValueChange(e.target.value)}
-              placeholder={scanBusy ? "Recherche…" : "Prêt à scanner"}
               autoComplete="off"
               spellCheck={false}
-              inputMode="text"
               tabIndex={-1}
-              disabled={scanBusy || saving}
             />
           </form>
+
+          <div
+            style={{
+              ...s.scannerStatus,
+              ...(scanStatusText !== "Prêt à scanner"
+                ? {
+                    background: "#ecfeff",
+                    borderColor: "#67e8f9",
+                    color: "#155e75",
+                  }
+                : scanBusy
+                  ? {
+                      background: "#eff6ff",
+                      borderColor: "#93c5fd",
+                      color: "#1d4ed8",
+                    }
+                  : {}),
+            }}
+          >
+            {scanStatusText !== "Prêt à scanner" ? (
+              <span style={s.scannerStatusText}>
+                Scan : {lastScannedCode || scanStatusText}
+              </span>
+            ) : scanBusy ? (
+              <span style={s.scannerStatusText}>Recherche de la pièce…</span>
+            ) : (
+              <span style={s.scannerStatusText}>
+                Prêt à scanner
+                <span style={s.scannerDots} aria-hidden="true">
+                  <span style={s.scannerDot} />
+                  <span
+                    style={{
+                      ...s.scannerDot,
+                      animationDelay: "0.15s",
+                    }}
+                  />
+                  <span
+                    style={{
+                      ...s.scannerDot,
+                      animationDelay: "0.3s",
+                    }}
+                  />
+                </span>
+              </span>
+            )}
+          </div>
 
           {notice && noticeStyle ? (
             <div style={noticeStyle}>{notice.message}</div>
