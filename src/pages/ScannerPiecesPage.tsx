@@ -53,11 +53,6 @@ const GB_SUITE_LOGO_SRC = 'data:image/svg+xml;utf8,%3C%3Fxml%20version%3D%221.0%
 
 type LabelFormatKey = "29x90" | "62x20";
 
-const LABEL_FORMAT_LABELS: Record<LabelFormatKey, string> = {
-  "29x90": "29 × 90 mm",
-  "62x20": "62 × 20 mm",
-};
-
 async function scannerApi<T>(
   action: string,
   payload: Record<string, unknown> = {},
@@ -2316,7 +2311,7 @@ function InventoryMode({ onExit }: { onExit: () => void }) {
   const [editingCost, setEditingCost] = useState(false);
   const [costValue, setCostValue] = useState("");
   const [labelQty, setLabelQty] = useState(1);
-  const [labelFormat, setLabelFormat] = useState<LabelFormatKey>("62x20");
+  const [labelFormat] = useState<LabelFormatKey>("62x20");
   const [labelPrinting, setLabelPrinting] = useState(false);
 
   const [missingCode, setMissingCode] = useState("");
