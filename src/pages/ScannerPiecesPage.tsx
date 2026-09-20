@@ -84,6 +84,8 @@ export default function ScannerPiecesPage() {
 
   const [selectedBt, setSelectedBt] = useState<WorkOrder | null>(null);
   const [scanValue, setScanValue] = useState("");
+  const [scanStatusText, setScanStatusText] = useState("Prêt à scanner");
+  const [lastScannedCode, setLastScannedCode] = useState("");
   const [parts, setParts] = useState<ScannedPart[]>([]);
   const [existingParts, setExistingParts] = useState<ExistingBtPart[]>([]);
   const [existingPartsLoading, setExistingPartsLoading] = useState(false);
@@ -95,6 +97,7 @@ export default function ScannerPiecesPage() {
   const scanInputRef = useRef<HTMLInputElement | null>(null);
   const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scanDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scanStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const processingBarcodeRef = useRef<string>("");
   const hardwareBufferRef = useRef<string>("");
   const hardwareTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -106,6 +109,7 @@ export default function ScannerPiecesPage() {
     return () => {
       if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
       if (scanDebounceRef.current) clearTimeout(scanDebounceRef.current);
+      if (scanStatusTimerRef.current) clearTimeout(scanStatusTimerRef.current);
       if (hardwareTimerRef.current) clearTimeout(hardwareTimerRef.current);
     };
   }, []);
@@ -242,6 +246,22 @@ export default function ScannerPiecesPage() {
     }
   }
 
+  function pulseScannedCode(code: string) {
+    const clean = code.trim();
+    if (!clean) return;
+
+    if (scanStatusTimerRef.current) {
+      clearTimeout(scanStatusTimerRef.current);
+    }
+
+    setLastScannedCode(clean);
+    setScanStatusText(clean);
+
+    scanStatusTimerRef.current = setTimeout(() => {
+      setScanStatusText("Prêt à scanner");
+    }, 1000);
+  }
+
   const filteredBts = useMemo(() => {
     const q = search.trim().toLowerCase();
     const source = q
@@ -350,6 +370,8 @@ export default function ScannerPiecesPage() {
     setParts([]);
     setExistingParts([]);
     setScanValue("");
+    setLastScannedCode("");
+    setScanStatusText("Prêt à scanner");
     setNotice(null);
     void loadExistingParts(bt.id);
   }
@@ -362,6 +384,7 @@ export default function ScannerPiecesPage() {
 
     processingBarcodeRef.current = barcode;
     setScanValue("");
+    pulseScannedCode(barcode);
     setScanBusy(true);
 
     try {
@@ -509,6 +532,8 @@ export default function ScannerPiecesPage() {
     setParts([]);
     setExistingParts([]);
     setScanValue("");
+    setLastScannedCode("");
+    setScanStatusText("Prêt à scanner");
     setNotice(null);
   }
 
@@ -533,6 +558,8 @@ export default function ScannerPiecesPage() {
       setParts([]);
       setSelectedBt(null);
       setScanValue("");
+      setLastScannedCode("");
+      setScanStatusText("Prêt à scanner");
       setNotice(null);
       await loadBts();
     } catch (e: any) {
@@ -955,6 +982,12 @@ export default function ScannerPiecesPage() {
 
   return (
     <div style={s.page}>
+      <style>{`
+        @keyframes gb-scan-bounce {
+          0%, 80%, 100% { transform: scale(0.7); opacity: 0.45; }
+          40% { transform: scale(1); opacity: 1; }
+        }
+      `}</style>
       <div style={s.shell}>
         <div style={s.headerCard}>
           <div style={s.scanHeader}>
