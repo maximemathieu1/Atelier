@@ -1388,7 +1388,6 @@ function BtScannerMode({ onExit }: { onExit: () => void }) {
               ))
             )}
           </div>
-          </div>
         </div>
 
         <div style={s.scansCard}>
@@ -1538,7 +1537,6 @@ function BtScannerMode({ onExit }: { onExit: () => void }) {
                 </div>
               ))
             )}
-          </div>
           </div>
         </div>
 
