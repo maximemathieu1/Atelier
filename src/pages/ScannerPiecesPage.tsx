@@ -466,6 +466,23 @@ function BtScannerMode({ onExit }: { onExit: () => void }) {
     // Aucun refocus automatique : évite l'ouverture du clavier Android.
   }
 
+  function setPartQuantity(key: string, value: string) {
+    const normalized = value.replace(",", ".");
+    if (normalized !== "" && !/^\d*(\.\d{0,3})?$/.test(normalized)) return;
+
+    setParts((current) =>
+      current.map((row) =>
+        row.key === key
+          ? {
+              ...row,
+              quantity:
+                normalized === "" ? 0 : Math.max(0, Number(normalized)),
+            }
+          : row,
+      ),
+    );
+  }
+
   function updateManualDescription(key: string, value: string) {
     setParts((current) =>
       current.map((row) =>
@@ -852,8 +869,8 @@ function BtScannerMode({ onExit }: { onExit: () => void }) {
             >
               ← Modes
             </button>
-            <h1 style={s.title}>Choisir un BT</h1>
-            <div style={s.subtitle}>Recherche par BT ou unité</div>
+            <h1 style={s.title}>Choisir un bon de travail</h1>
+            <div style={s.subtitle}>Recherche par numéro de BT ou unité</div>
 
             <div style={s.searchWrap}>
               <input
@@ -1212,7 +1229,26 @@ function BtScannerMode({ onExit }: { onExit: () => void }) {
                     >
                       −
                     </button>
-                    <div style={s.qty}>{part.quantity}</div>
+                    <input
+                      aria-label="Quantité"
+                      inputMode="decimal"
+                      value={String(part.quantity)}
+                      onFocus={(e) => e.currentTarget.select()}
+                      onChange={(e) =>
+                        setPartQuantity(part.key, e.target.value)
+                      }
+                      style={{
+                        width: 46,
+                        height: 34,
+                        borderRadius: 8,
+                        border: "1px solid #cbd5e1",
+                        background: "#f8fafc",
+                        textAlign: "center",
+                        fontSize: 15,
+                        fontWeight: 950,
+                        boxSizing: "border-box",
+                      }}
+                    />
                   </div>
                 </div>
               ))
@@ -1470,8 +1506,8 @@ function ModeHome({ onMode }: { onMode: (mode: ScannerMode) => void }) {
     {
       mode: "bt" as const,
       icon: "🔧",
-      title: "BT",
-      text: "Ajouter ou retirer des pièces sur un bon de travail",
+      title: "Bon de travail",
+      text: "Scanner les pièces utilisées sur un bon de travail",
     },
     {
       mode: "reception" as const,
@@ -1681,6 +1717,23 @@ function ReceptionMode({ onExit }: { onExit: () => void }) {
     );
   }
 
+  function setReceptionQuantity(id: string, value: string) {
+    const normalized = value.replace(",", ".");
+    if (normalized !== "" && !/^\d*(\.\d{0,3})?$/.test(normalized)) return;
+
+    setRows((current) =>
+      current.map((row) =>
+        row.id === id
+          ? {
+              ...row,
+              receiveQty:
+                normalized === "" ? 0 : Math.max(0, Number(normalized)),
+            }
+          : row,
+      ),
+    );
+  }
+
   async function finish() {
     if (!rows.length || busy) return;
     setBusy(true);
@@ -1724,7 +1777,7 @@ function ReceptionMode({ onExit }: { onExit: () => void }) {
           </button>
           <h1 style={{ ...modeStyles.title, marginTop: 12 }}>Réception</h1>
           <div style={modeStyles.subtitle}>
-            Chaque scan ajoute 1 à la quantité reçue
+            Chaque scan ajoute 1 — touche la quantité pour l’entrer rapidement
           </div>
 
           <div
@@ -1944,7 +1997,26 @@ function ReceptionMode({ onExit }: { onExit: () => void }) {
                   >
                     −
                   </button>
-                  <div style={modeStyles.qty}>{row.receiveQty}</div>
+                  <input
+                    aria-label={`Quantité reçue ${row.sku || row.nom}`}
+                    inputMode="decimal"
+                    value={String(row.receiveQty)}
+                    onFocus={(e) => e.currentTarget.select()}
+                    onChange={(e) =>
+                      setReceptionQuantity(row.id, e.target.value)
+                    }
+                    style={{
+                      width: 46,
+                      height: 34,
+                      borderRadius: 8,
+                      border: "1px solid #cbd5e1",
+                      background: "#f8fafc",
+                      textAlign: "center",
+                      fontSize: 15,
+                      fontWeight: 950,
+                      boxSizing: "border-box",
+                    }}
+                  />
                 </div>
               </div>
             ))
