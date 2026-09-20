@@ -1120,7 +1120,7 @@ function BtScannerMode({ onExit }: { onExit: () => void }) {
                   onClick={() => chooseBt(bt)}
                 >
                   <div style={s.btTop}>
-                    <div style={s.btNo}>BT #{bt.numero}</div>
+                    <div style={s.btNo}>#{bt.numero}</div>
                     <div style={s.unitNo}>{bt.unite}</div>
                   </div>
                   <div style={s.date}>
@@ -1180,7 +1180,7 @@ function BtScannerMode({ onExit }: { onExit: () => void }) {
             </button>
 
             <div>
-              <div style={s.btHeaderNo}>BT #{selectedBt.numero}</div>
+              <div style={s.btHeaderNo}>#{selectedBt.numero}</div>
               <div style={s.date}>
                 Ouvert le {formatOpenedDate(selectedBt.openedAt)}
               </div>
