@@ -1815,15 +1815,27 @@ function ModeHome({ onMode }: { onMode: (mode: ScannerMode) => void }) {
 
   return (
     <div style={modeStyles.page}>
-      <div style={modeStyles.shell}>
-        <div style={modeStyles.card}>
+      <div
+        style={{
+          ...modeStyles.shell,
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
+        <div
+          style={{
+            ...modeStyles.card,
+            padding: "10px 12px",
+            flexShrink: 0,
+          }}
+        >
           <div style={{ display: "flex", justifyContent: "center" }}>
             <img
               src={GB_SUITE_LOGO_SRC}
               alt="GB Suite"
               style={{
                 width: "100%",
-                maxWidth: 220,
+                maxWidth: 310,
                 height: "auto",
                 display: "block",
               }}
@@ -1831,31 +1843,54 @@ function ModeHome({ onMode }: { onMode: (mode: ScannerMode) => void }) {
           </div>
         </div>
 
-        <div style={{ display: "grid", gap: 12, marginTop: 12 }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateRows: `repeat(${modes.length}, minmax(0, 1fr))`,
+            gap: 12,
+            marginTop: 12,
+            flex: 1,
+            minHeight: 0,
+          }}
+        >
           {modes.map((item) => (
             <button
               key={item.mode}
               type="button"
-              style={modeStyles.action}
+              style={{
+                ...modeStyles.action,
+                height: "100%",
+                minHeight: 0,
+                padding: "16px 18px",
+                display: "flex",
+                alignItems: "center",
+              }}
               onClick={() => onMode(item.mode)}
             >
-              <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
+              <div
+                style={{
+                  display: "flex",
+                  gap: 14,
+                  alignItems: "center",
+                  width: "100%",
+                }}
+              >
                 <div
                   style={{
-                    width: 48,
-                    height: 48,
-                    borderRadius: 13,
+                    width: 52,
+                    height: 52,
+                    borderRadius: 14,
                     background: "#f1f5f9",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    fontSize: 24,
+                    fontSize: 25,
                     flexShrink: 0,
                   }}
                 >
                   {item.icon}
                 </div>
-                <div>
+                <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 22, fontWeight: 950 }}>{item.title}</div>
                   <div
                     style={{
@@ -1863,6 +1898,7 @@ function ModeHome({ onMode }: { onMode: (mode: ScannerMode) => void }) {
                       color: "#64748b",
                       fontWeight: 650,
                       marginTop: 3,
+                      lineHeight: 1.3,
                     }}
                   >
                     {item.text}
