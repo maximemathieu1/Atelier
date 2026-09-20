@@ -36,6 +36,7 @@ type ExistingBtPart = {
   sku: string | null;
   description: string;
   quantity: number;
+  coutUnitaire: number | null;
   suiviActif: boolean;
 };
 
@@ -1289,18 +1290,6 @@ function BtScannerMode({ onExit }: { onExit: () => void }) {
             </div>
           </div>
 
-          <div
-            style={{
-              ...s.tableHeader,
-              gridTemplateColumns: "82px minmax(0,1fr) 84px 88px",
-            }}
-          >
-            <div>SKU</div>
-            <div>Nom</div>
-            <div style={{ textAlign: "right" }}>Coût</div>
-            <div style={{ textAlign: "center" }}>Qté</div>
-          </div>
-
           <div style={s.existingBody}>
             {existingPartsLoading ? (
               <div style={{ ...s.empty, minHeight: 90 }}>Chargement…</div>
@@ -1310,23 +1299,65 @@ function BtScannerMode({ onExit }: { onExit: () => void }) {
               </div>
             ) : (
               existingParts.map((part) => (
-                <div key={part.id} style={s.tableRow}>
-                  <div style={s.sku}>{part.sku || "—"}</div>
+                <div
+                  key={part.id}
+                  style={{
+                    padding: "10px 12px",
+                    borderTop: "1px solid #eef2f7",
+                    display: "grid",
+                    gridTemplateColumns: "minmax(0,1fr) auto",
+                    gap: 10,
+                    alignItems: "center",
+                  }}
+                >
+                  <div style={{ minWidth: 0 }}>
+                    <div
+                      style={{
+                        fontSize: 13,
+                        lineHeight: 1.25,
+                        fontWeight: 900,
+                        color: "#0f172a",
+                        overflowWrap: "anywhere",
+                      }}
+                    >
+                      {part.description || "Sans description"}
+                    </div>
 
-                  <div style={s.name}>
-                    {part.description}
-                    {part.suiviActif ? (
-                      <div
+                    <div
+                      style={{
+                        marginTop: 5,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 7,
+                        flexWrap: "wrap",
+                        fontSize: 11,
+                        fontWeight: 800,
+                        color: "#64748b",
+                      }}
+                    >
+                      <span>{part.sku || "Sans SKU"}</span>
+                      <span>•</span>
+                      <span
                         style={{
-                          marginTop: 3,
-                          fontSize: 10,
-                          color: "#92400e",
-                          fontWeight: 850,
+                          color:
+                            part.coutUnitaire == null ? "#94a3b8" : "#166534",
+                          fontWeight: 950,
                         }}
                       >
-                        Pièce suivie
-                      </div>
-                    ) : null}
+                        {part.coutUnitaire == null
+                          ? "Coût —"
+                          : formatMoney(part.coutUnitaire)}
+                      </span>
+
+                      {part.suiviActif ? (
+                        <>
+                          <span>•</span>
+                          <span style={{ color: "#92400e", fontWeight: 900 }}>
+                            Pièce suivie
+                          </span>
+                        </>
+                      ) : null}
+                    </div>
                   </div>
 
                   <div style={s.qtyWrap}>
@@ -1357,18 +1388,13 @@ function BtScannerMode({ onExit }: { onExit: () => void }) {
               ))
             )}
           </div>
+          </div>
         </div>
 
         <div style={s.scansCard}>
           <div style={s.scansHead}>
             <div style={{ fontSize: 17, fontWeight: 950 }}>Scans courants</div>
             <div style={s.badge}>{totalArticles} article(s)</div>
-          </div>
-
-          <div style={s.tableHeader}>
-            <div>SKU</div>
-            <div>Nom</div>
-            <div style={{ textAlign: "center" }}>Qté</div>
           </div>
 
           <div style={s.tableBody}>
@@ -1379,16 +1405,22 @@ function BtScannerMode({ onExit }: { onExit: () => void }) {
                 <div
                   key={part.key}
                   style={{
-                    ...s.tableRow,
-                    gridTemplateColumns: "82px minmax(0,1fr) 84px 88px",
+                    padding: "10px 12px",
+                    borderTop: "1px solid #eef2f7",
+                    display: "grid",
+                    gridTemplateColumns: "minmax(0,1fr) auto",
+                    gap: 10,
+                    alignItems: "center",
                   }}
                 >
-                  <div style={s.sku}>{part.partNumber || part.barcode}</div>
-
-                  <div style={s.name}>
+                  <div style={{ minWidth: 0 }}>
                     {part.isManual ? (
                       <input
-                        style={s.manualInput}
+                        style={{
+                          ...s.manualInput,
+                          height: 36,
+                          marginBottom: 6,
+                        }}
                         data-manual-description="true"
                         placeholder="Description..."
                         value={part.description}
@@ -1398,29 +1430,80 @@ function BtScannerMode({ onExit }: { onExit: () => void }) {
                         autoComplete="off"
                       />
                     ) : (
-                      part.description
+                      <div
+                        style={{
+                          fontSize: 13,
+                          lineHeight: 1.25,
+                          fontWeight: 900,
+                          color: "#0f172a",
+                          overflowWrap: "anywhere",
+                        }}
+                      >
+                        {part.description}
+                      </div>
                     )}
-                  </div>
 
-                  <input
-                    aria-label="Coût"
-                    inputMode="decimal"
-                    value={String(part.coutUnitaire ?? 0)}
-                    onChange={(e) => updatePartCost(part.key, e.target.value)}
-                    style={{
-                      width: "100%",
-                      minWidth: 0,
-                      height: 34,
-                      border: "1px solid #cbd5e1",
-                      borderRadius: 8,
-                      padding: "0 7px",
-                      boxSizing: "border-box",
-                      textAlign: "right",
-                      fontWeight: 850,
-                      fontSize: 12,
-                      background: "#fff",
-                    }}
-                  />
+                    <div
+                      style={{
+                        marginTop: part.isManual ? 0 : 5,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 7,
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 850,
+                          color: "#64748b",
+                        }}
+                      >
+                        {part.partNumber || part.barcode}
+                      </span>
+
+                      <span style={{ fontSize: 11, color: "#94a3b8" }}>•</span>
+
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 4,
+                        }}
+                      >
+                        <span
+                          style={{
+                            fontSize: 10,
+                            color: "#64748b",
+                            fontWeight: 800,
+                          }}
+                        >
+                          Coût
+                        </span>
+                        <input
+                          aria-label="Coût"
+                          inputMode="decimal"
+                          value={String(part.coutUnitaire ?? 0)}
+                          onFocus={(e) => e.currentTarget.select()}
+                          onChange={(e) =>
+                            updatePartCost(part.key, e.target.value)
+                          }
+                          style={{
+                            width: 68,
+                            height: 30,
+                            border: "1px solid #cbd5e1",
+                            borderRadius: 7,
+                            padding: "0 6px",
+                            boxSizing: "border-box",
+                            textAlign: "right",
+                            fontWeight: 900,
+                            fontSize: 11,
+                            background: "#fff",
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
 
                   <div style={s.qtyWrap}>
                     <button
@@ -1430,6 +1513,7 @@ function BtScannerMode({ onExit }: { onExit: () => void }) {
                     >
                       −
                     </button>
+
                     <input
                       aria-label="Quantité"
                       inputMode="decimal"
@@ -1439,7 +1523,7 @@ function BtScannerMode({ onExit }: { onExit: () => void }) {
                         setPartQuantity(part.key, e.target.value)
                       }
                       style={{
-                        width: 46,
+                        width: 44,
                         height: 34,
                         borderRadius: 8,
                         border: "1px solid #cbd5e1",
@@ -1454,6 +1538,7 @@ function BtScannerMode({ onExit }: { onExit: () => void }) {
                 </div>
               ))
             )}
+          </div>
           </div>
         </div>
 
@@ -1732,22 +1817,15 @@ function ModeHome({ onMode }: { onMode: (mode: ScannerMode) => void }) {
 
   return (
     <div style={modeStyles.page}>
-      <div
-        style={{
-          ...modeStyles.shell,
-          display: "flex",
-          flexDirection: "column",
-          minHeight: "100dvh",
-        }}
-      >
-        <div style={{ ...modeStyles.card, flexShrink: 0 }}>
+      <div style={modeStyles.shell}>
+        <div style={modeStyles.card}>
           <div style={{ display: "flex", justifyContent: "center" }}>
             <img
               src={GB_SUITE_LOGO_SRC}
               alt="GB Suite"
               style={{
                 width: "100%",
-                maxWidth: 245,
+                maxWidth: 220,
                 height: "auto",
                 display: "block",
               }}
@@ -1755,27 +1833,12 @@ function ModeHome({ onMode }: { onMode: (mode: ScannerMode) => void }) {
           </div>
         </div>
 
-        <div
-          style={{
-            display: "grid",
-            gridTemplateRows: "repeat(4, minmax(0, 1fr))",
-            gap: 12,
-            marginTop: 14,
-            flex: 1,
-            minHeight: 0,
-            paddingBottom: 4,
-          }}
-        >
+        <div style={{ display: "grid", gap: 12, marginTop: 12 }}>
           {modes.map((item) => (
             <button
               key={item.mode}
               type="button"
-              style={{
-                ...modeStyles.action,
-                height: "100%",
-                display: "flex",
-                alignItems: "center",
-              }}
+              style={modeStyles.action}
               onClick={() => onMode(item.mode)}
             >
               <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
