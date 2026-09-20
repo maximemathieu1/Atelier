@@ -5,7 +5,6 @@ import {
   useState,
   type CSSProperties,
 } from "react";
-import type { FormEvent } from "react";
 import { supabase } from "../lib/supabaseClient";
 
 type WorkOrder = {
@@ -83,7 +82,6 @@ export default function ScannerPiecesPage() {
   const [search, setSearch] = useState("");
 
   const [selectedBt, setSelectedBt] = useState<WorkOrder | null>(null);
-  const [scanValue, setScanValue] = useState("");
   const [parts, setParts] = useState<ScannedPart[]>([]);
   const [existingParts, setExistingParts] = useState<ExistingBtPart[]>([]);
   const [existingPartsLoading, setExistingPartsLoading] = useState(false);
@@ -92,9 +90,7 @@ export default function ScannerPiecesPage() {
   const [scanBusy, setScanBusy] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const scanInputRef = useRef<HTMLInputElement | null>(null);
   const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const scanDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const processingBarcodeRef = useRef<string>("");
   const hardwareBufferRef = useRef<string>("");
   const hardwareTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -105,7 +101,6 @@ export default function ScannerPiecesPage() {
 
     return () => {
       if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
-      if (scanDebounceRef.current) clearTimeout(scanDebounceRef.current);
       if (hardwareTimerRef.current) clearTimeout(hardwareTimerRef.current);
     };
   }, []);
@@ -164,7 +159,6 @@ export default function ScannerPiecesPage() {
       // on ne détourne pas ses touches.
       if (
         isEditable &&
-        target !== scanInputRef.current &&
         target instanceof HTMLInputElement &&
         target.getAttribute("data-manual-description") === "true"
       ) {
@@ -349,7 +343,6 @@ export default function ScannerPiecesPage() {
     setSelectedBt(bt);
     setParts([]);
     setExistingParts([]);
-    setScanValue("");
     setNotice(null);
     void loadExistingParts(bt.id);
   }
@@ -361,7 +354,6 @@ export default function ScannerPiecesPage() {
     if (processingBarcodeRef.current === barcode) return;
 
     processingBarcodeRef.current = barcode;
-    setScanValue("");
     setScanBusy(true);
 
     try {
@@ -452,34 +444,7 @@ export default function ScannerPiecesPage() {
     }
   }
 
-  async function handleScan(e: FormEvent) {
-    e.preventDefault();
 
-    if (scanDebounceRef.current) {
-      clearTimeout(scanDebounceRef.current);
-      scanDebounceRef.current = null;
-    }
-
-    await processBarcode(scanValue);
-  }
-
-  function handleScanValueChange(value: string) {
-    setScanValue(value);
-
-    if (scanDebounceRef.current) {
-      clearTimeout(scanDebounceRef.current);
-    }
-
-    const clean = value.trim();
-    if (!clean) return;
-
-    // Plusieurs scanners Android injectent le code comme clavier mais
-    // n'envoient pas toujours ENTER. Après une courte pause, on considère
-    // que le scan est terminé et on le traite automatiquement.
-    scanDebounceRef.current = setTimeout(() => {
-      void processBarcode(clean);
-    }, 180);
-  }
 
   function decrementPart(key: string) {
     setParts((current) =>
@@ -508,7 +473,6 @@ export default function ScannerPiecesPage() {
     setSelectedBt(null);
     setParts([]);
     setExistingParts([]);
-    setScanValue("");
     setNotice(null);
   }
 
@@ -532,7 +496,6 @@ export default function ScannerPiecesPage() {
       navigator.vibrate?.([60, 40, 60]);
       setParts([]);
       setSelectedBt(null);
-      setScanValue("");
           setNotice(null);
       await loadBts();
     } catch (e: any) {
@@ -668,21 +631,6 @@ export default function ScannerPiecesPage() {
       fontSize: 16,
       fontWeight: 900,
       marginBottom: 9,
-    },
-    scanInput: {
-      width: "100%",
-      height: 54,
-      borderRadius: 12,
-      border: "2px solid #86efac",
-      background: "#ecfdf5",
-      padding: "0 14px",
-      boxSizing: "border-box",
-      fontSize: 17,
-      outline: "none",
-      color: "#166534",
-      fontWeight: 950,
-      textAlign: "center",
-      caretColor: "transparent",
     },
     noticeBase: {
       marginTop: 10,
@@ -960,6 +908,12 @@ export default function ScannerPiecesPage() {
           0%, 80%, 100% { transform: scale(0.7); opacity: 0.45; }
           40% { transform: scale(1); opacity: 1; }
         }
+
+        @keyframes gb-scan-pulse {
+          0% { box-shadow: 0 0 0 0 rgba(22,163,74,.45); }
+          70% { box-shadow: 0 0 0 8px rgba(22,163,74,0); }
+          100% { box-shadow: 0 0 0 0 rgba(22,163,74,0); }
+        }
       `}</style>
       <div style={s.shell}>
         <div style={s.headerCard}>
@@ -981,26 +935,6 @@ export default function ScannerPiecesPage() {
 
         <div style={s.scanSection}>
           <div style={s.sectionTitle}>Scanner une pièce</div>
-
-          <form onSubmit={handleScan}>
-            <input
-              ref={scanInputRef}
-              style={{
-                ...s.scanInput,
-                ...(scanValue
-                  ? { color: "transparent", caretColor: "transparent" }
-                  : {}),
-              }}
-              value={scanValue}
-              onChange={(e) => handleScanValueChange(e.target.value)}
-              placeholder={scanBusy ? "Recherche…" : "Prêt à scanner"}
-              autoComplete="off"
-              spellCheck={false}
-              inputMode="text"
-              tabIndex={-1}
-              disabled={scanBusy || saving}
-            />
-          </form>
 
           {notice && noticeStyle ? (
             <div style={noticeStyle}>{notice.message}</div>
