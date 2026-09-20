@@ -1746,20 +1746,6 @@ function ModeHome({ onMode }: { onMode: (mode: ScannerMode) => void }) {
               }}
             />
           </div>
-          <div
-            style={{
-              marginTop: 10,
-              fontSize: 26,
-              fontWeight: 950,
-              textAlign: "center",
-              color: "#0f172a",
-            }}
-          >
-            GB Suite
-          </div>
-          <div style={{ ...modeStyles.subtitle, textAlign: "center", marginTop: 4 }}>
-            Que voulez-vous faire ?
-          </div>
         </div>
 
         <div style={{ display: "grid", gap: 12, marginTop: 12 }}>
@@ -3194,8 +3180,10 @@ function ConfigurationMode({ onExit }: { onExit: () => void }) {
   const [printerHost, setPrinterHost] = useState("");
   const [scannerUrl, setScannerUrl] = useState("");
   const [rotate180, setRotate180] = useState(false);
+  const [savingConfig, setSavingConfig] = useState(false);
+  const [configMessage, setConfigMessage] = useState("");
 
-  function refreshConfiguration() {
+  function loadConfiguration() {
     try {
       setPrinterHost(
         bridge && typeof bridge.getPrinterHost === "function"
@@ -3222,27 +3210,55 @@ function ConfigurationMode({ onExit }: { onExit: () => void }) {
   }
 
   useEffect(() => {
-    refreshConfiguration();
-
-    const onVisible = () => refreshConfiguration();
-    window.addEventListener("focus", onVisible);
-    document.addEventListener("visibilitychange", onVisible);
-
-    return () => {
-      window.removeEventListener("focus", onVisible);
-      document.removeEventListener("visibilitychange", onVisible);
-    };
+    loadConfiguration();
   }, []);
 
-  function openNativeConfiguration() {
-    if (!bridge || typeof bridge.configurePrinter !== "function") {
-      alert(
-        "La configuration de l’imprimante est disponible dans l’app GB Scanner Android.",
+  function saveConfiguration() {
+    if (!bridge) {
+      setConfigMessage(
+        "Configuration disponible seulement dans l’app Android GB Scanner.",
       );
       return;
     }
 
-    bridge.configurePrinter();
+    if (
+      typeof bridge.setPrinterHost !== "function" ||
+      typeof bridge.setPrinterRotate180 !== "function"
+    ) {
+      setConfigMessage(
+        "L’app Android doit être mise à jour pour utiliser cette configuration.",
+      );
+      return;
+    }
+
+    const host = printerHost.trim();
+
+    if (!host) {
+      setConfigMessage("Entre l’adresse IP de la Brother.");
+      return;
+    }
+
+    setSavingConfig(true);
+    setConfigMessage("");
+
+    try {
+      bridge.setPrinterHost(host);
+      bridge.setPrinterRotate180(rotate180);
+
+      if (
+        scannerUrl.trim() &&
+        typeof bridge.setScannerUrl === "function"
+      ) {
+        bridge.setScannerUrl(scannerUrl.trim());
+      }
+
+      setConfigMessage("✓ Configuration enregistrée");
+      navigator.vibrate?.(60);
+    } catch (e: any) {
+      setConfigMessage(e?.message || "Erreur lors de l’enregistrement.");
+    } finally {
+      setSavingConfig(false);
+    }
   }
 
   return (
@@ -3275,53 +3291,97 @@ function ConfigurationMode({ onExit }: { onExit: () => void }) {
             Brother QL-810Wc
           </div>
 
-          <div style={{ marginTop: 14, display: "grid", gap: 4 }}>
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                gap: 12,
-                padding: "11px 0",
-                borderBottom: "1px solid #e2e8f0",
-              }}
-            >
-              <span style={{ color: "#64748b", fontWeight: 800 }}>Adresse IP</span>
-              <span style={{ fontWeight: 950 }}>
-                {printerHost || "Non configurée"}
-              </span>
-            </div>
+          <label
+            style={{
+              display: "block",
+              marginTop: 16,
+              marginBottom: 6,
+              fontSize: 13,
+              fontWeight: 900,
+              color: "#475569",
+            }}
+          >
+            Adresse IP
+          </label>
+          <input
+            value={printerHost}
+            onChange={(e) => setPrinterHost(e.target.value)}
+            placeholder="Ex. 192.168.1.75"
+            inputMode="decimal"
+            autoComplete="off"
+            style={{
+              width: "100%",
+              minHeight: 50,
+              boxSizing: "border-box",
+              border: "1px solid #cbd5e1",
+              borderRadius: 11,
+              padding: "0 12px",
+              fontSize: 17,
+              fontWeight: 800,
+            }}
+          />
 
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                gap: 12,
-                padding: "11px 0",
-                borderBottom: "1px solid #e2e8f0",
-              }}
-            >
-              <span style={{ color: "#64748b", fontWeight: 800 }}>
-                Format par défaut
-              </span>
-              <span style={{ fontWeight: 950 }}>62 × 20 mm</span>
+          <div
+            style={{
+              marginTop: 14,
+              padding: "12px 0",
+              borderTop: "1px solid #e2e8f0",
+              borderBottom: "1px solid #e2e8f0",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: 12,
+            }}
+          >
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 900 }}>Format par défaut</div>
+              <div style={modeStyles.subtitle}>Rouleau continu</div>
             </div>
-
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                gap: 12,
-                padding: "11px 0",
-              }}
-            >
-              <span style={{ color: "#64748b", fontWeight: 800 }}>
-                Rotation 180°
-              </span>
-              <span style={{ fontWeight: 950 }}>
-                {rotate180 ? "Oui" : "Non"}
-              </span>
-            </div>
+            <div style={{ fontSize: 17, fontWeight: 950 }}>62 × 20 mm</div>
           </div>
+
+          <label
+            style={{
+              marginTop: 14,
+              minHeight: 48,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              cursor: "pointer",
+            }}
+          >
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 900 }}>
+                Rotation étiquette 180°
+              </div>
+              <div style={modeStyles.subtitle}>
+                Active si l’étiquette sort à l’envers
+              </div>
+            </div>
+            <input
+              type="checkbox"
+              checked={rotate180}
+              onChange={(e) => setRotate180(e.target.checked)}
+              style={{ width: 24, height: 24 }}
+            />
+          </label>
+
+          {configMessage ? (
+            <div
+              style={{
+                marginTop: 12,
+                padding: "10px 12px",
+                borderRadius: 10,
+                background: configMessage.startsWith("✓") ? "#ecfdf5" : "#fff7ed",
+                color: configMessage.startsWith("✓") ? "#166534" : "#9a3412",
+                fontWeight: 850,
+                fontSize: 13,
+              }}
+            >
+              {configMessage}
+            </div>
+          ) : null}
 
           <button
             type="button"
@@ -3330,24 +3390,45 @@ function ConfigurationMode({ onExit }: { onExit: () => void }) {
               width: "100%",
               minHeight: 54,
               marginTop: 14,
+              opacity: savingConfig ? 0.55 : 1,
             }}
-            onClick={openNativeConfiguration}
+            disabled={savingConfig}
+            onClick={saveConfiguration}
           >
-            ⚙️ Configurer l’imprimante
+            {savingConfig ? "Enregistrement…" : "Enregistrer"}
           </button>
         </div>
 
         <div style={{ ...modeStyles.card, marginTop: 12 }}>
           <div style={{ fontSize: 17, fontWeight: 950 }}>Application</div>
-          <div
+
+          <label
             style={{
-              ...modeStyles.subtitle,
-              marginTop: 6,
-              wordBreak: "break-all",
+              display: "block",
+              marginTop: 12,
+              marginBottom: 6,
+              fontSize: 13,
+              fontWeight: 900,
+              color: "#475569",
             }}
           >
-            {scannerUrl || "Adresse non disponible"}
-          </div>
+            Adresse du scanner
+          </label>
+          <input
+            value={scannerUrl}
+            onChange={(e) => setScannerUrl(e.target.value)}
+            autoComplete="off"
+            spellCheck={false}
+            style={{
+              width: "100%",
+              minHeight: 48,
+              boxSizing: "border-box",
+              border: "1px solid #cbd5e1",
+              borderRadius: 11,
+              padding: "0 12px",
+              fontSize: 13,
+            }}
+          />
         </div>
       </div>
     </div>
