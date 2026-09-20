@@ -1732,15 +1732,22 @@ function ModeHome({ onMode }: { onMode: (mode: ScannerMode) => void }) {
 
   return (
     <div style={modeStyles.page}>
-      <div style={modeStyles.shell}>
-        <div style={modeStyles.card}>
+      <div
+        style={{
+          ...modeStyles.shell,
+          display: "flex",
+          flexDirection: "column",
+          minHeight: "100dvh",
+        }}
+      >
+        <div style={{ ...modeStyles.card, flexShrink: 0 }}>
           <div style={{ display: "flex", justifyContent: "center" }}>
             <img
               src={GB_SUITE_LOGO_SRC}
               alt="GB Suite"
               style={{
                 width: "100%",
-                maxWidth: 220,
+                maxWidth: 245,
                 height: "auto",
                 display: "block",
               }}
@@ -1748,12 +1755,27 @@ function ModeHome({ onMode }: { onMode: (mode: ScannerMode) => void }) {
           </div>
         </div>
 
-        <div style={{ display: "grid", gap: 12, marginTop: 12 }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateRows: "repeat(4, minmax(0, 1fr))",
+            gap: 12,
+            marginTop: 14,
+            flex: 1,
+            minHeight: 0,
+            paddingBottom: 4,
+          }}
+        >
           {modes.map((item) => (
             <button
               key={item.mode}
               type="button"
-              style={modeStyles.action}
+              style={{
+                ...modeStyles.action,
+                height: "100%",
+                display: "flex",
+                alignItems: "center",
+              }}
               onClick={() => onMode(item.mode)}
             >
               <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
