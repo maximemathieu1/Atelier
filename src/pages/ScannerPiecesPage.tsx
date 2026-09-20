@@ -49,6 +49,15 @@ type ApiResponse<T> = {
   error?: string;
 };
 
+const GB_SUITE_LOGO_SRC = 'data:image/svg+xml;utf8,%3C%3Fxml%20version%3D%221.0%22%20encoding%3D%22utf-8%22%3F%3E%0A%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%22700%22%20height%3D%22300%22%20viewBox%3D%22140%2010%20620%20340%22%20fill%3D%22none%22%3E%0A%20%20%20%20%3Cg%20transform%3D%22translate%28240%2035%29%22%3E%0A%20%20%20%20%3Ctext%20x%3D%22210%22%20y%3D%22105%22%20text-anchor%3D%22middle%22%0A%20%20%20%20%20%20font-family%3D%22Arial%20Black%2C%20Arial%2C%20Helvetica%2C%20sans-serif%22%0A%20%20%20%20%20%20font-size%3D%22118%22%20font-weight%3D%22900%22%20letter-spacing%3D%22-8%22%3E%0A%20%20%20%20%20%20%3Ctspan%20fill%3D%22%2307183A%22%3EG%3C/tspan%3E%3Ctspan%20fill%3D%22%232563EB%22%3EB%3C/tspan%3E%0A%20%20%20%20%3C/text%3E%0A%0A%20%20%20%20%3Cpath%20d%3D%22M93%20119%20H327%22%20stroke%3D%22%232563EB%22%20stroke-width%3D%228%22%20stroke-linecap%3D%22round%22%20opacity%3D%220.95%22%20/%3E%0A%20%20%20%20%3Cpath%20d%3D%22M118%20135%20C160%20158%2C%20260%20158%2C%20302%20135%22%20stroke%3D%22%2307183A%22%20stroke-width%3D%225%22%20stroke-linecap%3D%22round%22%20opacity%3D%220.9%22%20/%3E%0A%20%20%3C/g%3E%0A%0A%20%20%3Ctext%20x%3D%22450%22%20y%3D%22245%22%20text-anchor%3D%22middle%22%0A%20%20%20%20font-family%3D%22Arial%2C%20Helvetica%2C%20sans-serif%22%0A%20%20%20%20font-size%3D%2236%22%20font-weight%3D%22800%22%0A%20%20%20%20letter-spacing%3D%2215%22%20fill%3D%22%2307183A%22%3E%0A%20%20%20%20GROUPE%20BRETON%0A%20%20%3C/text%3E%0A%0A%20%20%3C%21--%20Lignes%20SUITE%20corrig%C3%A9es%20et%20%C3%A9quilibr%C3%A9es%20--%3E%0A%20%20%3Cline%20x1%3D%22250%22%20y1%3D%22310%22%20x2%3D%22330%22%20y2%3D%22310%22%20stroke%3D%22%232563EB%22%20stroke-width%3D%224%22%20stroke-linecap%3D%22round%22%20/%3E%0A%0A%20%20%3Ctext%20x%3D%22450%22%20y%3D%22324%22%20text-anchor%3D%22middle%22%0A%20%20%20%20font-family%3D%22Arial%2C%20Helvetica%2C%20sans-serif%22%0A%20%20%20%20font-size%3D%2238%22%20font-weight%3D%22800%22%0A%20%20%20%20letter-spacing%3D%2218%22%20fill%3D%22%232563EB%22%3E%0A%20%20%20%20SUITE%0A%20%20%3C/text%3E%0A%0A%20%20%3Cline%20x1%3D%22570%22%20y1%3D%22310%22%20x2%3D%22650%22%20y2%3D%22310%22%20stroke%3D%22%232563EB%22%20stroke-width%3D%224%22%20stroke-linecap%3D%22round%22%20/%3E%0A%3C/svg%3E';
+
+type LabelFormatKey = "29x90" | "62x20";
+
+const LABEL_FORMAT_LABELS: Record<LabelFormatKey, string> = {
+  "29x90": "29 × 90 mm",
+  "62x20": "62 × 20 mm",
+};
+
 async function scannerApi<T>(
   action: string,
   payload: Record<string, unknown> = {},
@@ -81,6 +90,203 @@ function formatMoney(value: number | null | undefined) {
     style: "currency",
     currency: "CAD",
   }).format(Number(value || 0));
+}
+
+
+const CODE128_PATTERNS = [
+  "212222","222122","222221","121223","121322","131222","122213","122312","132212","221213",
+  "221312","231212","112232","122132","122231","113222","123122","123221","223211","221132",
+  "221231","213212","223112","312131","311222","321122","321221","312212","322112","322211",
+  "212123","212321","232121","111323","131123","131321","112313","132113","132311","211313",
+  "231113","231311","112133","112331","132131","113123","113321","133121","313121","211331",
+  "231131","213113","213311","213131","311123","311321","331121","312113","312311","332111",
+  "314111","221411","431111","111224","111422","121124","121421","141122","141221","112214",
+  "112412","122114","122411","142112","142211","241211","221114","413111","241112","134111",
+  "111242","121142","121241","114212","124112","124211","411212","421112","421211","212141",
+  "214121","412121","111143","111341","131141","114113","114311","411113","411311","113141",
+  "114131","311141","411131","211412","211214","211232","2331112",
+];
+
+function code128Values(text: string) {
+  const chars = Array.from(text);
+  const values = chars.map((ch) => {
+    const code = ch.charCodeAt(0);
+    if (code < 32 || code > 126) {
+      throw new Error("Le SKU contient un caractère non supporté par le code-barres.");
+    }
+    return code - 32;
+  });
+
+  let checksum = 104;
+  values.forEach((value, index) => {
+    checksum += value * (index + 1);
+  });
+
+  checksum %= 103;
+  return [104, ...values, checksum, 106];
+}
+
+function drawCode128(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+) {
+  const values = code128Values(text);
+  const quietModules = 12;
+  const totalModules =
+    quietModules * 2 +
+    values.reduce(
+      (sum, value) =>
+        sum +
+        CODE128_PATTERNS[value]
+          .split("")
+          .reduce((a, n) => a + Number(n), 0),
+      0,
+    );
+
+  const moduleWidth = Math.max(1, Math.floor(width / totalModules));
+  const barcodeWidth = totalModules * moduleWidth;
+  let cursor = x + Math.floor((width - barcodeWidth) / 2) + quietModules * moduleWidth;
+
+  ctx.fillStyle = "#000";
+
+  for (const value of values) {
+    const pattern = CODE128_PATTERNS[value];
+    let bar = true;
+
+    for (const char of pattern) {
+      const run = Number(char) * moduleWidth;
+      if (bar) ctx.fillRect(cursor, y, run, height);
+      cursor += run;
+      bar = !bar;
+    }
+  }
+}
+
+function createBrotherLabelPng(
+  sku: string,
+  description: string,
+  format: LabelFormatKey,
+) {
+  const cleanSku = (sku || "").trim() || "SANS-SKU";
+  const name = (description || "").trim() || "Pièce";
+
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+
+  if (!ctx) {
+    throw new Error("Impossible de préparer l’étiquette.");
+  }
+
+  if (format === "62x20") {
+    // Brother 62 mm continu coupé à 20 mm.
+    // Raster natif = 236 points dans le sens d'avance x 696 points sur la largeur.
+    const landscape = document.createElement("canvas");
+    landscape.width = 696;
+    landscape.height = 236;
+
+    const lctx = landscape.getContext("2d");
+    if (!lctx) throw new Error("Impossible de préparer l’étiquette 62 × 20.");
+
+    lctx.fillStyle = "#fff";
+    lctx.fillRect(0, 0, landscape.width, landscape.height);
+    lctx.fillStyle = "#000";
+    lctx.textAlign = "center";
+    lctx.textBaseline = "middle";
+
+    let fontSize = 27;
+    lctx.font = `700 ${fontSize}px Arial, sans-serif`;
+
+    while (fontSize > 15 && lctx.measureText(name).width > 650) {
+      fontSize -= 1;
+      lctx.font = `700 ${fontSize}px Arial, sans-serif`;
+    }
+
+    const visibleName =
+      lctx.measureText(name).width <= 650
+        ? name
+        : `${name.slice(0, Math.max(8, Math.floor(name.length * 0.72)))}…`;
+
+    lctx.fillText(visibleName, landscape.width / 2, 28);
+    drawCode128(lctx, cleanSku, 18, 57, 660, 112);
+
+    lctx.font = "700 27px Arial, sans-serif";
+    lctx.fillText(cleanSku, landscape.width / 2, 199);
+
+    canvas.width = 236;
+    canvas.height = 696;
+
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.save();
+    ctx.translate(canvas.width, 0);
+    ctx.rotate(Math.PI / 2);
+    ctx.drawImage(landscape, 0, 0);
+    ctx.restore();
+
+    return canvas.toDataURL("image/png").split(",")[1] || "";
+  }
+
+  canvas.width = 1063;
+  canvas.height = 343;
+
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "#000";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+
+  let fontSize = 42;
+  ctx.font = `700 ${fontSize}px Arial, sans-serif`;
+
+  while (fontSize > 18 && ctx.measureText(name).width > 930) {
+    fontSize -= 2;
+    ctx.font = `700 ${fontSize}px Arial, sans-serif`;
+  }
+
+  const visibleName =
+    ctx.measureText(name).width <= 930
+      ? name
+      : `${name.slice(0, Math.max(8, Math.floor(name.length * 0.75)))}…`;
+
+  ctx.fillText(visibleName, canvas.width / 2, 47);
+  drawCode128(ctx, cleanSku, 24, 91, 943, 132);
+
+  ctx.font = "700 37px Arial, sans-serif";
+  ctx.fillText(cleanSku, canvas.width / 2, 267);
+
+  return canvas.toDataURL("image/png").split(",")[1] || "";
+}
+
+
+function printBrotherLabel(
+  item: { sku: string | null; nom: string },
+  copies = 1,
+  format: LabelFormatKey = "29x90",
+) {
+  const bridge = (window as any).GBScanner;
+
+  if (!bridge || typeof bridge.printLabelPng !== "function") {
+    throw new Error("Impression directe disponible seulement dans l’app GB Scanner mise à jour.");
+  }
+
+  const host =
+    typeof bridge.getPrinterHost === "function"
+      ? String(bridge.getPrinterHost() || "").trim()
+      : "";
+
+  if (!host) {
+    if (typeof bridge.configurePrinter === "function") {
+      bridge.configurePrinter();
+    }
+    throw new Error("Configure d’abord l’adresse IP de la Brother.");
+  }
+
+  const png = createBrotherLabelPng(item.sku || "", item.nom || "", format);
+  bridge.printLabelPng(png, Math.max(1, Math.min(50, Number(copies) || 1)), format);
 }
 
 function BtScannerMode({ onExit }: { onExit: () => void }) {
@@ -1288,7 +1494,7 @@ function BtScannerMode({ onExit }: { onExit: () => void }) {
 }
 
 
-type ScannerMode = "home" | "bt" | "reception" | "inventory";
+type ScannerMode = "home" | "bt" | "reception" | "inventory" | "configuration";
 
 type StockItem = {
   id: string;
@@ -1521,14 +1727,44 @@ function ModeHome({ onMode }: { onMode: (mode: ScannerMode) => void }) {
       title: "Inventaire",
       text: "Compter, ajuster le stock et gérer les supersedes",
     },
+    {
+      mode: "configuration" as const,
+      icon: "⚙️",
+      title: "Configuration",
+      text: "Configurer l’imprimante Brother et les paramètres du terminal",
+    },
   ];
 
   return (
     <div style={modeStyles.page}>
       <div style={modeStyles.shell}>
         <div style={modeStyles.card}>
-          <h1 style={modeStyles.title}>Scanner Atelier</h1>
-          <div style={modeStyles.subtitle}>Que voulez-vous faire ?</div>
+          <div style={{ display: "flex", justifyContent: "center" }}>
+            <img
+              src={GB_SUITE_LOGO_SRC}
+              alt="GB Suite"
+              style={{
+                width: "100%",
+                maxWidth: 220,
+                height: "auto",
+                display: "block",
+              }}
+            />
+          </div>
+          <div
+            style={{
+              marginTop: 10,
+              fontSize: 26,
+              fontWeight: 950,
+              textAlign: "center",
+              color: "#0f172a",
+            }}
+          >
+            GB Suite
+          </div>
+          <div style={{ ...modeStyles.subtitle, textAlign: "center", marginTop: 4 }}>
+            Que voulez-vous faire ?
+          </div>
         </div>
 
         <div style={{ display: "grid", gap: 12, marginTop: 12 }}>
@@ -1732,6 +1968,15 @@ function ReceptionMode({ onExit }: { onExit: () => void }) {
           : row,
       ),
     );
+  }
+
+  function printReceptionLabel(row: ReceptionRow) {
+    try {
+      printBrotherLabel({ sku: row.sku, nom: row.nom }, 1);
+      setMessage("Envoi de l’étiquette à la Brother…");
+    } catch (e: any) {
+      setMessage(e?.message || "Erreur impression étiquette.");
+    }
   }
 
   async function finish() {
@@ -1968,7 +2213,24 @@ function ReceptionMode({ onExit }: { onExit: () => void }) {
                 <div style={{ fontSize: 12, fontWeight: 900 }}>
                   {row.sku || "—"}
                 </div>
-                <div style={{ fontSize: 13, fontWeight: 800 }}>{row.nom}</div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 800 }}>{row.nom}</div>
+                  <button
+                    type="button"
+                    onClick={() => printReceptionLabel(row)}
+                    style={{
+                      border: 0,
+                      padding: "3px 0 0",
+                      background: "transparent",
+                      color: "#2563eb",
+                      fontSize: 11,
+                      fontWeight: 900,
+                      cursor: "pointer",
+                    }}
+                  >
+                    🏷️ Étiquette
+                  </button>
+                </div>
                 <input
                   aria-label={`Coût ${row.sku || row.nom}`}
                   inputMode="decimal"
@@ -2053,6 +2315,9 @@ function InventoryMode({ onExit }: { onExit: () => void }) {
   const [searchBusy, setSearchBusy] = useState(false);
   const [editingCost, setEditingCost] = useState(false);
   const [costValue, setCostValue] = useState("");
+  const [labelQty, setLabelQty] = useState(1);
+  const [labelFormat, setLabelFormat] = useState<LabelFormatKey>("62x20");
+  const [labelPrinting, setLabelPrinting] = useState(false);
 
   const [missingCode, setMissingCode] = useState("");
   const [createForm, setCreateForm] = useState({
@@ -2085,6 +2350,31 @@ function InventoryMode({ onExit }: { onExit: () => void }) {
       window.removeEventListener("gb-barcode-scan", onScan as EventListener);
   }, [busy, item, action]);
 
+  useEffect(() => {
+    const onPrintResult = (event: Event) => {
+      const detail = (event as CustomEvent<{ ok?: boolean; message?: string }>).detail;
+      setLabelPrinting(false);
+      setMessage(detail?.message || (detail?.ok ? "Étiquette imprimée." : "Erreur d’impression."));
+    };
+
+    window.addEventListener("gb-label-print-result", onPrintResult as EventListener);
+    return () =>
+      window.removeEventListener("gb-label-print-result", onPrintResult as EventListener);
+  }, []);
+
+  function printSelectedLabel() {
+    if (!item || labelPrinting) return;
+
+    try {
+      setLabelPrinting(true);
+      setMessage("Envoi de l’étiquette à la Brother…");
+      printBrotherLabel({ sku: item.sku, nom: item.nom }, labelQty, labelFormat);
+    } catch (e: any) {
+      setLabelPrinting(false);
+      setMessage(e?.message || "Erreur impression étiquette.");
+    }
+  }
+
   async function loadItem(barcode: string) {
     setBusy(true);
     setMessage("");
@@ -2111,6 +2401,7 @@ function InventoryMode({ onExit }: { onExit: () => void }) {
 
       setItem(found);
       setMissingCode("");
+      setLabelQty(1);
       setAction("none");
       setQtyValue(String(found.quantite));
       setCostValue(String(found.coutUnitaire ?? 0));
@@ -2152,6 +2443,7 @@ function InventoryMode({ onExit }: { onExit: () => void }) {
   function chooseSearchResult(found: StockItem) {
     setItem(found);
     setMissingCode("");
+    setLabelQty(1);
     setAction("none");
     setQtyValue(String(found.quantite));
     setCostValue(String(found.coutUnitaire ?? 0));
@@ -2224,6 +2516,7 @@ function InventoryMode({ onExit }: { onExit: () => void }) {
 
       setItem(created);
       setMissingCode("");
+      setLabelQty(1);
       setQtyValue(String(created.quantite));
       setCostValue(String(created.coutUnitaire ?? 0));
       setAction("none");
@@ -2674,6 +2967,80 @@ function InventoryMode({ onExit }: { onExit: () => void }) {
               </div>
             </div>
 
+            <div
+              style={{
+                ...modeStyles.card,
+                marginTop: 12,
+                display: "grid",
+                gridTemplateColumns: "1fr auto",
+                gap: 10,
+                alignItems: "center",
+              }}
+            >
+              <div>
+                <div style={{ fontSize: 17, fontWeight: 950 }}>Imprimer étiquette</div>
+                <div style={{ ...modeStyles.subtitle, marginTop: 2 }}>
+                  Brother QL-810Wc · 29 × 90 mm
+                </div>
+
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 10 }}>
+                  <button
+                    type="button"
+                    onClick={() => setLabelQty((q) => Math.max(1, q - 1))}
+                    style={modeStyles.minus}
+                  >
+                    −
+                  </button>
+                  <input
+                    value={String(labelQty)}
+                    inputMode="numeric"
+                    onFocus={(e) => e.currentTarget.select()}
+                    onChange={(e) => {
+                      const value = Number(e.target.value || 1);
+                      if (Number.isFinite(value)) {
+                        setLabelQty(Math.max(1, Math.min(50, Math.floor(value))));
+                      }
+                    }}
+                    style={{
+                      width: 48,
+                      height: 34,
+                      borderRadius: 8,
+                      border: "1px solid #cbd5e1",
+                      textAlign: "center",
+                      fontWeight: 950,
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setLabelQty((q) => Math.min(50, q + 1))}
+                    style={modeStyles.minus}
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                disabled={labelPrinting || !item.sku}
+                onClick={printSelectedLabel}
+                style={{
+                  minWidth: 112,
+                  minHeight: 58,
+                  border: 0,
+                  borderRadius: 12,
+                  background: "#0f172a",
+                  color: "#fff",
+                  fontWeight: 950,
+                  fontSize: 14,
+                  cursor: "pointer",
+                  opacity: labelPrinting || !item.sku ? 0.45 : 1,
+                }}
+              >
+                {labelPrinting ? "Impression…" : "🏷️ Imprimer"}
+              </button>
+            </div>
+
             {action === "none" ? (
               <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
                 <button type="button" style={modeStyles.action} onClick={openAdjust}>
@@ -2825,6 +3192,173 @@ function InventoryMode({ onExit }: { onExit: () => void }) {
   );
 }
 
+
+function ConfigurationMode({ onExit }: { onExit: () => void }) {
+  const bridge = (window as any).GBScanner;
+
+  const [printerHost, setPrinterHost] = useState("");
+  const [scannerUrl, setScannerUrl] = useState("");
+  const [rotate180, setRotate180] = useState(false);
+
+  function refreshConfiguration() {
+    try {
+      setPrinterHost(
+        bridge && typeof bridge.getPrinterHost === "function"
+          ? String(bridge.getPrinterHost() || "")
+          : "",
+      );
+
+      setScannerUrl(
+        bridge && typeof bridge.getScannerUrl === "function"
+          ? String(bridge.getScannerUrl() || "")
+          : window.location.href,
+      );
+
+      setRotate180(
+        bridge && typeof bridge.getPrinterRotate180 === "function"
+          ? Boolean(bridge.getPrinterRotate180())
+          : false,
+      );
+    } catch {
+      setPrinterHost("");
+      setScannerUrl(window.location.href);
+      setRotate180(false);
+    }
+  }
+
+  useEffect(() => {
+    refreshConfiguration();
+
+    const onVisible = () => refreshConfiguration();
+    window.addEventListener("focus", onVisible);
+    document.addEventListener("visibilitychange", onVisible);
+
+    return () => {
+      window.removeEventListener("focus", onVisible);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, []);
+
+  function openNativeConfiguration() {
+    if (!bridge || typeof bridge.configurePrinter !== "function") {
+      alert(
+        "La configuration de l’imprimante est disponible dans l’app GB Scanner Android.",
+      );
+      return;
+    }
+
+    bridge.configurePrinter();
+  }
+
+  return (
+    <div style={modeStyles.page}>
+      <div style={modeStyles.shell}>
+        <div style={modeStyles.card}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "46px 1fr",
+              gap: 10,
+              alignItems: "center",
+            }}
+          >
+            <button type="button" style={modeStyles.back} onClick={onExit}>
+              ←
+            </button>
+            <div>
+              <div style={modeStyles.title}>Configuration</div>
+              <div style={modeStyles.subtitle}>
+                Terminal scanner et imprimante d’étiquettes
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style={{ ...modeStyles.card, marginTop: 12 }}>
+          <div style={{ fontSize: 19, fontWeight: 950 }}>Imprimante Brother</div>
+          <div style={{ ...modeStyles.subtitle, marginTop: 3 }}>
+            Brother QL-810Wc
+          </div>
+
+          <div style={{ marginTop: 14, display: "grid", gap: 4 }}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: 12,
+                padding: "11px 0",
+                borderBottom: "1px solid #e2e8f0",
+              }}
+            >
+              <span style={{ color: "#64748b", fontWeight: 800 }}>Adresse IP</span>
+              <span style={{ fontWeight: 950 }}>
+                {printerHost || "Non configurée"}
+              </span>
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: 12,
+                padding: "11px 0",
+                borderBottom: "1px solid #e2e8f0",
+              }}
+            >
+              <span style={{ color: "#64748b", fontWeight: 800 }}>
+                Format par défaut
+              </span>
+              <span style={{ fontWeight: 950 }}>62 × 20 mm</span>
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: 12,
+                padding: "11px 0",
+              }}
+            >
+              <span style={{ color: "#64748b", fontWeight: 800 }}>
+                Rotation 180°
+              </span>
+              <span style={{ fontWeight: 950 }}>
+                {rotate180 ? "Oui" : "Non"}
+              </span>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            style={{
+              ...modeStyles.greenButton,
+              width: "100%",
+              minHeight: 54,
+              marginTop: 14,
+            }}
+            onClick={openNativeConfiguration}
+          >
+            ⚙️ Configurer l’imprimante
+          </button>
+        </div>
+
+        <div style={{ ...modeStyles.card, marginTop: 12 }}>
+          <div style={{ fontSize: 17, fontWeight: 950 }}>Application</div>
+          <div
+            style={{
+              ...modeStyles.subtitle,
+              marginTop: 6,
+              wordBreak: "break-all",
+            }}
+          >
+            {scannerUrl || "Adresse non disponible"}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ScannerPiecesPage() {
   const [mode, setMode] = useState<ScannerMode>("home");
 
@@ -2838,6 +3372,10 @@ export default function ScannerPiecesPage() {
 
   if (mode === "inventory") {
     return <InventoryMode onExit={() => setMode("home")} />;
+  }
+
+  if (mode === "configuration") {
+    return <ConfigurationMode onExit={() => setMode("home")} />;
   }
 
   return <ModeHome onMode={setMode} />;
