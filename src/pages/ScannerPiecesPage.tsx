@@ -2668,7 +2668,8 @@ function InventoryMode({ onExit }: { onExit: () => void }) {
         quantity: qty,
       });
       setItem(updated);
-      setAction("none");
+      setQtyValue(String(updated.quantite));
+      setAction("adjust");
       setMessage("Quantité d’inventaire mise à jour.");
       navigator.vibrate?.([60, 40, 60]);
     } catch (e: any) {
@@ -2692,8 +2693,11 @@ function InventoryMode({ onExit }: { onExit: () => void }) {
         items: [{ itemId: item.id, quantity: qty }],
       });
       const updated = rows?.[0];
-      if (updated) setItem(updated);
-      setAction("none");
+      if (updated) {
+        setItem(updated);
+        setQtyValue(String(updated.quantite));
+      }
+      setAction("adjust");
       setMessage(`${qty} ajouté au stock.`);
       navigator.vibrate?.([60, 40, 60]);
     } catch (e: any) {
@@ -2712,7 +2716,8 @@ function InventoryMode({ onExit }: { onExit: () => void }) {
         oldCode: oldCode.trim(),
         newItemId: item.id,
       });
-      setAction("none");
+      setAction("adjust");
+      setQtyValue(String(item.quantite));
       setMessage(
         `${oldCode.trim()} pointera maintenant vers ${item.sku || item.nom}.`,
       );
@@ -3093,7 +3098,94 @@ function InventoryMode({ onExit }: { onExit: () => void }) {
               </div>
             ) : null}
 
-            {action === "none" ? (
+            {action === "adjust" || action === "receive" ? (
+              <div style={{ ...modeStyles.card, marginTop: 12 }}>
+                <div style={{ fontSize: 18, fontWeight: 950 }}>
+                  {action === "adjust" ? "Ajuster quantité" : "Réceptionner"}
+                </div>
+                <div style={{ ...modeStyles.subtitle, marginBottom: 10 }}>
+                  {action === "adjust"
+                    ? `Stock actuel : ${item.quantite}`
+                    : "Quantité à ajouter au stock"}
+                </div>
+
+                <input
+                  value={qtyValue}
+                  onChange={(e) => setQtyValue(e.target.value)}
+                  inputMode="decimal"
+                  style={{
+                    width: "100%",
+                    minHeight: 58,
+                    border: "2px solid #2563eb",
+                    borderRadius: 12,
+                    padding: "0 14px",
+                    boxSizing: "border-box",
+                    fontSize: 28,
+                    fontWeight: 950,
+                    textAlign: "center",
+                  }}
+                />
+
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1.25fr",
+                    gap: 10,
+                    marginTop: 12,
+                  }}
+                >
+                  <button
+                    type="button"
+                    style={modeStyles.back}
+                    onClick={openAdjust}
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    type="button"
+                    style={modeStyles.blueButton}
+                    disabled={busy}
+                    onClick={() =>
+                      void (action === "adjust" ? saveAdjust() : saveReceive())
+                    }
+                  >
+                    Confirmer
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
+            {action === "adjust" ? (
+              <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
+                <button
+                  type="button"
+                  style={modeStyles.action}
+                  onClick={openReceive}
+                >
+                  <div style={{ fontSize: 19, fontWeight: 950 }}>
+                    Réceptionner
+                  </div>
+                  <div style={modeStyles.subtitle}>
+                    Ajouter une quantité au stock
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  style={modeStyles.action}
+                  onClick={openSupersede}
+                >
+                  <div style={{ fontSize: 19, fontWeight: 950 }}>
+                    Ajouter un supersede
+                  </div>
+                  <div style={modeStyles.subtitle}>
+                    Associer un ancien SKU à cette pièce
+                  </div>
+                </button>
+              </div>
+            ) : null}
+
+            {action === "adjust" ? (
               <div
                 style={{
                   ...modeStyles.card,
@@ -3180,63 +3272,6 @@ function InventoryMode({ onExit }: { onExit: () => void }) {
               </div>
             ) : null}
 
-            {action === "adjust" || action === "receive" ? (
-              <div style={{ ...modeStyles.card, marginTop: 12 }}>
-                <div style={{ fontSize: 18, fontWeight: 950 }}>
-                  {action === "adjust" ? "Ajuster quantité" : "Réceptionner"}
-                </div>
-                <div style={{ ...modeStyles.subtitle, marginBottom: 10 }}>
-                  {action === "adjust"
-                    ? `Stock actuel : ${item.quantite}`
-                    : "Quantité à ajouter au stock"}
-                </div>
-
-                <input
-                  value={qtyValue}
-                  onChange={(e) => setQtyValue(e.target.value)}
-                  inputMode="decimal"
-                  style={{
-                    width: "100%",
-                    minHeight: 58,
-                    border: "2px solid #2563eb",
-                    borderRadius: 12,
-                    padding: "0 14px",
-                    boxSizing: "border-box",
-                    fontSize: 28,
-                    fontWeight: 950,
-                    textAlign: "center",
-                  }}
-                />
-
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "1fr 1.25fr",
-                    gap: 10,
-                    marginTop: 12,
-                  }}
-                >
-                  <button
-                    type="button"
-                    style={modeStyles.back}
-                    onClick={() => setAction("none")}
-                  >
-                    Annuler
-                  </button>
-                  <button
-                    type="button"
-                    style={modeStyles.blueButton}
-                    disabled={busy}
-                    onClick={() =>
-                      void (action === "adjust" ? saveAdjust() : saveReceive())
-                    }
-                  >
-                    Confirmer
-                  </button>
-                </div>
-              </div>
-            ) : null}
-
             {action === "supersede" ? (
               <div style={{ ...modeStyles.card, marginTop: 12 }}>
                 <div style={{ fontSize: 18, fontWeight: 950 }}>
@@ -3283,8 +3318,8 @@ function InventoryMode({ onExit }: { onExit: () => void }) {
                     type="button"
                     style={modeStyles.back}
                     onClick={() => {
-                      setAction("none");
                       setOldCode("");
+                      openAdjust();
                     }}
                   >
                     Annuler
