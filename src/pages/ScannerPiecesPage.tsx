@@ -3067,6 +3067,27 @@ function InventoryMode({ onExit }: { onExit: () => void }) {
               </div>
             </div>
 
+            {action === "none" ? (
+              <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
+                <button type="button" style={modeStyles.action} onClick={openAdjust}>
+                  <div style={{ fontSize: 19, fontWeight: 950 }}>Ajuster quantité</div>
+                  <div style={modeStyles.subtitle}>Corriger le stock physique</div>
+                </button>
+
+                <button type="button" style={modeStyles.action} onClick={openReceive}>
+                  <div style={{ fontSize: 19, fontWeight: 950 }}>Réceptionner</div>
+                  <div style={modeStyles.subtitle}>Ajouter une quantité au stock</div>
+                </button>
+
+                <button type="button" style={modeStyles.action} onClick={openSupersede}>
+                  <div style={{ fontSize: 19, fontWeight: 950 }}>Ajouter un supersede</div>
+                  <div style={modeStyles.subtitle}>
+                    Associer un ancien SKU à cette pièce
+                  </div>
+                </button>
+              </div>
+            ) : null}
+
             <div
               style={{
                 ...modeStyles.card,
@@ -3141,26 +3162,6 @@ function InventoryMode({ onExit }: { onExit: () => void }) {
               </button>
             </div>
 
-            {action === "none" ? (
-              <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
-                <button type="button" style={modeStyles.action} onClick={openAdjust}>
-                  <div style={{ fontSize: 19, fontWeight: 950 }}>Ajuster quantité</div>
-                  <div style={modeStyles.subtitle}>Corriger le stock physique</div>
-                </button>
-
-                <button type="button" style={modeStyles.action} onClick={openReceive}>
-                  <div style={{ fontSize: 19, fontWeight: 950 }}>Réceptionner</div>
-                  <div style={modeStyles.subtitle}>Ajouter une quantité au stock</div>
-                </button>
-
-                <button type="button" style={modeStyles.action} onClick={openSupersede}>
-                  <div style={{ fontSize: 19, fontWeight: 950 }}>Ajouter un supersede</div>
-                  <div style={modeStyles.subtitle}>
-                    Associer un ancien SKU à cette pièce
-                  </div>
-                </button>
-              </div>
-            ) : null}
 
             {action === "adjust" || action === "receive" ? (
               <div style={{ ...modeStyles.card, marginTop: 12 }}>
