@@ -3093,84 +3093,92 @@ function InventoryMode({ onExit }: { onExit: () => void }) {
               </div>
             ) : null}
 
-            <div
-              style={{
-                ...modeStyles.card,
-                marginTop: 12,
-                display: "grid",
-                gridTemplateColumns: "1fr auto",
-                gap: 10,
-                alignItems: "center",
-              }}
-            >
-              <div>
-                {action === "none" ? (
-            <div style={{ fontSize: 17, fontWeight: 950 }}>Imprimer étiquette</div>
-                <div style={{ ...modeStyles.subtitle, marginTop: 2 }}>
-                  Brother QL-810Wc · 29 × 90 mm
-                </div>
-
-                <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 10 }}>
-                  <button
-                    type="button"
-                    onClick={() => setLabelQty((q) => Math.max(1, q - 1))}
-                    style={modeStyles.minus}
-                  >
-                    −
-                  </button>
-                  <input
-                    value={String(labelQty)}
-                    inputMode="numeric"
-                    onFocus={(e) => e.currentTarget.select()}
-                    onChange={(e) => {
-                      const value = Number(e.target.value || 1);
-                      if (Number.isFinite(value)) {
-                        setLabelQty(Math.max(1, Math.min(50, Math.floor(value))));
-                      }
-                    }}
-                    style={{
-                      width: 48,
-                      height: 34,
-                      borderRadius: 8,
-                      border: "1px solid #cbd5e1",
-                      textAlign: "center",
-                      fontWeight: 950,
-                    }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setLabelQty((q) => Math.min(50, q + 1))}
-                    style={modeStyles.minus}
-                  >
-                    +
-                  </button>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                disabled={labelPrinting || !item.sku}
-                onClick={printSelectedLabel}
+            {action === "none" ? (
+              <div
                 style={{
-                  minWidth: 112,
-                  minHeight: 58,
-                  border: 0,
-                  borderRadius: 12,
-                  background: "#0f172a",
-                  color: "#fff",
-                  fontWeight: 950,
-                  fontSize: 14,
-                  cursor: "pointer",
-                  opacity: labelPrinting || !item.sku ? 0.45 : 1,
+                  ...modeStyles.card,
+                  marginTop: 12,
+                  display: "grid",
+                  gridTemplateColumns: "1fr auto",
+                  gap: 10,
+                  alignItems: "center",
                 }}
               >
-                {labelPrinting ? "Impression…" : "🏷️ Imprimer"}
-              </button>
-            </div>
+                <div>
+                  <div style={{ fontSize: 17, fontWeight: 950 }}>
+                    Imprimer étiquette
+                  </div>
+                  <div style={{ ...modeStyles.subtitle, marginTop: 2 }}>
+                    Brother QL-810Wc · 62 × 20 mm
+                  </div>
 
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      marginTop: 10,
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setLabelQty((q) => Math.max(1, q - 1))}
+                      style={modeStyles.minus}
+                    >
+                      −
+                    </button>
+                    <input
+                      value={String(labelQty)}
+                      inputMode="numeric"
+                      onFocus={(e) => e.currentTarget.select()}
+                      onChange={(e) => {
+                        const value = Number(e.target.value || 1);
+                        if (Number.isFinite(value)) {
+                          setLabelQty(
+                            Math.max(1, Math.min(50, Math.floor(value))),
+                          );
+                        }
+                      }}
+                      style={{
+                        width: 48,
+                        height: 34,
+                        borderRadius: 8,
+                        border: "1px solid #cbd5e1",
+                        textAlign: "center",
+                        fontWeight: 950,
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setLabelQty((q) => Math.min(50, q + 1))}
+                      style={modeStyles.minus}
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
 
+                <button
+                  type="button"
+                  disabled={labelPrinting || !item.sku}
+                  onClick={printSelectedLabel}
+                  style={{
+                    minWidth: 112,
+                    minHeight: 58,
+                    border: 0,
+                    borderRadius: 12,
+                    background: "#0f172a",
+                    color: "#fff",
+                    fontWeight: 950,
+                    fontSize: 14,
+                    cursor: "pointer",
+                    opacity: labelPrinting || !item.sku ? 0.45 : 1,
+                  }}
+                >
+                  {labelPrinting ? "Impression…" : "🏷️ Imprimer"}
+                </button>
+              </div>
             ) : null}
-
 
             {action === "adjust" || action === "receive" ? (
               <div style={{ ...modeStyles.card, marginTop: 12 }}>
