@@ -372,6 +372,11 @@ function BtScannerMode({ onExit }: { onExit: () => void }) {
         target instanceof HTMLInputElement &&
         target.getAttribute("data-manual-description") === "true"
       ) {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          event.stopPropagation();
+          target.blur();
+        }
         return;
       }
 
@@ -2502,7 +2507,7 @@ function InventoryMode({ onExit }: { onExit: () => void }) {
       setItem(found);
       setMissingCode("");
       setLabelQty(1);
-      setAction("none");
+      setAction("adjust");
       setQtyValue(String(found.quantite));
       setCostValue(String(found.coutUnitaire ?? 0));
       setEditingCost(false);
@@ -2544,7 +2549,7 @@ function InventoryMode({ onExit }: { onExit: () => void }) {
     setItem(found);
     setMissingCode("");
     setLabelQty(1);
-    setAction("none");
+    setAction("adjust");
     setQtyValue(String(found.quantite));
     setCostValue(String(found.coutUnitaire ?? 0));
     setEditingCost(false);
@@ -2619,7 +2624,7 @@ function InventoryMode({ onExit }: { onExit: () => void }) {
       setLabelQty(1);
       setQtyValue(String(created.quantite));
       setCostValue(String(created.coutUnitaire ?? 0));
-      setAction("none");
+      setAction("adjust");
       setMessage("Pièce créée dans l’inventaire.");
       navigator.vibrate?.([60, 40, 60]);
     } catch (e: any) {
@@ -3099,7 +3104,8 @@ function InventoryMode({ onExit }: { onExit: () => void }) {
               }}
             >
               <div>
-                <div style={{ fontSize: 17, fontWeight: 950 }}>Imprimer étiquette</div>
+                {action === "none" ? (
+            <div style={{ fontSize: 17, fontWeight: 950 }}>Imprimer étiquette</div>
                 <div style={{ ...modeStyles.subtitle, marginTop: 2 }}>
                   Brother QL-810Wc · 29 × 90 mm
                 </div>
@@ -3161,6 +3167,9 @@ function InventoryMode({ onExit }: { onExit: () => void }) {
                 {labelPrinting ? "Impression…" : "🏷️ Imprimer"}
               </button>
             </div>
+
+
+            ) : null}
 
 
             {action === "adjust" || action === "receive" ? (
