@@ -1601,6 +1601,10 @@ type PieceSubCategory = {
   nom: string;
 };
 
+type CreateInventoryItemResponse = StockItem & {
+  alreadyExists?: boolean;
+};
+
 type ReceptionRow = StockItem & {
   receiveQty: number;
 };
@@ -2438,6 +2442,8 @@ function InventoryMode({ onExit }: { onExit: () => void }) {
   const [missingCode, setMissingCode] = useState("");
   const [realSku, setRealSku] = useState("");
   const [scanRealSkuMode, setScanRealSkuMode] = useState(false);
+  const [existingSkuMatch, setExistingSkuMatch] = useState<StockItem | null>(null);
+  const [checkingSku, setCheckingSku] = useState(false);
   const [pieceCategories, setPieceCategories] = useState<PieceCategory[]>([]);
   const [pieceSubCategories, setPieceSubCategories] = useState<PieceSubCategory[]>([]);
   const [createForm, setCreateForm] = useState({
@@ -2509,6 +2515,37 @@ function InventoryMode({ onExit }: { onExit: () => void }) {
     void loadPieceCategories();
   }, []);
 
+  useEffect(() => {
+    if (!missingCode) {
+      setExistingSkuMatch(null);
+      setCheckingSku(false);
+      return;
+    }
+
+    const sku = realSku.trim();
+    if (sku.length < 2) {
+      setExistingSkuMatch(null);
+      setCheckingSku(false);
+      return;
+    }
+
+    const timer = window.setTimeout(async () => {
+      setCheckingSku(true);
+      try {
+        const found = await scannerApi<StockItem | null>("find_inventory_sku", {
+          sku,
+        });
+        setExistingSkuMatch(found || null);
+      } catch {
+        setExistingSkuMatch(null);
+      } finally {
+        setCheckingSku(false);
+      }
+    }, 350);
+
+    return () => window.clearTimeout(timer);
+  }, [realSku, missingCode]);
+
   function printSelectedLabel() {
     if (!item || labelPrinting) return;
 
@@ -2536,6 +2573,7 @@ function InventoryMode({ onExit }: { onExit: () => void }) {
         setMissingCode(barcode);
         setRealSku("");
         setScanRealSkuMode(false);
+        setExistingSkuMatch(null);
         setCreateForm({
           nom: "",
           categorieId: "",
@@ -2630,6 +2668,41 @@ function InventoryMode({ onExit }: { onExit: () => void }) {
     }
   }
 
+  async function linkInitialBarcodeToExistingItem() {
+    if (!existingSkuMatch || !missingCode || busy) return;
+
+    setBusy(true);
+    setMessage("");
+
+    try {
+      if (
+        missingCode.trim().toLowerCase() !==
+        String(existingSkuMatch.sku || "").trim().toLowerCase()
+      ) {
+        await scannerApi("create_supersede", {
+          oldCode: missingCode.trim(),
+          newItemId: existingSkuMatch.id,
+        });
+      }
+
+      setItem(existingSkuMatch);
+      setMissingCode("");
+      setRealSku("");
+      setScanRealSkuMode(false);
+      setExistingSkuMatch(null);
+      setLabelQty(1);
+      setQtyValue(String(existingSkuMatch.quantite));
+      setCostValue(String(existingSkuMatch.coutUnitaire ?? 0));
+      setAction("adjust");
+      setMessage("Code-barres associé à la pièce existante.");
+      navigator.vibrate?.([60, 40, 60]);
+    } catch (e: any) {
+      setMessage(e?.message || "Erreur association du code-barres.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function createMissingItem() {
     if (!missingCode || busy) return;
 
@@ -2672,15 +2745,18 @@ function InventoryMode({ onExit }: { onExit: () => void }) {
     setMessage("");
 
     try {
-      const created = await scannerApi<StockItem>("create_inventory_item", {
-        sku,
-        nom,
-        categorieId: createForm.categorieId,
-        sousCategorieId: createForm.sousCategorieId || null,
-        coutUnitaire: cost,
-        quantite: qty,
-        seuilAlerte,
-      });
+      const created = await scannerApi<CreateInventoryItemResponse>(
+        "create_inventory_item",
+        {
+          sku,
+          nom,
+          categorieId: createForm.categorieId,
+          sousCategorieId: createForm.sousCategorieId || null,
+          coutUnitaire: cost,
+          quantite: qty,
+          seuilAlerte,
+        },
+      );
 
       // Le code-barres scanné devient automatiquement un alias du vrai SKU.
       if (missingCode.trim().toLowerCase() !== sku.toLowerCase()) {
@@ -2698,7 +2774,11 @@ function InventoryMode({ onExit }: { onExit: () => void }) {
       setQtyValue(String(created.quantite));
       setCostValue(String(created.coutUnitaire ?? 0));
       setAction("adjust");
-      setMessage("Pièce créée dans l’inventaire.");
+      setMessage(
+        created.alreadyExists
+          ? "Ce SKU existait déjà. Le code-barres a été associé à la pièce existante."
+          : "Pièce créée dans l’inventaire.",
+      );
       navigator.vibrate?.([60, 40, 60]);
     } catch (e: any) {
       setMessage(e?.message || "Erreur création pièce.");
@@ -2808,6 +2888,7 @@ function InventoryMode({ onExit }: { onExit: () => void }) {
     setMissingCode("");
     setRealSku("");
     setScanRealSkuMode(false);
+    setExistingSkuMatch(null);
     setMessage("");
     setAction("none");
     setOldCode("");
@@ -3013,8 +3094,86 @@ function InventoryMode({ onExit }: { onExit: () => void }) {
                     {scanRealSkuMode ? "Prêt…" : "📷 Scanner"}
                   </button>
                 </div>
+
+                {checkingSku ? (
+                  <div
+                    style={{
+                      marginTop: 6,
+                      padding: "8px 10px",
+                      borderRadius: 9,
+                      background: "#f8fafc",
+                      color: "#64748b",
+                      fontSize: 12,
+                      fontWeight: 800,
+                    }}
+                  >
+                    Vérification du SKU…
+                  </div>
+                ) : existingSkuMatch ? (
+                  <div
+                    style={{
+                      marginTop: 7,
+                      padding: 10,
+                      borderRadius: 10,
+                      background: "#ecfdf5",
+                      border: "1px solid #86efac",
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: 12,
+                        fontWeight: 950,
+                        color: "#166534",
+                      }}
+                    >
+                      ✓ Cette pièce existe déjà
+                    </div>
+                    <div
+                      style={{
+                        marginTop: 3,
+                        fontSize: 14,
+                        fontWeight: 950,
+                        color: "#0f172a",
+                      }}
+                    >
+                      {existingSkuMatch.sku} — {existingSkuMatch.nom}
+                    </div>
+                    <div
+                      style={{
+                        marginTop: 3,
+                        fontSize: 11,
+                        color: "#64748b",
+                        fontWeight: 750,
+                      }}
+                    >
+                      Associer {missingCode} comme code-barres / supersede.
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => void linkInitialBarcodeToExistingItem()}
+                      disabled={busy}
+                      style={{
+                        width: "100%",
+                        minHeight: 42,
+                        marginTop: 8,
+                        border: 0,
+                        borderRadius: 9,
+                        background: "#16a34a",
+                        color: "#fff",
+                        fontSize: 13,
+                        fontWeight: 950,
+                        opacity: busy ? 0.5 : 1,
+                      }}
+                    >
+                      Associer à cette pièce
+                    </button>
+                  </div>
+                ) : null}
               </div>
 
+              {!existingSkuMatch ? (
+                <>
               <div>
                 <div style={{ fontSize: 10, fontWeight: 950, color: "#475569", marginBottom: 4 }}>
                   NOM
@@ -3198,6 +3357,8 @@ function InventoryMode({ onExit }: { onExit: () => void }) {
             >
               Créer la pièce
             </button>
+                </>
+              ) : null}
           </div>
         ) : null}
 
