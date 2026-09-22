@@ -3331,34 +3331,36 @@ function InventoryMode({ onExit }: { onExit: () => void }) {
                   }}
                 />
               </div>
+                </>
+              ) : null}
             </div>
 
-            <button
-              type="button"
-              style={{
-                ...modeStyles.greenButton,
-                minHeight: 50,
-                marginTop: 11,
-                opacity:
+            {!existingSkuMatch ? (
+              <button
+                type="button"
+                style={{
+                  ...modeStyles.greenButton,
+                  minHeight: 50,
+                  marginTop: 11,
+                  opacity:
+                    !realSku.trim() ||
+                    !createForm.nom.trim() ||
+                    !createForm.categorieId ||
+                    busy
+                      ? 0.5
+                      : 1,
+                }}
+                disabled={
                   !realSku.trim() ||
                   !createForm.nom.trim() ||
                   !createForm.categorieId ||
                   busy
-                    ? 0.5
-                    : 1,
-              }}
-              disabled={
-                !realSku.trim() ||
-                !createForm.nom.trim() ||
-                !createForm.categorieId ||
-                busy
-              }
-              onClick={() => void createMissingItem()}
-            >
-              Créer la pièce
-            </button>
-                </>
-              ) : null}
+                }
+                onClick={() => void createMissingItem()}
+              >
+                Créer la pièce
+              </button>
+            ) : null}
           </div>
         ) : null}
 
