@@ -1590,6 +1590,17 @@ type StockItem = {
   matchedBy?: string | null;
 };
 
+type PieceCategory = {
+  id: string;
+  nom: string;
+};
+
+type PieceSubCategory = {
+  id: string;
+  categorieId: string;
+  nom: string;
+};
+
 type ReceptionRow = StockItem & {
   receiveQty: number;
 };
@@ -2425,12 +2436,17 @@ function InventoryMode({ onExit }: { onExit: () => void }) {
   const [labelPrinting, setLabelPrinting] = useState(false);
 
   const [missingCode, setMissingCode] = useState("");
+  const [realSku, setRealSku] = useState("");
+  const [scanRealSkuMode, setScanRealSkuMode] = useState(false);
+  const [pieceCategories, setPieceCategories] = useState<PieceCategory[]>([]);
+  const [pieceSubCategories, setPieceSubCategories] = useState<PieceSubCategory[]>([]);
   const [createForm, setCreateForm] = useState({
     nom: "",
-    unite: "un",
+    categorieId: "",
+    sousCategorieId: "",
     coutUnitaire: "",
-    emplacement: "",
     quantite: "0",
+    seuilAlerte: "0",
   });
 
   useEffect(() => {
@@ -2439,6 +2455,14 @@ function InventoryMode({ onExit }: { onExit: () => void }) {
         (event as CustomEvent<{ barcode?: string }>).detail?.barcode || "",
       ).trim();
       if (!barcode || busy) return;
+
+      if (scanRealSkuMode && missingCode) {
+        setRealSku(barcode);
+        setScanRealSkuMode(false);
+        setMessage("SKU capturé.");
+        navigator.vibrate?.(60);
+        return;
+      }
 
       if (item && action === "supersede") {
         setOldCode(barcode);
@@ -2453,7 +2477,7 @@ function InventoryMode({ onExit }: { onExit: () => void }) {
     window.addEventListener("gb-barcode-scan", onScan as EventListener);
     return () =>
       window.removeEventListener("gb-barcode-scan", onScan as EventListener);
-  }, [busy, item, action]);
+  }, [busy, item, action, missingCode, scanRealSkuMode]);
 
   useEffect(() => {
     const onPrintResult = (event: Event) => {
@@ -2465,6 +2489,24 @@ function InventoryMode({ onExit }: { onExit: () => void }) {
     window.addEventListener("gb-label-print-result", onPrintResult as EventListener);
     return () =>
       window.removeEventListener("gb-label-print-result", onPrintResult as EventListener);
+  }, []);
+
+  async function loadPieceCategories() {
+    try {
+      const data = await scannerApi<{
+        categories: PieceCategory[];
+        subCategories: PieceSubCategory[];
+      }>("inventory_categories");
+
+      setPieceCategories(data?.categories || []);
+      setPieceSubCategories(data?.subCategories || []);
+    } catch (e: any) {
+      setMessage(e?.message || "Erreur chargement des catégories.");
+    }
+  }
+
+  useEffect(() => {
+    void loadPieceCategories();
   }, []);
 
   function printSelectedLabel() {
@@ -2492,12 +2534,15 @@ function InventoryMode({ onExit }: { onExit: () => void }) {
         setItem(null);
         setAction("none");
         setMissingCode(barcode);
+        setRealSku("");
+        setScanRealSkuMode(false);
         setCreateForm({
           nom: "",
-          unite: "un",
+          categorieId: "",
+          sousCategorieId: "",
           coutUnitaire: "",
-          emplacement: "",
           quantite: "0",
+          seuilAlerte: "0",
         });
         setMessage("Pièce introuvable. Tu peux la créer directement.");
         navigator.vibrate?.([120, 50, 120]);
@@ -2587,9 +2632,20 @@ function InventoryMode({ onExit }: { onExit: () => void }) {
 
   async function createMissingItem() {
     if (!missingCode || busy) return;
+
+    const sku = realSku.trim();
     const nom = createForm.nom.trim();
+
+    if (!sku) {
+      setMessage("SKU requis.");
+      return;
+    }
     if (!nom) {
-      setMessage("Description requise.");
+      setMessage("Nom requis.");
+      return;
+    }
+    if (!createForm.categorieId) {
+      setMessage("Catégorie requise.");
       return;
     }
 
@@ -2597,6 +2653,7 @@ function InventoryMode({ onExit }: { onExit: () => void }) {
     const cost = createForm.coutUnitaire.trim()
       ? Number(createForm.coutUnitaire.replace(",", "."))
       : null;
+    const seuilAlerte = Number(createForm.seuilAlerte.replace(",", "."));
 
     if (!Number.isFinite(qty) || qty < 0) {
       setMessage("Quantité invalide.");
@@ -2606,21 +2663,37 @@ function InventoryMode({ onExit }: { onExit: () => void }) {
       setMessage("Coût unitaire invalide.");
       return;
     }
+    if (!Number.isFinite(seuilAlerte) || seuilAlerte < 0) {
+      setMessage("Seuil d’alerte invalide.");
+      return;
+    }
 
     setBusy(true);
     setMessage("");
+
     try {
       const created = await scannerApi<StockItem>("create_inventory_item", {
-        sku: missingCode,
+        sku,
         nom,
-        unite: createForm.unite.trim() || null,
+        categorieId: createForm.categorieId,
+        sousCategorieId: createForm.sousCategorieId || null,
         coutUnitaire: cost,
-        emplacement: createForm.emplacement.trim() || null,
         quantite: qty,
+        seuilAlerte,
       });
+
+      // Le code-barres scanné devient automatiquement un alias du vrai SKU.
+      if (missingCode.trim().toLowerCase() !== sku.toLowerCase()) {
+        await scannerApi("create_supersede", {
+          oldCode: missingCode.trim(),
+          newItemId: created.id,
+        });
+      }
 
       setItem(created);
       setMissingCode("");
+      setRealSku("");
+      setScanRealSkuMode(false);
       setLabelQty(1);
       setQtyValue(String(created.quantite));
       setCostValue(String(created.coutUnitaire ?? 0));
@@ -2733,6 +2806,8 @@ function InventoryMode({ onExit }: { onExit: () => void }) {
   function resetSelection() {
     setItem(null);
     setMissingCode("");
+    setRealSku("");
+    setScanRealSkuMode(false);
     setMessage("");
     setAction("none");
     setOldCode("");
@@ -2874,91 +2949,226 @@ function InventoryMode({ onExit }: { onExit: () => void }) {
         ) : null}
 
         {missingCode ? (
-          <div style={{ ...modeStyles.card, marginTop: 12 }}>
-            <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900 }}>
+          <div style={{ ...modeStyles.card, marginTop: 12, padding: 12 }}>
+            <div style={{ fontSize: 12, color: "#64748b", fontWeight: 950 }}>
               NOUVELLE PIÈCE
             </div>
-            <div style={{ fontSize: 22, fontWeight: 950, marginTop: 4 }}>
-              {missingCode}
+
+            <div
+              style={{
+                marginTop: 8,
+                padding: "8px 10px",
+                borderRadius: 9,
+                background: "#f8fafc",
+                border: "1px solid #e2e8f0",
+              }}
+            >
+              <div style={{ fontSize: 10, color: "#64748b", fontWeight: 900 }}>
+                CODE-BARRES SCANNÉ
+              </div>
+              <div style={{ fontSize: 14, fontWeight: 950, marginTop: 2 }}>
+                {missingCode}
+              </div>
             </div>
 
-            <div style={{ display: "grid", gap: 10, marginTop: 14 }}>
-              <input
-                value={createForm.nom}
-                onChange={(e) =>
-                  setCreateForm((f) => ({ ...f, nom: e.target.value }))
-                }
-                placeholder="Description / nom de la pièce"
-                style={{
-                  minHeight: 48,
-                  border: "1px solid #cbd5e1",
-                  borderRadius: 10,
-                  padding: "0 12px",
-                  fontSize: 16,
-                  boxSizing: "border-box",
-                }}
-              />
+            <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 950, color: "#475569", marginBottom: 4 }}>
+                  SKU
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", gap: 7 }}>
+                  <input
+                    value={realSku}
+                    onChange={(e) => setRealSku(e.target.value)}
+                    placeholder="Ex. 212142-1X"
+                    autoComplete="off"
+                    style={{
+                      minWidth: 0,
+                      minHeight: 44,
+                      border: "2px solid #2563eb",
+                      borderRadius: 9,
+                      padding: "0 10px",
+                      fontSize: 16,
+                      fontWeight: 900,
+                      boxSizing: "border-box",
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setScanRealSkuMode(true);
+                      setMessage("Scanne maintenant le SKU.");
+                    }}
+                    style={{
+                      minWidth: 84,
+                      border: scanRealSkuMode ? "2px solid #16a34a" : "1px solid #cbd5e1",
+                      borderRadius: 9,
+                      background: scanRealSkuMode ? "#ecfdf5" : "#fff",
+                      color: scanRealSkuMode ? "#166534" : "#0f172a",
+                      fontWeight: 950,
+                      fontSize: 12,
+                      padding: "0 9px",
+                    }}
+                  >
+                    {scanRealSkuMode ? "Prêt…" : "📷 Scanner"}
+                  </button>
+                </div>
+              </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 950, color: "#475569", marginBottom: 4 }}>
+                  NOM
+                </div>
                 <input
-                  value={createForm.unite}
-                  onChange={(e) =>
-                    setCreateForm((f) => ({ ...f, unite: e.target.value }))
-                  }
-                  placeholder="Unité"
+                  value={createForm.nom}
+                  onChange={(e) => setCreateForm((f) => ({ ...f, nom: e.target.value }))}
+                  placeholder="Nom de la pièce"
                   style={{
-                    minHeight: 46,
+                    width: "100%",
+                    minHeight: 44,
                     border: "1px solid #cbd5e1",
-                    borderRadius: 10,
-                    padding: "0 12px",
+                    borderRadius: 9,
+                    padding: "0 10px",
                     fontSize: 15,
-                  }}
-                />
-                <input
-                  value={createForm.quantite}
-                  onChange={(e) =>
-                    setCreateForm((f) => ({ ...f, quantite: e.target.value }))
-                  }
-                  inputMode="decimal"
-                  placeholder="Qté initiale"
-                  style={{
-                    minHeight: 46,
-                    border: "1px solid #cbd5e1",
-                    borderRadius: 10,
-                    padding: "0 12px",
-                    fontSize: 15,
+                    boxSizing: "border-box",
                   }}
                 />
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                <input
-                  value={createForm.coutUnitaire}
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 950, color: "#475569", marginBottom: 4 }}>
+                  CATÉGORIE
+                </div>
+                <select
+                  value={createForm.categorieId}
                   onChange={(e) =>
-                    setCreateForm((f) => ({ ...f, coutUnitaire: e.target.value }))
+                    setCreateForm((f) => ({
+                      ...f,
+                      categorieId: e.target.value,
+                      sousCategorieId: "",
+                    }))
                   }
-                  inputMode="decimal"
-                  placeholder="Coût unitaire"
                   style={{
-                    minHeight: 46,
+                    width: "100%",
+                    minHeight: 44,
                     border: "1px solid #cbd5e1",
-                    borderRadius: 10,
-                    padding: "0 12px",
-                    fontSize: 15,
+                    borderRadius: 9,
+                    padding: "0 10px",
+                    fontSize: 14,
+                    fontWeight: 800,
+                    background: "#fff",
+                    boxSizing: "border-box",
                   }}
-                />
+                >
+                  <option value="">— Sélectionner —</option>
+                  {pieceCategories.map((category) => (
+                    <option key={category.id} value={category.id}>
+                      {category.nom}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {createForm.categorieId &&
+              pieceSubCategories.some((sub) => sub.categorieId === createForm.categorieId) ? (
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 950, color: "#475569", marginBottom: 4 }}>
+                    SOUS-CATÉGORIE
+                  </div>
+                  <select
+                    value={createForm.sousCategorieId}
+                    onChange={(e) =>
+                      setCreateForm((f) => ({ ...f, sousCategorieId: e.target.value }))
+                    }
+                    style={{
+                      width: "100%",
+                      minHeight: 44,
+                      border: "1px solid #cbd5e1",
+                      borderRadius: 9,
+                      padding: "0 10px",
+                      fontSize: 14,
+                      fontWeight: 800,
+                      background: "#fff",
+                      boxSizing: "border-box",
+                    }}
+                  >
+                    <option value="">— Aucune —</option>
+                    {pieceSubCategories
+                      .filter((sub) => sub.categorieId === createForm.categorieId)
+                      .map((sub) => (
+                        <option key={sub.id} value={sub.id}>
+                          {sub.nom}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              ) : null}
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 7 }}>
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 950, color: "#475569", marginBottom: 4 }}>
+                    QUANTITÉ
+                  </div>
+                  <input
+                    value={createForm.quantite}
+                    onChange={(e) => setCreateForm((f) => ({ ...f, quantite: e.target.value }))}
+                    inputMode="decimal"
+                    style={{
+                      width: "100%",
+                      minHeight: 43,
+                      border: "1px solid #cbd5e1",
+                      borderRadius: 9,
+                      padding: "0 8px",
+                      fontSize: 16,
+                      fontWeight: 900,
+                      textAlign: "center",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 950, color: "#475569", marginBottom: 4 }}>
+                    COÛT UNITAIRE
+                  </div>
+                  <input
+                    value={createForm.coutUnitaire}
+                    onChange={(e) => setCreateForm((f) => ({ ...f, coutUnitaire: e.target.value }))}
+                    inputMode="decimal"
+                    placeholder="0,00"
+                    style={{
+                      width: "100%",
+                      minHeight: 43,
+                      border: "1px solid #cbd5e1",
+                      borderRadius: 9,
+                      padding: "0 8px",
+                      fontSize: 16,
+                      fontWeight: 900,
+                      textAlign: "center",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 950, color: "#475569", marginBottom: 4 }}>
+                  SEUIL ALERTE
+                </div>
                 <input
-                  value={createForm.emplacement}
-                  onChange={(e) =>
-                    setCreateForm((f) => ({ ...f, emplacement: e.target.value }))
-                  }
-                  placeholder="Emplacement"
+                  value={createForm.seuilAlerte}
+                  onChange={(e) => setCreateForm((f) => ({ ...f, seuilAlerte: e.target.value }))}
+                  inputMode="decimal"
                   style={{
-                    minHeight: 46,
+                    width: "100%",
+                    minHeight: 43,
                     border: "1px solid #cbd5e1",
-                    borderRadius: 10,
-                    padding: "0 12px",
-                    fontSize: 15,
+                    borderRadius: 9,
+                    padding: "0 8px",
+                    fontSize: 16,
+                    fontWeight: 900,
+                    textAlign: "center",
+                    boxSizing: "border-box",
                   }}
                 />
               </div>
@@ -2966,8 +3176,24 @@ function InventoryMode({ onExit }: { onExit: () => void }) {
 
             <button
               type="button"
-              style={{ ...modeStyles.greenButton, marginTop: 14 }}
-              disabled={busy}
+              style={{
+                ...modeStyles.greenButton,
+                minHeight: 50,
+                marginTop: 11,
+                opacity:
+                  !realSku.trim() ||
+                  !createForm.nom.trim() ||
+                  !createForm.categorieId ||
+                  busy
+                    ? 0.5
+                    : 1,
+              }}
+              disabled={
+                !realSku.trim() ||
+                !createForm.nom.trim() ||
+                !createForm.categorieId ||
+                busy
+              }
               onClick={() => void createMissingItem()}
             >
               Créer la pièce
