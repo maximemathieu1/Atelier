@@ -39,6 +39,22 @@ function round2(n: number) {
   return Math.round((Number(n || 0) + Number.EPSILON) * 100) / 100;
 }
 
+function btExportLabel(bt: any) {
+  const numero = String(bt?.numero ?? "").trim() || "BT sans numéro";
+  const client = String(bt?.client_nom ?? "").trim();
+  const suffix = client ? ` — ${client}` : "";
+  return `${numero}${suffix}`;
+}
+
+function withBtExportContext(bt: any, error: unknown) {
+  const message = error instanceof Error ? error.message : String(error ?? "Erreur inconnue");
+  const label = btExportLabel(bt);
+
+  // Évite de doubler le préfixe si l'erreur a déjà été contextualisée.
+  if (message.startsWith(`${label} — `)) return new Error(message);
+  return new Error(`${label} — ${message}`);
+}
+
 function formatDateOnly(value?: string | null) {
   if (!value) return "";
   const d = new Date(value);
@@ -278,7 +294,7 @@ async function loadClientAndUnite(bt: any) {
 
   const { data: unite, error: uniteError } = await supabase
     .from("unites")
-    .select("id, mode_comptable")
+    .select("id, no_unite, mode_comptable")
     .eq("id", bt.unite_id)
     .maybeSingle();
 
@@ -289,11 +305,11 @@ async function loadClientAndUnite(bt: any) {
     .toLowerCase();
 
   if (!modeComptable) {
-    throw new Error("Mode comptable manquant sur l’unité.");
+    throw new Error(`Mode comptable manquant sur l’unité ${String((unite as any)?.no_unite ?? bt.unite_id ?? "").trim() || "inconnue"}.`);
   }
 
   if (!["externe", "interne", "interne_ta"].includes(modeComptable)) {
-    throw new Error("Mode comptable invalide sur l’unité.");
+    throw new Error(`Mode comptable invalide sur l’unité ${String((unite as any)?.no_unite ?? bt.unite_id ?? "").trim() || "inconnue"} : « ${modeComptable} ».`);
   }
 
   return {
@@ -310,72 +326,76 @@ type BuiltBtExport = {
 };
 
 async function buildBtEntry(bt: any, settings: any): Promise<BuiltBtExport> {
-  const glAR = String((settings as any).gl_compte_client ?? "").trim();
-  const glTPS = String((settings as any).gl_tps ?? "").trim();
-  const glTVQ = String((settings as any).gl_tvq ?? "").trim();
-
-  if (!glAR || !glTPS || !glTVQ) {
-    throw new Error("GL compte client / TPS / TVQ manquants dans les paramètres.");
+  try {
+    const glAR = String((settings as any).gl_compte_client ?? "").trim();
+    const glTPS = String((settings as any).gl_tps ?? "").trim();
+    const glTVQ = String((settings as any).gl_tvq ?? "").trim();
+  
+    if (!glAR || !glTPS || !glTVQ) {
+      throw new Error("GL compte client / TPS / TVQ manquants dans les paramètres.");
+    }
+  
+    const { clientCode, clientName, modeComptable } = await loadClientAndUnite(bt);
+    const { glMain, glPieces, glFrais } = resolveGlSet(modeComptable, settings);
+  
+    if (!glMain || !glPieces || !glFrais) {
+      throw new Error(`GL manquants pour le mode comptable « ${modeComptable} ».`);
+    }
+  
+    const factureNoRaw = String(bt.numero ?? "").trim();
+    if (!factureNoRaw) {
+      throw new Error("Numéro de bon de travail manquant.");
+    }
+  
+    const montantMain = round2(toNum(bt.total_main_oeuvre));
+    const montantPieces = round2(toNum(bt.total_pieces));
+    const montantFrais = round2(toNum(bt.total_frais_atelier));
+    const montantTPS = round2(toNum(bt.total_tps));
+    const montantTVQ = round2(toNum(bt.total_tvq));
+    const total = round2(toNum(bt.total_final));
+  
+    if (total <= 0) {
+      throw new Error("Total du bon de travail invalide.");
+    }
+  
+    const factureNo = factureNoToAcombaNo(factureNoRaw);
+    const ref = factureNoToRef8(factureNoRaw);
+  
+    const entry = makeCCEntryContentBt({
+      factureDate: new Date(bt.date_fermeture ?? new Date().toISOString()),
+      code: clientCode,
+      factureNo,
+      total,
+      ref,
+      glAR,
+      glMain,
+      glPieces,
+      glFrais,
+      glTPS,
+      glTVQ,
+      montantMain,
+      montantPieces,
+      montantFrais,
+      montantTPS,
+      montantTVQ,
+    });
+  
+    const referenceRow: ReferenceRow = {
+      factureNo: factureNoRaw,
+      client: clientName || clientCode,
+      dateFacture: formatDateOnly(bt.date_fermeture),
+      mainOeuvre: montantMain,
+      pieces: montantPieces,
+      fraisAtelier: montantFrais,
+      tps: montantTPS,
+      tvq: montantTVQ,
+      total,
+    };
+  
+    return { entry, referenceRow };
+  } catch (error) {
+    throw withBtExportContext(bt, error);
   }
-
-  const { clientCode, clientName, modeComptable } = await loadClientAndUnite(bt);
-  const { glMain, glPieces, glFrais } = resolveGlSet(modeComptable, settings);
-
-  if (!glMain || !glPieces || !glFrais) {
-    throw new Error(`GL manquants pour le mode comptable « ${modeComptable} ».`);
-  }
-
-  const factureNoRaw = String(bt.numero ?? "").trim();
-  if (!factureNoRaw) {
-    throw new Error("Numéro de bon de travail manquant.");
-  }
-
-  const montantMain = round2(toNum(bt.total_main_oeuvre));
-  const montantPieces = round2(toNum(bt.total_pieces));
-  const montantFrais = round2(toNum(bt.total_frais_atelier));
-  const montantTPS = round2(toNum(bt.total_tps));
-  const montantTVQ = round2(toNum(bt.total_tvq));
-  const total = round2(toNum(bt.total_final));
-
-  if (total <= 0) {
-    throw new Error("Total du bon de travail invalide.");
-  }
-
-  const factureNo = factureNoToAcombaNo(factureNoRaw);
-  const ref = factureNoToRef8(factureNoRaw);
-
-  const entry = makeCCEntryContentBt({
-    factureDate: new Date(bt.date_fermeture ?? new Date().toISOString()),
-    code: clientCode,
-    factureNo,
-    total,
-    ref,
-    glAR,
-    glMain,
-    glPieces,
-    glFrais,
-    glTPS,
-    glTVQ,
-    montantMain,
-    montantPieces,
-    montantFrais,
-    montantTPS,
-    montantTVQ,
-  });
-
-  const referenceRow: ReferenceRow = {
-    factureNo: factureNoRaw,
-    client: clientName || clientCode,
-    dateFacture: formatDateOnly(bt.date_fermeture),
-    mainOeuvre: montantMain,
-    pieces: montantPieces,
-    fraisAtelier: montantFrais,
-    tps: montantTPS,
-    tvq: montantTVQ,
-    total,
-  };
-
-  return { entry, referenceRow };
 }
 
 export async function buildBtAcombaFile(bt: any) {
@@ -466,7 +486,41 @@ export async function exportBatchBtToAcomba(bts: any[]) {
     });
   });
 
-  const builtRows = await Promise.all(rowsSorted.map((bt) => buildBtEntry(bt, settings)));
+  // Précontrôle complet : on valide toutes les factures AVANT de créer un fichier.
+  // Ainsi, un batch de 20 factures peut afficher les 3-4 problèmes à corriger
+  // en une seule fois au lieu de s'arrêter sur la première erreur.
+  const validationResults = await Promise.all(
+    rowsSorted.map(async (bt) => {
+      try {
+        return { ok: true as const, bt, built: await buildBtEntry(bt, settings) };
+      } catch (error) {
+        return {
+          ok: false as const,
+          bt,
+          error: error instanceof Error ? error.message : String(error ?? "Erreur inconnue"),
+        };
+      }
+    }),
+  );
+
+  const validationErrors = validationResults.filter(
+    (result): result is Extract<(typeof validationResults)[number], { ok: false }> => !result.ok,
+  );
+
+  if (validationErrors.length > 0) {
+    const details = validationErrors
+      .map((result, index) => `${index + 1}. ${result.error}`)
+      .join("\n");
+
+    throw new Error(
+      `Précontrôle Acomba : ${validationErrors.length} erreur${validationErrors.length > 1 ? "s" : ""} détectée${validationErrors.length > 1 ? "s" : ""}.\n\n${details}\n\nAucun fichier Acomba n'a été généré. Corrige ces éléments puis relance l'export.`,
+    );
+  }
+
+  const builtRows = validationResults.map((result) => {
+    if (!result.ok) throw new Error(result.error);
+    return result.built;
+  });
 
   const filename = nextCCImportName(acomba_prefix);
   const header = makeCCHeader(new Date(), "Groupe Breton");
