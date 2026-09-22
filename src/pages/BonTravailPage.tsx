@@ -102,6 +102,7 @@ type BonTravail = {
   total_final?: number | null;
   ancienne_unite_id?: string | null;
   unite_change_log?: any[] | null;
+  type_bt?: "ordinaire" | "centre_service" | null;
 };
 
 type ParametresEntreprise = {
@@ -493,6 +494,10 @@ export default function BonTravailPage() {
   );
 
   const isFactureDirecte = useMemo(() => Boolean(bt && !bt.unite_id), [bt]);
+  const isCentreServiceBt = useMemo(
+    () => bt?.type_bt === "centre_service",
+    [bt?.type_bt],
+  );
 
   const dynamicTauxHoraire = useMemo(() => {
     if (!unite || !clientCfg) return Number(clientCfg?.taux_horaire || 0);
@@ -3519,9 +3524,19 @@ ${noms}`);
       >
         <div style={styles.row}>
           <div>
-            <div style={styles.h1}>{isFactureDirecte ? "Facture directe" : "Bon de travail"}</div>
+            <div style={styles.h1}>
+              {isFactureDirecte
+                ? "Facture directe"
+                : isCentreServiceBt
+                  ? "Bon de travail — Centre de service"
+                  : "Bon de travail"}
+            </div>
             <div style={styles.muted}>
-              {isFactureDirecte ? "Vente / facturation sans unité" : "Gestion BT"}
+              {isFactureDirecte
+                ? "Vente / facturation sans unité"
+                : isCentreServiceBt
+                  ? "Gestion Centre de service"
+                  : "Gestion BT"}
               {isAutoSaving ? " • Enregistrement..." : " • Sauvegarde auto"}
             </div>
           </div>
@@ -4169,6 +4184,7 @@ ${noms}`);
               btKm={bt.km}
               vehiculeNiv={unite?.niv || ""}
               onDocumentGenerated={() => loadDocuments(bt.id)}
+              onCentreServiceActivated={() => loadAll()}
             />
           )}
         </>

@@ -253,6 +253,18 @@ async function loadClientAndUnite(bt: any) {
 
   const clientName = String((client as any)?.nom ?? "").trim() || "";
 
+  // Facture Centre de service séparée : toujours traitée comme une vente externe,
+  // même si le BT source est rattaché à une unité interne. Le client_id de la ligne
+  // est déjà celui du CLIENT ou du FABRICANT visé par la facture.
+  if (bt.facturation_partie) {
+    return {
+      clientCode,
+      clientName,
+      modeComptable: "externe",
+      isFactureDirecte: false,
+    };
+  }
+
   // Facture directe : aucune unité n'est requise.
   // Une vente/facture sans unité est comptabilisée comme un travail externe.
   if (!bt.unite_id) {
@@ -468,21 +480,72 @@ export async function exportBatchBtToAcomba(bts: any[]) {
 
   const res = await saveAcombaFiles(filename, content, referenceRows, referenceFilename);
 
-  const ids = rowsSorted.map((x) => x.id);
-  const { error } = await supabase
-    .from("bons_travail")
-    .update({
-      statut: "facture",
-      export_acomba_at: new Date().toISOString(),
-    })
-    .in("id", ids);
+  const exportedAt = new Date().toISOString();
 
-  if (error) throw new Error(error.message);
+  const ordinaryIds = rowsSorted
+    .filter((x) => !x.facturation_partie_id)
+    .map((x) => x.id);
+
+  const partIds = rowsSorted
+    .map((x) => String(x.facturation_partie_id || "").trim())
+    .filter(Boolean);
+
+  if (ordinaryIds.length > 0) {
+    const { error } = await supabase
+      .from("bons_travail")
+      .update({
+        statut: "facture",
+        export_acomba_at: exportedAt,
+      })
+      .in("id", ordinaryIds);
+
+    if (error) throw new Error(error.message);
+  }
+
+  if (partIds.length > 0) {
+    const { error } = await supabase
+      .from("bt_facturation_parties")
+      .update({
+        statut: "facture",
+        export_acomba_at: exportedAt,
+      })
+      .in("id", partIds);
+
+    if (error) throw new Error(error.message);
+
+    const centreServiceBtIds = Array.from(
+      new Set(
+        rowsSorted
+          .filter((x) => x.facturation_partie_id)
+          .map((x) => String(x.source_bt_id || x.id || "").trim())
+          .filter(Boolean),
+      ),
+    );
+
+    for (const btId of centreServiceBtIds) {
+      const { data: parties, error: partStatusError } = await supabase
+        .from("bt_facturation_parties")
+        .select("statut")
+        .eq("bt_id", btId);
+
+      if (partStatusError) throw new Error(partStatusError.message);
+
+      if (parties?.length && parties.every((p: any) => p.statut === "facture")) {
+        const { error: parentError } = await supabase
+          .from("bons_travail")
+          .update({ statut: "facture", export_acomba_at: exportedAt })
+          .eq("id", btId);
+
+        if (parentError) throw new Error(parentError.message);
+      }
+    }
+  }
 
   return {
     ...res,
     type: "batch",
-    btIds: ids,
-    count: ids.length,
+    btIds: ordinaryIds,
+    facturationPartieIds: partIds,
+    count: rowsSorted.length,
   };
 }

@@ -39,6 +39,7 @@ type BT = {
   total_main_oeuvre?: number | null;
   total_frais_atelier?: number | null;
   total_general?: number | null;
+  type_bt?: "ordinaire" | "centre_service" | null;
 };
 
 function fmtDate(v: any) {
@@ -215,6 +216,7 @@ export default function BTListe() {
         supabase
           .from("bons_travail")
           .select("*")
+          .or("type_bt.eq.ordinaire,type_bt.is.null")
           .order("created_at", { ascending: false })
           .limit(300),
         supabase.from("clients").select("id,nom"),
@@ -554,6 +556,7 @@ export default function BTListe() {
           total_main_oeuvre: 0,
           total_frais_atelier: 0,
           total_general: 0,
+          type_bt: "ordinaire",
         })
         .select("id")
         .single();
@@ -618,8 +621,9 @@ export default function BTListe() {
 
       const { data: existing, error: existingErr } = await supabase
         .from("bons_travail")
-        .select("id,statut,date_fermeture")
+        .select("id,statut,date_fermeture,type_bt")
         .eq("unite_id", newUniteId)
+        .or("type_bt.eq.ordinaire,type_bt.is.null")
         .eq("annee", annee)
         .eq("mois", mois)
         .or("statut.eq.ouvert,statut.eq.a_faire,statut.eq.en_cours")
@@ -652,6 +656,7 @@ export default function BTListe() {
           total_main_oeuvre: 0,
           total_frais_atelier: 0,
           total_general: 0,
+          type_bt: "ordinaire",
         })
         .select("id")
         .single();
@@ -1414,7 +1419,8 @@ return (
         open={showFusionModal}
         onClose={() => setShowFusionModal(false)}
         bts={bts.filter(
-          (bt): bt is BT & { unite_id: string } => Boolean(bt.unite_id),
+          (bt): bt is BT & { unite_id: string } =>
+            Boolean(bt.unite_id) && bt.type_bt !== "centre_service",
         )}
         unitesById={unitesById}
         clientsById={clientsById}

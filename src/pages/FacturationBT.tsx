@@ -27,6 +27,11 @@ type BtFacturationRow = {
   facture_email_sent_at: string | null;
   facture_email_sent_to: string | null;
   export_acomba_at: string | null;
+  type_bt?: "ordinaire" | "centre_service" | null;
+  source_bt_id?: string;
+  facturation_partie_id?: string | null;
+  facturation_partie?: "client" | "fabricant" | null;
+  fabricant?: string | null;
 };
 
 type TabKey = "a_facturer" | "facture";
@@ -205,6 +210,189 @@ async function fetchClientContacts(client_id: string) {
   return (data ?? []) as ClientContact[];
 }
 
+
+type CentreServiceRepartition = {
+  pieces?: Record<string, "client" | "fabricant">;
+  main_oeuvre?: Record<string, "client" | "fabricant">;
+  pointages?: Record<string, "client" | "fabricant">;
+};
+
+function factureKey(row: BtFacturationRow) {
+  return row.facturation_partie
+    ? `${row.source_bt_id || row.id}:${row.facturation_partie}`
+    : row.id;
+}
+
+async function expandCentreServiceFacturation(row: BtFacturationRow): Promise<BtFacturationRow[]> {
+  if (row.type_bt !== "centre_service") return [row];
+
+  const btId = row.id;
+  const [{ data: garantie, error: garantieError }, piecesRes, moRes, pointagesRes] =
+    await Promise.all([
+      supabase
+        .from("bt_garanties")
+        .select("fabricant,payeur,repartition")
+        .eq("bt_id", btId)
+        .maybeSingle(),
+      supabase.from("bt_pieces").select("*").eq("bt_id", btId),
+      supabase.from("bt_main_oeuvre").select("*").eq("bt_id", btId),
+      supabase.from("bt_pointages").select("*").eq("bt_id", btId),
+    ]);
+
+  if (garantieError) throw garantieError;
+  if (piecesRes.error) throw piecesRes.error;
+  if (moRes.error) throw moRes.error;
+  if (pointagesRes.error) throw pointagesRes.error;
+
+  // Un ancien CS sans bt_garanties demeure facturable comme une facture ordinaire,
+  // plutôt que de disparaître de la page.
+  if (!garantie) return [row];
+
+  const payeur = String((garantie as any).payeur || "client") as
+    | "client"
+    | "fabricant"
+    | "partage";
+  const fabricant = String((garantie as any).fabricant || "").trim();
+  const repartition = (((garantie as any).repartition || {}) as CentreServiceRepartition);
+
+  let fabricantClient: any = null;
+  if (fabricant) {
+    const { data, error } = await supabase
+      .from("clients")
+      .select("id,nom")
+      .eq("est_fabricant", true)
+      .eq("fabricant", fabricant)
+      .maybeSingle();
+    if (error) throw error;
+    fabricantClient = data;
+  }
+
+  const tauxHoraire = Number(row.taux_horaire_snapshot ?? 0);
+  const margePiecesPct = Number(row.marge_pieces_snapshot ?? 0);
+  const fraisAtelierPct = Number(row.frais_atelier_pct_snapshot ?? 0);
+  const tpsRate = Number(row.tps_rate_snapshot ?? 0.05);
+  const tvqRate = Number(row.tvq_rate_snapshot ?? 0.09975);
+
+  const isFor = (
+    section: keyof CentreServiceRepartition,
+    lineId: string,
+    partie: "client" | "fabricant",
+  ) => {
+    if (payeur === "client") return partie === "client";
+    if (payeur === "fabricant") return partie === "fabricant";
+    return repartition?.[section]?.[lineId] === partie;
+  };
+
+  const calculate = (partie: "client" | "fabricant") => {
+    const totalPieces = (piecesRes.data || []).reduce((sum: number, p: any) => {
+      if (!isFor("pieces", String(p.id), partie)) return sum;
+      const q = Number(p.quantite || 0);
+      const coutU = Number(p.prix_unitaire || 0);
+
+      // Pour le fabricant, on réclame le coût de la pièce; pour le client,
+      // on conserve la tarification normale du BT avec marge.
+      if (partie === "fabricant") return sum + q * coutU;
+
+      if (p.total_facture_snapshot != null) {
+        return sum + Number(p.total_facture_snapshot || 0);
+      }
+      const margePct =
+        p.marge_pct_snapshot != null
+          ? Number(p.marge_pct_snapshot || 0)
+          : margePiecesPct;
+      return sum + q * (coutU * (1 + margePct / 100));
+    }, 0);
+
+    const totalMoManuelle = (moRes.data || []).reduce((sum: number, m: any) => {
+      if (!isFor("main_oeuvre", String(m.id), partie)) return sum;
+      const h = Number(m.heures || 0);
+      const tauxLigne = Number(m.taux_horaire || 0);
+      return sum + h * (tauxLigne > 0 ? tauxLigne : tauxHoraire);
+    }, 0);
+
+    const totalMoPointage = (pointagesRes.data || []).reduce((sum: number, p: any) => {
+      if (!isFor("pointages", String(p.id), partie)) return sum;
+      return sum + (minutesFromPointage(p) / 60) * tauxHoraire;
+    }, 0);
+
+    const totalMainOeuvre = totalMoManuelle + totalMoPointage;
+    const totalFraisAtelier = totalMainOeuvre * (fraisAtelierPct / 100);
+    const totalGeneral = totalPieces + totalMainOeuvre + totalFraisAtelier;
+    const totalTps = round2(totalGeneral * tpsRate);
+    const totalTvq = round2(totalGeneral * tvqRate);
+    const totalFinal = round2(totalGeneral + totalTps + totalTvq);
+
+    return {
+      total_pieces: round2(totalPieces),
+      total_main_oeuvre: round2(totalMainOeuvre),
+      total_frais_atelier: round2(totalFraisAtelier),
+      total_general: round2(totalGeneral),
+      total_tps: totalTps,
+      total_tvq: totalTvq,
+      total_final: totalFinal,
+    };
+  };
+
+  const wanted: Array<"client" | "fabricant"> =
+    payeur === "partage" ? ["client", "fabricant"] : [payeur];
+
+  const output: BtFacturationRow[] = [];
+
+  for (const partie of wanted) {
+    const totals = calculate(partie);
+    const isFabricant = partie === "fabricant";
+    const targetClientId = isFabricant ? fabricantClient?.id || null : row.client_id;
+    const targetClientNom = isFabricant
+      ? fabricantClient?.nom || fabricant || "Fabricant"
+      : row.client_nom;
+    const numeroFacture = `${row.numero || "CS"}_${partie === "client" ? "CLIENT" : "FABRICANT"}`;
+
+    const { data: existing, error: existingError } = await supabase
+      .from("bt_facturation_parties")
+      .select("*")
+      .eq("bt_id", btId)
+      .eq("partie", partie)
+      .maybeSingle();
+    if (existingError) throw existingError;
+
+    const payload = {
+      bt_id: btId,
+      partie,
+      numero_facture: numeroFacture,
+      client_id: targetClientId,
+      client_nom: targetClientNom,
+      statut: existing?.statut || (row.statut === "facture" ? "facture" : "a_facturer"),
+      ...totals,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { data: saved, error: upsertError } = await supabase
+      .from("bt_facturation_parties")
+      .upsert(payload, { onConflict: "bt_id,partie" })
+      .select("*")
+      .single();
+    if (upsertError) throw upsertError;
+
+    output.push({
+      ...row,
+      ...totals,
+      source_bt_id: btId,
+      facturation_partie_id: saved.id,
+      facturation_partie: partie,
+      fabricant,
+      numero: numeroFacture,
+      client_id: targetClientId,
+      client_nom: targetClientNom,
+      statut: saved.statut,
+      facture_email_sent_at: saved.facture_email_sent_at,
+      facture_email_sent_to: saved.facture_email_sent_to,
+      export_acomba_at: saved.export_acomba_at,
+    });
+  }
+
+  return output;
+}
+
 export default function FacturationBT() {
   const nav = useNavigate();
 
@@ -243,6 +431,7 @@ export default function FacturationBT() {
         .select(`
           id,
           numero,
+          type_bt,
           unite_id,
           client_id,
           client_nom,
@@ -275,7 +464,11 @@ export default function FacturationBT() {
         rawRows.map((row) => recalcBtTotalsForFacturation(row)),
       );
 
-      setRows(recalculatedRows);
+      const expandedGroups = await Promise.all(
+        recalculatedRows.map((row) => expandCentreServiceFacturation(row)),
+      );
+
+      setRows(expandedGroups.flat());
     } catch (e: any) {
       setErr(e?.message ?? "Erreur chargement");
       setRows([]);
@@ -353,14 +546,14 @@ export default function FacturationBT() {
 
   const visibleRows = tab === "a_facturer" ? aFacturerPaginated : facturesPaginated;
   const selectedRows = useMemo(
-    () => aFacturer.filter((r) => selectedIds.includes(r.id)),
+    () => aFacturer.filter((r) => selectedIds.includes(factureKey(r))),
     [aFacturer, selectedIds]
   );
 
   const allVisibleSelected =
     tab === "a_facturer" &&
     aFacturerPaginated.length > 0 &&
-    aFacturerPaginated.every((r) => selectedIds.includes(r.id));
+    aFacturerPaginated.every((r) => selectedIds.includes(factureKey(r)));
 
   const fromRow =
     tab === "a_facturer"
@@ -397,7 +590,7 @@ export default function FacturationBT() {
 
   function toggleAllVisible(checked: boolean) {
     setSelectedIds((prev) => {
-      const visibleIds = aFacturerPaginated.map((r) => r.id);
+      const visibleIds = aFacturerPaginated.map((r) => factureKey(r));
       if (checked) {
         return Array.from(new Set([...prev, ...visibleIds]));
       }
@@ -409,21 +602,44 @@ export default function FacturationBT() {
     try {
       await exportBtToAcomba(bt);
 
-      const { error } = await supabase
-        .from("bons_travail")
-        .update({
-          statut: "facture",
-          export_acomba_at: new Date().toISOString(),
-        })
-        .eq("id", bt.id);
+      const exportedAt = new Date().toISOString();
+      const markQuery = bt.facturation_partie_id
+        ? supabase
+            .from("bt_facturation_parties")
+            .update({ statut: "facture", export_acomba_at: exportedAt })
+            .eq("id", bt.facturation_partie_id)
+        : supabase
+            .from("bons_travail")
+            .update({ statut: "facture", export_acomba_at: exportedAt })
+            .eq("id", bt.id);
+
+      const { error } = await markQuery;
 
       if (error) {
         alert(error.message);
         return;
       }
 
+      if (bt.facturation_partie_id) {
+        const sourceBtId = bt.source_bt_id || bt.id;
+        const { data: parties, error: partiesError } = await supabase
+          .from("bt_facturation_parties")
+          .select("statut,export_acomba_at")
+          .eq("bt_id", sourceBtId);
+
+        if (partiesError) throw partiesError;
+
+        if (parties?.length && parties.every((p: any) => p.statut === "facture")) {
+          const { error: parentError } = await supabase
+            .from("bons_travail")
+            .update({ statut: "facture", export_acomba_at: exportedAt })
+            .eq("id", sourceBtId);
+          if (parentError) throw parentError;
+        }
+      }
+
       setMenuOpenId(null);
-      setSelectedIds((prev) => prev.filter((x) => x !== bt.id));
+      setSelectedIds((prev) => prev.filter((x) => x !== factureKey(bt)));
       await load();
 
       alert("Export Acomba généré ✅");
@@ -646,7 +862,9 @@ export default function FacturationBT() {
       if (token) headers.Authorization = `Bearer ${token}`;
 
       const payload: any = {
-        bon_travail_id: pendingSendBt.id,
+        bon_travail_id: pendingSendBt.source_bt_id || pendingSendBt.id,
+        facturation_partie_id: pendingSendBt.facturation_partie_id || undefined,
+        facturation_partie: pendingSendBt.facturation_partie || undefined,
         email_facturation: to,
         client_contact_id: selectedContactId || undefined,
         client_contact_nom: String(sendToName ?? "").trim() || undefined,
@@ -669,22 +887,33 @@ export default function FacturationBT() {
 
       const sentAt = new Date().toISOString();
 
-      const { error: markErr } = await supabase
-        .from("bons_travail")
-        .update({
-          facture_email_sent_at: sentAt,
-          facture_email_sent_to: to,
-        })
-        .eq("id", pendingSendBt.id);
+      const markEmailQuery = pendingSendBt.facturation_partie_id
+        ? supabase
+            .from("bt_facturation_parties")
+            .update({
+              facture_email_sent_at: sentAt,
+              facture_email_sent_to: to,
+            })
+            .eq("id", pendingSendBt.facturation_partie_id)
+        : supabase
+            .from("bons_travail")
+            .update({
+              facture_email_sent_at: sentAt,
+              facture_email_sent_to: to,
+            })
+            .eq("id", pendingSendBt.id);
+
+      const { error: markErr } = await markEmailQuery;
 
       if (markErr) {
         setSendMsg(`❌ Envoi effectué, mais impossible d’enregistrer le statut: ${markErr.message}`);
         return;
       }
 
+      const pendingKey = factureKey(pendingSendBt);
       setRows((prev) =>
         prev.map((x) =>
-          x.id === pendingSendBt.id
+          factureKey(x) === pendingKey
             ? {
                 ...x,
                 facture_email_sent_at: sentAt,
@@ -993,17 +1222,24 @@ export default function FacturationBT() {
                 </tr>
               ) : tab === "a_facturer" ? (
                 aFacturerPaginated.map((r) => (
-                  <tr key={r.id}>
+                  <tr key={factureKey(r)}>
                     <td style={{ ...(styles.td as CSSProperties), textAlign: "center" }}>
                       <input
                         type="checkbox"
-                        checked={selectedIds.includes(r.id)}
-                        onChange={(e) => toggleRow(r.id, e.target.checked)}
+                        checked={selectedIds.includes(factureKey(r))}
+                        onChange={(e) => toggleRow(factureKey(r), e.target.checked)}
                       />
                     </td>
                     <td style={styles.td as CSSProperties}>{fmtDate(r.date_fermeture)}</td>
                     <td style={{ ...(styles.td as CSSProperties), fontWeight: 900 }}>{r.numero || "—"}</td>
-                    <td style={styles.td as CSSProperties}>{r.client_nom || "—"}</td>
+                    <td style={styles.td as CSSProperties}>
+                      <div>{r.client_nom || "—"}</div>
+                      {r.facturation_partie && (
+                        <div style={{ marginTop: 3, fontSize: 11, fontWeight: 900, color: r.facturation_partie === "fabricant" ? "#7c3aed" : "#2563eb" }}>
+                          {r.facturation_partie === "fabricant" ? `FABRICANT${r.fabricant ? ` • ${r.fabricant}` : ""}` : "CLIENT"}
+                        </div>
+                      )}
+                    </td>
                     <td style={styles.td as CSSProperties}>{money(r.total_pieces)}</td>
                     <td style={styles.td as CSSProperties}>{money(r.total_main_oeuvre)}</td>
                     <td style={styles.td as CSSProperties}>{money(r.total_frais_atelier)}</td>
@@ -1035,19 +1271,19 @@ export default function FacturationBT() {
                         <button
                           type="button"
                           style={styles.iconBtn as CSSProperties}
-                          onClick={() => setMenuOpenId((cur) => (cur === r.id ? null : r.id))}
+                          onClick={() => setMenuOpenId((cur) => (cur === factureKey(r) ? null : factureKey(r)))}
                         >
                           ...
                         </button>
 
-                        {menuOpenId === r.id && (
+                        {menuOpenId === factureKey(r) && (
                           <div style={styles.menu as CSSProperties}>
                             <button
                               type="button"
                               style={styles.menuItem as CSSProperties}
                               onClick={() => {
                                 setMenuOpenId(null);
-                                nav(`/bt/${r.id}`);
+                                nav(`/bt/${r.source_bt_id || r.id}`);
                               }}
                             >
                               Ouvrir
@@ -1079,10 +1315,17 @@ export default function FacturationBT() {
                 ))
               ) : (
                 facturesPaginated.map((r) => (
-                  <tr key={r.id}>
+                  <tr key={factureKey(r)}>
                     <td style={styles.td as CSSProperties}>{fmtDate(r.date_fermeture)}</td>
                     <td style={{ ...(styles.td as CSSProperties), fontWeight: 900 }}>{r.numero || "—"}</td>
-                    <td style={styles.td as CSSProperties}>{r.client_nom || "—"}</td>
+                    <td style={styles.td as CSSProperties}>
+                      <div>{r.client_nom || "—"}</div>
+                      {r.facturation_partie && (
+                        <div style={{ marginTop: 3, fontSize: 11, fontWeight: 900, color: r.facturation_partie === "fabricant" ? "#7c3aed" : "#2563eb" }}>
+                          {r.facturation_partie === "fabricant" ? `FABRICANT${r.fabricant ? ` • ${r.fabricant}` : ""}` : "CLIENT"}
+                        </div>
+                      )}
+                    </td>
                     <td
                       style={{ ...(styles.td as CSSProperties), fontWeight: 900 }}
                       title={`Sous-total: ${money(r.total_general)} | TPS: ${money(r.total_tps)} | TVQ: ${money(r.total_tvq)}`}
@@ -1104,7 +1347,7 @@ export default function FacturationBT() {
                       <button
                         type="button"
                         style={styles.btn as CSSProperties}
-                        onClick={() => nav(`/bt/${r.id}`)}
+                        onClick={() => nav(`/bt/${r.source_bt_id || r.id}`)}
                       >
                         Ouvrir
                       </button>

@@ -108,6 +108,7 @@ type Props = {
   btKm?: number | string | null;
   vehiculeNiv?: string | null;
   onDocumentGenerated?: () => void | Promise<void>;
+  onCentreServiceActivated?: () => void | Promise<void>;
 };
 
 const SMARTSHEET_LION_FORM_URL =
@@ -200,6 +201,7 @@ export default function BtCentreServiceCard({
   btKm,
   vehiculeNiv,
   onDocumentGenerated,
+  onCentreServiceActivated,
 }: Props) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -510,6 +512,13 @@ export default function BtCentreServiceCard({
     setError("");
 
     try {
+      const { error: promoteError } = await supabase.rpc(
+        "promote_bt_to_centre_service",
+        { p_bt_id: btId },
+      );
+
+      if (promoteError) throw promoteError;
+
       const payload = {
         bt_id: btId,
         fabricant,
@@ -564,6 +573,7 @@ export default function BtCentreServiceCard({
 
       if (saveError) throw saveError;
       setRowId(data.id);
+      await onCentreServiceActivated?.();
       return true;
     } catch (e: any) {
       setError(e?.message || "Erreur lors de l'enregistrement.");
