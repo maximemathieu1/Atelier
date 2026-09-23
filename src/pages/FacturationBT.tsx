@@ -460,8 +460,102 @@ export default function FacturationBT() {
       if (error) throw error;
 
       const rawRows = ((data as BtFacturationRow[]) ?? []);
+
+      // Certains anciens BT / BT fusionnés peuvent avoir perdu leur snapshot client
+      // même si l'unité est toujours correctement liée à un client.
+      // On répare ces BT avant de les afficher / exporter.
+      const unitIds = Array.from(
+        new Set(
+          rawRows
+            .filter((row) => (!row.client_id || !String(row.client_nom || "").trim()) && row.unite_id)
+            .map((row) => String(row.unite_id)),
+        ),
+      );
+
+      const unitClientById = new Map<string, string>();
+      if (unitIds.length) {
+        const { data: unitRows, error: unitError } = await supabase
+          .from("unites")
+          .select("id,client_id")
+          .in("id", unitIds);
+
+        if (unitError) throw unitError;
+
+        for (const u of unitRows ?? []) {
+          const uniteId = String((u as any).id ?? "").trim();
+          const clientId = String((u as any).client_id ?? "").trim();
+          if (uniteId && clientId) unitClientById.set(uniteId, clientId);
+        }
+      }
+
+      const clientIds = Array.from(
+        new Set(
+          rawRows
+            .map((row) => {
+              const direct = String(row.client_id ?? "").trim();
+              if (direct) return direct;
+              const uniteId = String(row.unite_id ?? "").trim();
+              return uniteId ? unitClientById.get(uniteId) || "" : "";
+            })
+            .filter(Boolean),
+        ),
+      );
+
+      const clientNameById = new Map<string, string>();
+      if (clientIds.length) {
+        const { data: clientRows, error: clientError } = await supabase
+          .from("clients")
+          .select("id,nom")
+          .in("id", clientIds);
+
+        if (clientError) throw clientError;
+
+        for (const c of clientRows ?? []) {
+          const clientId = String((c as any).id ?? "").trim();
+          const clientNom = String((c as any).nom ?? "").trim();
+          if (clientId && clientNom) clientNameById.set(clientId, clientNom);
+        }
+      }
+
+      const repairedRows = await Promise.all(
+        rawRows.map(async (row) => {
+          const currentClientId = String(row.client_id ?? "").trim();
+          const uniteId = String(row.unite_id ?? "").trim();
+          const resolvedClientId =
+            currentClientId || (uniteId ? unitClientById.get(uniteId) || "" : "");
+          const resolvedClientNom =
+            String(row.client_nom ?? "").trim() ||
+            (resolvedClientId ? clientNameById.get(resolvedClientId) || "" : "");
+
+          const needsRepair =
+            (!currentClientId && resolvedClientId) ||
+            (!String(row.client_nom ?? "").trim() && resolvedClientNom);
+
+          if (needsRepair) {
+            const repairPayload = {
+              client_id: resolvedClientId || null,
+              client_nom: resolvedClientNom || null,
+            };
+
+            const { error: repairError } = await supabase
+              .from("bons_travail")
+              .update(repairPayload)
+              .eq("id", row.id);
+
+            if (repairError) throw repairError;
+
+            return {
+              ...row,
+              ...repairPayload,
+            } as BtFacturationRow;
+          }
+
+          return row;
+        }),
+      );
+
       const recalculatedRows = await Promise.all(
-        rawRows.map((row) => recalcBtTotalsForFacturation(row)),
+        repairedRows.map((row) => recalcBtTotalsForFacturation(row)),
       );
 
       const expandedGroups = await Promise.all(
