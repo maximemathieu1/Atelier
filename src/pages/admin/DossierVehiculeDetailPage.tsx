@@ -583,6 +583,16 @@ export default function DossierVehiculeDetailPage() {
   const [overrideJustification, setOverrideJustification] = useState("");
   const [savingOverride, setSavingOverride] = useState(false);
   const [overrideHistoryOpen, setOverrideHistoryOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportPeriod, setExportPeriod] = useState<"24" | "36" | "all">("24");
+  const [exportSections, setExportSections] = useState({
+    vehicle: true,
+    pep: true,
+    bt: true,
+    documents: true,
+    overrides: true,
+  });
 
   const [unite, setUnite] = useState<UniteRow | null>(null);
   const [peps, setPeps] = useState<PepArchiveRow[]>([]);
@@ -1364,6 +1374,327 @@ export default function DossierVehiculeDetailPage() {
             style: styles.statusDanger,
           };
 
+  function exportCutoffDate() {
+    if (exportPeriod === "all") return null;
+    return addMonths(startOfToday(), -Number(exportPeriod));
+  }
+
+  function isInExportPeriod(value?: string | null) {
+    const cutoff = exportCutoffDate();
+    if (!cutoff) return true;
+    const date = parseLocalDate(value);
+    return Boolean(date && date.getTime() >= cutoff.getTime());
+  }
+
+  function toggleExportSection(key: keyof typeof exportSections) {
+    setExportSections((current) => ({ ...current, [key]: !current[key] }));
+  }
+
+  async function generateVehicleDossierPdf() {
+    if (!unite) return;
+    if (!Object.values(exportSections).some(Boolean)) {
+      alert("Sélectionne au moins une section à imprimer.");
+      return;
+    }
+
+    setExporting(true);
+
+    try {
+      const { jsPDF } = await import("jspdf");
+      const pdf = new jsPDF({
+        orientation: "portrait",
+        unit: "pt",
+        format: "letter",
+        compress: true,
+      });
+
+      const pageWidth = 612;
+      const pageHeight = 792;
+      const marginX = 42;
+      const topY = 46;
+      const bottomY = 748;
+      const contentWidth = pageWidth - marginX * 2;
+      let y = topY;
+
+      const addPage = () => {
+        pdf.addPage("letter", "portrait");
+        y = topY;
+      };
+
+      const ensureSpace = (height: number) => {
+        if (y + height > bottomY) addPage();
+      };
+
+      const addSectionTitle = (title: string) => {
+        ensureSpace(34);
+        y += 8;
+        pdf.setFillColor(243, 244, 246);
+        pdf.roundedRect(marginX, y, contentWidth, 24, 5, 5, "F");
+        pdf.setFont("helvetica", "bold");
+        pdf.setFontSize(12);
+        pdf.setTextColor(17, 24, 39);
+        pdf.text(title, marginX + 10, y + 16);
+        y += 34;
+      };
+
+      const addParagraph = (text: string, options?: { bold?: boolean; size?: number }) => {
+        pdf.setFont("helvetica", options?.bold ? "bold" : "normal");
+        pdf.setFontSize(options?.size ?? 9);
+        pdf.setTextColor(55, 65, 81);
+        const lines = pdf.splitTextToSize(text || "—", contentWidth);
+        const height = Math.max(14, lines.length * 12);
+        ensureSpace(height);
+        pdf.text(lines, marginX, y);
+        y += height;
+      };
+
+      const addKeyValue = (label: string, value: string) => {
+        ensureSpace(18);
+        pdf.setFontSize(9);
+        pdf.setFont("helvetica", "bold");
+        pdf.setTextColor(75, 85, 99);
+        pdf.text(label, marginX, y);
+        pdf.setFont("helvetica", "normal");
+        pdf.setTextColor(17, 24, 39);
+        const wrapped = pdf.splitTextToSize(value || "—", contentWidth - 150);
+        pdf.text(wrapped, marginX + 150, y);
+        y += Math.max(16, wrapped.length * 11);
+      };
+
+      const addSimpleTable = (
+        headers: string[],
+        rows: string[][],
+        widths: number[],
+      ) => {
+        const rowPad = 5;
+        const headerHeight = 22;
+
+        const drawHeader = () => {
+          ensureSpace(headerHeight + 4);
+          let x = marginX;
+          pdf.setFillColor(249, 250, 251);
+          pdf.rect(marginX, y, contentWidth, headerHeight, "F");
+          pdf.setDrawColor(229, 231, 235);
+          pdf.rect(marginX, y, contentWidth, headerHeight);
+          pdf.setFont("helvetica", "bold");
+          pdf.setFontSize(8);
+          pdf.setTextColor(55, 65, 81);
+          headers.forEach((header, index) => {
+            pdf.text(header, x + rowPad, y + 14);
+            x += widths[index];
+          });
+          y += headerHeight;
+        };
+
+        drawHeader();
+
+        if (rows.length === 0) {
+          ensureSpace(24);
+          pdf.setFont("helvetica", "italic");
+          pdf.setFontSize(8);
+          pdf.setTextColor(107, 114, 128);
+          pdf.text("Aucune donnée.", marginX + rowPad, y + 15);
+          y += 24;
+          return;
+        }
+
+        for (const row of rows) {
+          const wrapped = row.map((value, index) =>
+            pdf.splitTextToSize(value || "—", Math.max(20, widths[index] - rowPad * 2)),
+          );
+          const maxLines = Math.max(...wrapped.map((cell) => cell.length));
+          const rowHeight = Math.max(22, maxLines * 10 + rowPad * 2);
+
+          if (y + rowHeight > bottomY) {
+            addPage();
+            drawHeader();
+          }
+
+          let x = marginX;
+          pdf.setDrawColor(229, 231, 235);
+          pdf.rect(marginX, y, contentWidth, rowHeight);
+          pdf.setFont("helvetica", "normal");
+          pdf.setFontSize(8);
+          pdf.setTextColor(31, 41, 55);
+
+          wrapped.forEach((cell, index) => {
+            pdf.text(cell, x + rowPad, y + 13);
+            x += widths[index];
+          });
+
+          y += rowHeight;
+        }
+
+        y += 6;
+      };
+
+      // Page couverture / identification
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(20);
+      pdf.setTextColor(17, 24, 39);
+      pdf.text("DOSSIER DE CONTRÔLE — VÉHICULE", marginX, y);
+      y += 28;
+
+      pdf.setFontSize(16);
+      pdf.text(`Unité ${unitLabel(unite)}`, marginX, y);
+      y += 18;
+
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(9);
+      pdf.setTextColor(107, 114, 128);
+      pdf.text(
+        `Document généré le ${new Date().toLocaleDateString("fr-CA")} — Groupe Breton`,
+        marginX,
+        y,
+      );
+      y += 24;
+
+      if (exportSections.vehicle) {
+        addSectionTitle("1. Identification et état du dossier");
+        addKeyValue("Unité", unitLabel(unite));
+        addKeyValue("Plaque", plateLabel(unite));
+        addKeyValue("NIV", nivLabel(unite));
+        addKeyValue(
+          "Véhicule",
+          [unite.marque, unite.modele, unite.annee].filter(Boolean).join(" ") || "—",
+        );
+        addKeyValue("KM actuel", `${kmLabel(unite.km_actuel ?? unite.odometre)} km`);
+        addKeyValue("Mise en service", formatDate(unite.date_mise_en_service));
+        addKeyValue("PEP actuel", `${formatDate(applicablePep?.date_pep || applicablePep?.created_at)} — ${pepCurrentStatus.label}`);
+        addKeyValue("Vignette PEP", `${unite.pep_vignette_no || "—"} — ${pepVignetteStatus.label}`);
+        addKeyValue("Assurance", `${formatDate(lastAssurance?.date_expiration)} — ${assuranceStatus.label}`);
+        addKeyValue("Immatriculation", `${formatDate(lastImmatriculation?.date_expiration)} — ${immatStatus.label}`);
+        addKeyValue("CVM", `${formatDate(lastCvm?.date_expiration)} — ${cvmStatus.label}`);
+        addKeyValue(
+          "Historique PEP/CVM",
+          unresolvedCoverageGaps.length > 0
+            ? `${unresolvedCoverageGaps.length} période(s) non couverte(s) — ${totalUnresolvedGapDays} jours au total`
+            : "Couverture conforme selon les données au dossier",
+        );
+      }
+
+      if (exportSections.pep) {
+        addSectionTitle("2. Historique PEP / CVM");
+        const pepRows = peps
+          .filter((pep) => isInExportPeriod(pep.date_pep || pep.created_at))
+          .map((pep) => {
+            const linkedBt = findLinkedBtForPep(pep, bts);
+            return [
+              formatDate(pep.date_pep || pep.created_at),
+              kmLabel(pep.odometre),
+              pep.num_mecano || "—",
+              isImportedPep(pep) ? "Importé" : "Atelier",
+              linkedBt?.numero || "—",
+            ];
+          });
+
+        addSimpleTable(
+          ["Date", "KM", "Mécano", "Provenance", "BT lié"],
+          pepRows,
+          [88, 88, 110, 110, 132],
+        );
+
+        const cvmRows = cvmDocuments.map((doc) => [
+          formatDate(doc.created_at),
+          formatDate(doc.date_expiration),
+          doc.nom_fichier,
+        ]);
+        addParagraph("CVM au dossier", { bold: true, size: 10 });
+        addSimpleTable(["Ajouté", "Expiration", "Fichier"], cvmRows, [100, 110, 318]);
+      }
+
+      if (exportSections.bt) {
+        addSectionTitle("3. Bons de travail");
+        const btRows = bts
+          .filter((bt) => isInExportPeriod(bt.date_fermeture || bt.date_ouverture || bt.created_at))
+          .map((bt) => [
+            bt.numero || "—",
+            formatDate(bt.date_ouverture || bt.created_at),
+            formatDate(bt.date_fermeture),
+            kmLabel(bt.km),
+            bt.statut || "—",
+            moneyLabel(bt.total_final ?? bt.total),
+          ]);
+        addSimpleTable(
+          ["BT", "Ouverture", "Fermeture", "KM", "Statut", "Total"],
+          btRows,
+          [70, 82, 82, 76, 105, 113],
+        );
+      }
+
+      if (exportSections.documents) {
+        addSectionTitle("4. Documents administratifs");
+        const documentRows = adminDocuments.map((doc) => [
+          documentTypeLabel(doc.type_document),
+          doc.nom_fichier,
+          formatDate(doc.date_expiration),
+          formatDate(doc.created_at),
+        ]);
+        addSimpleTable(
+          ["Type", "Fichier", "Expiration", "Ajouté"],
+          documentRows,
+          [115, 223, 95, 95],
+        );
+      }
+
+      if (exportSections.overrides) {
+        addSectionTitle("5. Écarts PEP acceptés / dérogations");
+        const overrideRows = complianceOverrides
+          .filter((row) => isInExportPeriod(row.created_at || row.gap_end))
+          .map((row) => [
+            `${formatDate(row.gap_start)} au ${formatDate(row.gap_end)}`,
+            `${row.gap_days} j`,
+            row.justification || "—",
+            formatDate(row.created_at),
+          ]);
+        addSimpleTable(
+          ["Période", "Écart", "Justification", "Accepté le"],
+          overrideRows,
+          [125, 55, 253, 95],
+        );
+      }
+
+      const periodText =
+        exportPeriod === "all" ? "Historique complet" : `${exportPeriod} derniers mois`;
+      addSectionTitle("Notes de génération");
+      addParagraph(
+        `Période appliquée aux historiques PEP, bons de travail et écarts : ${periodText}. Les documents administratifs présents au dossier sont tous listés afin de conserver les pièces courantes pertinentes au contrôle.`
+      );
+      addParagraph(
+        "Cette première version produit le dossier de synthèse imprimable. Les fichiers justificatifs originaux (PDF PEP, CVM, assurance, immatriculation et pièces jointes BT) seront intégrés à la suite du document dans l'étape suivante."
+      );
+
+      const pageCount = pdf.getNumberOfPages();
+      for (let page = 1; page <= pageCount; page += 1) {
+        pdf.setPage(page);
+        pdf.setDrawColor(229, 231, 235);
+        pdf.line(marginX, 762, pageWidth - marginX, 762);
+        pdf.setFont("helvetica", "normal");
+        pdf.setFontSize(8);
+        pdf.setTextColor(107, 114, 128);
+        pdf.text(`Dossier véhicule — ${unitLabel(unite)}`, marginX, 778);
+        pdf.text(`Page ${page} / ${pageCount}`, pageWidth - marginX, 778, { align: "right" });
+      }
+
+      const blob = pdf.output("blob");
+      const url = URL.createObjectURL(blob);
+      const opened = window.open(url, "_blank", "noopener,noreferrer");
+
+      if (!opened) {
+        const safeUnit = unitLabel(unite).replace(/[^a-zA-Z0-9_-]+/g, "_");
+        pdf.save(`Dossier_controle_${safeUnit}_${new Date().toISOString().slice(0, 10)}.pdf`);
+      }
+
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      setExportOpen(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Erreur inconnue";
+      console.error("Erreur export dossier véhicule :", error);
+      alert(`Impossible de générer le dossier : ${message}`);
+    } finally {
+      setExporting(false);
+    }
+  }
 
   return (
     <div style={styles.page}>
@@ -1372,11 +1703,21 @@ export default function DossierVehiculeDetailPage() {
       </button>
 
       <div style={styles.headerCard}>
-        <div>
-          <h1 style={styles.title}>Dossier véhicule — {unitLabel(unite)}</h1>
-          <p style={styles.subtitle}>
-            Consultation officielle : PEP / CVM, BT, rondes Cybercat et documents administratifs.
-          </p>
+        <div style={styles.headerTop}>
+          <div>
+            <h1 style={styles.title}>Dossier véhicule — {unitLabel(unite)}</h1>
+            <p style={styles.subtitle}>
+              Consultation officielle : PEP / CVM, BT, rondes Cybercat et documents administratifs.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            style={styles.exportBtn}
+            onClick={() => setExportOpen(true)}
+          >
+            🖨️ Imprimer le dossier complet
+          </button>
         </div>
 
         <div style={styles.headerGrid}>
@@ -1828,6 +2169,106 @@ export default function DossierVehiculeDetailPage() {
             onOpen={openVehicleDocument}
             onDelete={deleteDocument}
           />
+        </div>
+      )}
+
+      {exportOpen && (
+        <div
+          style={styles.modalOverlay}
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget && !exporting) setExportOpen(false);
+          }}
+        >
+          <div style={{ ...styles.modalCard, width: "min(720px, 94vw)", maxHeight: "88vh" }}>
+            <div style={styles.modalHeader}>
+              <div>
+                <h2 style={styles.modalTitle}>Imprimer le dossier complet</h2>
+                <p style={styles.modalSubtitle}>
+                  Prépare un dossier réglementaire unique pour l’unité {unitLabel(unite)}.
+                </p>
+              </div>
+              <button
+                type="button"
+                style={styles.modalCloseBtn}
+                onClick={() => setExportOpen(false)}
+                disabled={exporting}
+                aria-label="Fermer"
+              >
+                ×
+              </button>
+            </div>
+
+            <div style={styles.modalBody}>
+              <div style={styles.exportNotice}>
+                Les sections sont cochées par défaut. La période s’applique aux historiques PEP, BT et écarts; les documents administratifs courants demeurent inclus.
+              </div>
+
+              <div style={{ height: 16 }} />
+
+              <div style={styles.exportPeriodRow}>
+                <div>
+                  <div style={styles.exportSectionTitle}>Période du dossier</div>
+                  <div style={styles.muted}>24 mois est recommandé pour un contrôle courant.</div>
+                </div>
+                <select
+                  value={exportPeriod}
+                  onChange={(e) => setExportPeriod(e.target.value as "24" | "36" | "all")}
+                  style={{ ...styles.select, minWidth: 180 }}
+                  disabled={exporting}
+                >
+                  <option value="24">24 derniers mois</option>
+                  <option value="36">36 derniers mois</option>
+                  <option value="all">Historique complet</option>
+                </select>
+              </div>
+
+              <div style={{ height: 18 }} />
+
+              <div style={styles.exportSectionTitle}>Sections à inclure</div>
+              <div style={styles.exportGrid}>
+                {[
+                  ["vehicle", "Fiche véhicule et état du dossier"],
+                  ["pep", "Historique PEP / CVM"],
+                  ["bt", "Bons de travail"],
+                  ["documents", "Documents administratifs"],
+                  ["overrides", "Écarts PEP acceptés / dérogations"],
+                ].map(([key, label]) => (
+                  <label key={key} style={styles.exportCheckRow}>
+                    <input
+                      type="checkbox"
+                      checked={exportSections[key as keyof typeof exportSections]}
+                      onChange={() => toggleExportSection(key as keyof typeof exportSections)}
+                      disabled={exporting}
+                    />
+                    <span>{label}</span>
+                  </label>
+                ))}
+              </div>
+
+              <div style={styles.exportComingSoon}>
+                <strong>Rondes de sécurité :</strong> elles seront ajoutées automatiquement au dossier lorsque l’intégration Samsara DVIR sera reliée à cette page.
+              </div>
+            </div>
+
+            <div style={styles.modalFooter}>
+              <button
+                type="button"
+                style={styles.secondaryBtn}
+                onClick={() => setExportOpen(false)}
+                disabled={exporting}
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                style={styles.primaryBtn}
+                onClick={() => void generateVehicleDossierPdf()}
+                disabled={exporting || !Object.values(exportSections).some(Boolean)}
+              >
+                {exporting ? "Préparation du PDF…" : "Préparer l’impression"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -2361,6 +2802,24 @@ const styles: Record<string, React.CSSProperties> = {
     marginBottom: 14,
     boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
   },
+  headerTop: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 16,
+    flexWrap: "wrap",
+  },
+  exportBtn: {
+    border: "1px solid #111827",
+    background: "#111827",
+    color: "#fff",
+    borderRadius: 10,
+    padding: "10px 16px",
+    minHeight: 40,
+    cursor: "pointer",
+    fontWeight: 800,
+    whiteSpace: "nowrap",
+  },
   title: {
     margin: 0,
     fontSize: 26,
@@ -2632,6 +3091,57 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 12,
     marginBottom: 12,
     flexWrap: "wrap",
+  },
+  exportNotice: {
+    padding: 12,
+    border: "1px solid #bfdbfe",
+    borderRadius: 10,
+    background: "#eff6ff",
+    color: "#1e40af",
+    fontSize: 13,
+    fontWeight: 650,
+  },
+  exportPeriodRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 16,
+    flexWrap: "wrap",
+  },
+  exportSectionTitle: {
+    fontSize: 14,
+    fontWeight: 800,
+    color: "#111827",
+    marginBottom: 6,
+  },
+  exportGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+    gap: 10,
+  },
+  exportCheckRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 9,
+    minHeight: 44,
+    padding: "10px 12px",
+    border: "1px solid #e5e7eb",
+    borderRadius: 10,
+    background: "#fff",
+    color: "#374151",
+    fontSize: 13,
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+  exportComingSoon: {
+    marginTop: 16,
+    padding: 11,
+    border: "1px solid #e5e7eb",
+    borderRadius: 10,
+    background: "#f9fafb",
+    color: "#4b5563",
+    fontSize: 12,
+    lineHeight: 1.5,
   },
   modalOverlay: {
     position: "fixed",
