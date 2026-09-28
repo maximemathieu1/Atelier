@@ -2129,9 +2129,12 @@ export default function DossierVehiculeDetailPage() {
       }
 
       const finalBytes = await mergedPdf.save();
-      const finalBlob = new Blob([finalBytes], {
-        type: "application/pdf",
-      });
+      const finalBuffer = new ArrayBuffer(finalBytes.byteLength);
+new Uint8Array(finalBuffer).set(finalBytes);
+
+const finalBlob = new Blob([finalBuffer], {
+  type: "application/pdf",
+});
 
       const url = URL.createObjectURL(finalBlob);
       const opened = window.open(url, "_blank", "noopener,noreferrer");
