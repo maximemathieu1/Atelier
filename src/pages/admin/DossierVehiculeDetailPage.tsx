@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "../../lib/supabaseClient";
+import btPrintTemplate from "../../templates/btPrintTemplate";
 
 const BUCKET_NAME = "vehicle-documents";
 
@@ -53,6 +54,16 @@ type BtRow = {
   km?: number | string | null;
   total_final?: number | string | null;
   total?: number | string | null;
+  bon_commande?: string | null;
+  client_id?: string | null;
+  client_nom?: string | null;
+  taux_horaire_snapshot?: number | string | null;
+  marge_pieces_snapshot?: number | string | null;
+  frais_atelier_pct_snapshot?: number | string | null;
+  total_pieces?: number | string | null;
+  total_main_oeuvre?: number | string | null;
+  total_frais_atelier?: number | string | null;
+  total_general?: number | string | null;
 };
 
 type VehicleDocumentRow = {
@@ -1654,49 +1665,420 @@ export default function DossierVehiculeDetailPage() {
         }
       }
 
-      if (exportSections.bt && selectedBts.length > 0) {
-        const selectedBtIds = selectedBts.map((bt) => bt.id);
-        const { data: btDocsData, error: btDocsError } = await supabase
-          .from("bt_documents")
-          .select("*")
-          .in("bt_id", selectedBtIds);
+      const escapeBtHtml = (value: unknown) =>
+        String(value ?? "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;");
 
-        if (btDocsError) {
-          appendixWarnings.push(
-            `Pièces jointes BT : impossible de charger la liste (${btDocsError.message}).`,
-          );
-        } else {
-          const btDocs = (btDocsData ?? []) as Array<{
-            id?: string;
-            bt_id?: string | null;
-            type?: string | null;
-            nom_fichier?: string | null;
-            storage_path?: string | null;
-            mime_type?: string | null;
-          }>;
+      const formatBtMoney = (value: unknown) => {
+        const number = Number(value || 0);
+        return new Intl.NumberFormat("fr-CA", {
+          style: "currency",
+          currency: "CAD",
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        }).format(Number.isFinite(number) ? number : 0);
+      };
 
-          for (const doc of btDocs) {
-            if (!doc.storage_path) continue;
-            if (String(doc.type || "").toLowerCase() === "pep") continue;
+      const formatBtDateTime = (value?: string | null) => {
+        if (!value) return "—";
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return "—";
+        return new Intl.DateTimeFormat("fr-CA", {
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+        }).format(date);
+      };
 
-            const bt = selectedBts.find((row) => row.id === doc.bt_id);
-            const label = `${bt?.numero || "BT"} — ${
-              doc.nom_fichier || "Pièce jointe"
-            }`;
+      const formatBtDate = (value?: string | null) => {
+        if (!value) return "—";
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return "—";
+        return new Intl.DateTimeFormat("fr-CA", {
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+        }).format(date);
+      };
 
-            const blob = await downloadStorageBlob(
-              "bt-documents",
-              doc.storage_path,
-              label,
+      const formatBtHours = (value: number) =>
+        new Intl.NumberFormat("fr-CA", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        }).format(Number(value || 0));
+
+      const renderBtHtmlToPdfBlob = async (html: string) => {
+        const { default: html2canvas } = await import("html2canvas");
+
+        const iframe = document.createElement("iframe");
+        iframe.style.position = "fixed";
+        iframe.style.left = "-10000px";
+        iframe.style.top = "0";
+        iframe.style.width = "816px";
+        iframe.style.height = "1056px";
+        iframe.style.border = "0";
+        iframe.style.opacity = "0";
+        iframe.setAttribute("aria-hidden", "true");
+        document.body.appendChild(iframe);
+
+        try {
+          const iframeDoc = iframe.contentDocument;
+          if (!iframeDoc) throw new Error("Impossible de préparer le BT.");
+
+          iframeDoc.open();
+          iframeDoc.write(html);
+          iframeDoc.close();
+
+          await new Promise<void>((resolve) => {
+            iframe.onload = () => resolve();
+            window.setTimeout(resolve, 600);
+          });
+
+          const fonts = (iframeDoc as any).fonts;
+          if (fonts?.ready) {
+            await Promise.race([
+              fonts.ready,
+              new Promise((resolve) => window.setTimeout(resolve, 1500)),
+            ]);
+          }
+
+          await new Promise((resolve) => window.setTimeout(resolve, 200));
+
+          const source =
+            (iframeDoc.querySelector(".page") as HTMLElement | null) ||
+            iframeDoc.body;
+
+          source.style.width = "816px";
+          source.style.background = "#ffffff";
+
+          const canvas = await html2canvas(source, {
+            scale: 2,
+            useCORS: true,
+            allowTaint: true,
+            backgroundColor: "#ffffff",
+            logging: false,
+            width: 816,
+            height: Math.max(1056, source.scrollHeight),
+            windowWidth: 816,
+            windowHeight: Math.max(1056, source.scrollHeight),
+          });
+
+          const btPdf = new jsPDF({
+            orientation: "portrait",
+            unit: "pt",
+            format: "letter",
+            compress: true,
+          });
+
+          const cssPageHeight = 1056;
+          const scale = canvas.width / 816;
+          const sliceHeight = Math.round(cssPageHeight * scale);
+          let offsetY = 0;
+          let pageIndex = 0;
+
+          while (offsetY < canvas.height) {
+            const currentHeight = Math.min(sliceHeight, canvas.height - offsetY);
+            const slice = document.createElement("canvas");
+            slice.width = canvas.width;
+            slice.height = currentHeight;
+
+            const ctx = slice.getContext("2d");
+            if (!ctx) throw new Error("Impossible de générer une page BT.");
+            ctx.fillStyle = "#ffffff";
+            ctx.fillRect(0, 0, slice.width, slice.height);
+            ctx.drawImage(
+              canvas,
+              0,
+              offsetY,
+              canvas.width,
+              currentHeight,
+              0,
+              0,
+              canvas.width,
+              currentHeight,
             );
 
-            if (blob) {
-              appendixItems.push({
-                label,
-                category: "bt",
-                blob,
-              });
+            if (pageIndex > 0) btPdf.addPage("letter", "portrait");
+
+            const imgData = slice.toDataURL("image/jpeg", 0.96);
+            const margin = 18;
+            const renderWidth = 612 - margin * 2;
+            const renderHeight = (currentHeight / canvas.width) * renderWidth;
+            btPdf.addImage(
+              imgData,
+              "JPEG",
+              margin,
+              margin,
+              renderWidth,
+              Math.min(renderHeight, 792 - margin * 2),
+            );
+
+            offsetY += currentHeight;
+            pageIndex += 1;
+          }
+
+          return btPdf.output("blob");
+        } finally {
+          iframe.remove();
+        }
+      };
+
+      if (exportSections.bt && selectedBts.length > 0) {
+        const selectedBtIds = selectedBts.map((bt) => bt.id);
+
+        const [tasksRes, piecesRes, labourRes, punchesRes] = await Promise.all([
+          supabase
+            .from("bt_taches_effectuees")
+            .select("*")
+            .in("bt_id", selectedBtIds)
+            .order("date_effectuee", { ascending: true }),
+          supabase
+            .from("bt_pieces")
+            .select("*")
+            .in("bt_id", selectedBtIds)
+            .order("created_at", { ascending: true }),
+          supabase
+            .from("bt_main_oeuvre")
+            .select("*")
+            .in("bt_id", selectedBtIds)
+            .order("created_at", { ascending: true }),
+          supabase
+            .from("bt_pointages")
+            .select("*")
+            .in("bt_id", selectedBtIds)
+            .order("started_at", { ascending: true }),
+        ]);
+
+        if (tasksRes.error) throw tasksRes.error;
+        if (piecesRes.error) throw piecesRes.error;
+        if (labourRes.error) throw labourRes.error;
+        if (punchesRes.error) throw punchesRes.error;
+
+        const clientIds = Array.from(
+          new Set(
+            selectedBts
+              .map((bt) => bt.client_id)
+              .filter((value): value is string => Boolean(value)),
+          ),
+        );
+
+        const [clientsRes, configsRes] = clientIds.length
+          ? await Promise.all([
+              supabase.from("clients").select("id,nom").in("id", clientIds),
+              supabase
+                .from("client_configuration")
+                .select("client_id,taux_horaire,marge_pieces,frais_atelier_pourcentage")
+                .in("client_id", clientIds),
+            ])
+          : [{ data: [], error: null }, { data: [], error: null }];
+
+        if (clientsRes.error) throw clientsRes.error;
+        if (configsRes.error) throw configsRes.error;
+
+        const clientNameById = new Map<string, string>(
+          ((clientsRes.data ?? []) as Array<{ id: string; nom?: string | null }>).map(
+            (row) => [row.id, row.nom || "—"],
+          ),
+        );
+        const configByClientId = new Map<string, any>(
+          ((configsRes.data ?? []) as Array<Record<string, any>>).map((row) => [
+            String(row.client_id),
+            row,
+          ]),
+        );
+
+        const tasks = (tasksRes.data ?? []) as Array<Record<string, any>>;
+        const pieces = (piecesRes.data ?? []) as Array<Record<string, any>>;
+        const labour = (labourRes.data ?? []) as Array<Record<string, any>>;
+        const punches = (punchesRes.data ?? []) as Array<Record<string, any>>;
+
+        for (const bt of selectedBts) {
+          const btTasks = tasks.filter((row) => row.bt_id === bt.id);
+          const btPieces = pieces.filter((row) => row.bt_id === bt.id);
+          const btLabour = labour.filter((row) => row.bt_id === bt.id);
+          const btPunches = punches.filter((row) => row.bt_id === bt.id);
+          const config = bt.client_id ? configByClientId.get(bt.client_id) : null;
+
+          const isOpenPricing = ["ouvert", "a_faire", "en_cours"].includes(
+            String(bt.statut || ""),
+          );
+          const marginPct = Number(
+            isOpenPricing
+              ? config?.marge_pieces ?? 0
+              : bt.marge_pieces_snapshot ?? config?.marge_pieces ?? 0,
+          );
+          const hourlyRate = Number(
+            isOpenPricing
+              ? config?.taux_horaire ?? 0
+              : bt.taux_horaire_snapshot ?? config?.taux_horaire ?? 0,
+          );
+          const shopPct = Number(
+            isOpenPricing
+              ? config?.frais_atelier_pourcentage ?? 0
+              : bt.frais_atelier_pct_snapshot ??
+                  config?.frais_atelier_pourcentage ??
+                  0,
+          );
+
+          const tasksHtml =
+            btTasks.length > 0
+              ? btTasks
+                  .map(
+                    (task) => `
+                      <tr>
+                        <td>${escapeBtHtml(task.titre || "—")}</td>
+                        <td class="center">${escapeBtHtml(
+                          formatBtDate(task.date_effectuee),
+                        )}</td>
+                      </tr>`,
+                  )
+                  .join("")
+              : `
+                  <tr>
+                    <td colspan="2" style="text-align:center;color:#666;">Aucun travail effectué</td>
+                  </tr>`;
+
+          const getPieceUnitPrice = (piece: Record<string, any>) => {
+            if (!isOpenPricing && piece.prix_facture_unitaire_snapshot != null) {
+              return Number(piece.prix_facture_unitaire_snapshot || 0);
             }
+            const base = Number(piece.prix_unitaire || 0);
+            const rowMargin =
+              !isOpenPricing && piece.marge_pct_snapshot != null
+                ? Number(piece.marge_pct_snapshot || 0)
+                : marginPct;
+            return base * (1 + rowMargin / 100);
+          };
+
+          const getPieceTotal = (piece: Record<string, any>) => {
+            if (!isOpenPricing && piece.total_facture_snapshot != null) {
+              return Number(piece.total_facture_snapshot || 0);
+            }
+            return Number(piece.quantite || 0) * getPieceUnitPrice(piece);
+          };
+
+          const piecesHtml =
+            btPieces.length > 0
+              ? btPieces
+                  .map((piece) => {
+                    const sku = piece.sku || piece.code || "—";
+                    const description =
+                      piece.description || piece.nom || piece.titre || "—";
+                    const quantity = Number(piece.quantite || 0);
+                    const unitName = piece.unite || piece.unite_mesure || "";
+                    return `
+                      <tr>
+                        <td>${escapeBtHtml(sku)}</td>
+                        <td>${escapeBtHtml(description)}</td>
+                        <td class="center">${quantity}</td>
+                        <td>${escapeBtHtml(unitName)}</td>
+                        <td class="amount">${formatBtMoney(
+                          getPieceUnitPrice(piece),
+                        )}</td>
+                        <td class="amount">${formatBtMoney(
+                          getPieceTotal(piece),
+                        )}</td>
+                      </tr>`;
+                  })
+                  .join("")
+              : `
+                  <tr>
+                    <td colspan="6" style="text-align:center;color:#666;">Aucune pièce</td>
+                  </tr>`;
+
+          const pointageMinutes = btPunches.reduce((sum, row) => {
+            if (row.duration_minutes != null) {
+              return sum + Number(row.duration_minutes || 0);
+            }
+            const start = new Date(row.started_at).getTime();
+            const end = new Date(row.ended_at || new Date().toISOString()).getTime();
+            if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) {
+              return sum;
+            }
+            return sum + Math.round((end - start) / 60000);
+          }, 0);
+          const pointageHours = pointageMinutes / 60;
+          const manualHours = btLabour.reduce(
+            (sum, row) => sum + Number(row.heures || 0),
+            0,
+          );
+          const totalHours = pointageHours + manualHours;
+
+          const totalPieces = btPieces.reduce(
+            (sum, piece) => sum + getPieceTotal(piece),
+            0,
+          );
+          const pointageLabourTotal = pointageHours * hourlyRate;
+          const manualLabourTotal = btLabour.reduce((sum, row) => {
+            const rate = isOpenPricing
+              ? hourlyRate
+              : Number(row.taux_horaire ?? hourlyRate ?? 0);
+            return sum + Number(row.heures || 0) * rate;
+          }, 0);
+          const totalLabour = pointageLabourTotal + manualLabourTotal;
+          const totalShop = totalLabour * (shopPct / 100);
+          const totalGeneral = totalPieces + totalLabour + totalShop;
+
+          const purchaseOrderRow = bt.bon_commande?.trim()
+            ? `
+                <tr>
+                  <td class="k">Bon de commande</td>
+                  <td class="v">${escapeBtHtml(bt.bon_commande)}</td>
+                </tr>`
+            : "";
+
+          const clientName =
+            bt.client_nom?.trim() ||
+            (bt.client_id ? clientNameById.get(bt.client_id) : null) ||
+            "—";
+
+          const btHtml = btPrintTemplate
+            .replace(/{{entreprise_nom_affiche}}/g, "Atelier")
+            .replace(/{{entreprise_adresse_l1}}/g, "")
+            .replace(/{{entreprise_ville}}/g, "")
+            .replace(/{{entreprise_province}}/g, "")
+            .replace(/{{entreprise_code_postal}}/g, "")
+            .replace(/{{bt_numero}}/g, escapeBtHtml(bt.numero || "—"))
+            .replace(/{{date_ouverture}}/g, formatBtDateTime(bt.date_ouverture))
+            .replace(/{{date_fermeture}}/g, formatBtDateTime(bt.date_fermeture))
+            .replace(/{{bt_statut}}/g, "")
+            .replace(/{{bon_commande_row}}/g, purchaseOrderRow)
+            .replace(/{{client_nom}}/g, escapeBtHtml(clientName))
+            .replace(/{{client_adresse_l1}}/g, "")
+            .replace(/{{client_ville}}/g, "")
+            .replace(/{{client_telephone}}/g, "")
+            .replace(/{{unite_no}}/g, escapeBtHtml(unitLabel(unite)))
+            .replace(/{{unite_plaque}}/g, escapeBtHtml(plateLabel(unite)))
+            .replace(/{{unite_niv}}/g, escapeBtHtml(nivLabel(unite)))
+            .replace(/{{bt_km}}/g, bt.km != null ? String(bt.km) : "—")
+            .replace(/{{taches_effectuees_rows}}/g, tasksHtml)
+            // Dossier contrôleur : aucune tâche ouverte / à faire.
+            .replace(/{{taches_ouvertes_section}}/g, "")
+            .replace(/{{pieces_rows}}/g, piecesHtml)
+            .replace(/{{total_pieces}}/g, formatBtMoney(totalPieces))
+            .replace(/{{total_heures}}/g, formatBtHours(totalHours))
+            .replace(/{{total_main_oeuvre}}/g, formatBtMoney(totalLabour))
+            .replace(/{{total_frais_atelier}}/g, formatBtMoney(totalShop))
+            .replace(/{{total_general}}/g, formatBtMoney(totalGeneral));
+
+          try {
+            const blob = await renderBtHtmlToPdfBlob(btHtml);
+            appendixItems.push({
+              label: `Bon de travail ${bt.numero || bt.id}`,
+              category: "bt",
+              blob,
+            });
+          } catch (error) {
+            appendixWarnings.push(
+              `${bt.numero || "BT"} : impossible de générer la copie du bon de travail.`,
+            );
+            console.error("Erreur génération copie BT :", error);
           }
         }
       }
@@ -2009,7 +2391,7 @@ export default function DossierVehiculeDetailPage() {
         };
 
         addParagraph(
-          `Documents ajoutés à la suite du sommaire : ${counts.pep} PEP, ${counts.cvm} CVM, ${counts.document} document(s) administratif(s) et ${counts.bt} pièce(s) jointe(s) de BT.`,
+          `Documents ajoutés à la suite du sommaire : ${counts.pep} PEP, ${counts.cvm} CVM, ${counts.document} document(s) administratif(s) et ${counts.bt} bon(s) de travail complet(s).`,
         );
 
         if (appendixWarnings.length > 0) {
@@ -2049,7 +2431,7 @@ export default function DossierVehiculeDetailPage() {
         summaryPdf,
         summaryPdf.getPageIndices(),
       );
-      summaryPages.forEach((page) => mergedPdf.addPage(page));
+      summaryPages.forEach((page: import("pdf-lib").PDFPage) => mergedPdf.addPage(page));
 
       const appendPdfBlob = async (blob: Blob, label: string) => {
         try {
@@ -2060,7 +2442,7 @@ export default function DossierVehiculeDetailPage() {
             source,
             source.getPageIndices(),
           );
-          pages.forEach((page) => mergedPdf.addPage(page));
+          pages.forEach((page: import("pdf-lib").PDFPage) => mergedPdf.addPage(page));
           return true;
         } catch (error) {
           appendixWarnings.push(`${label} : PDF illisible ou protégé.`);
@@ -2130,11 +2512,10 @@ export default function DossierVehiculeDetailPage() {
 
       const finalBytes = await mergedPdf.save();
       const finalBuffer = new ArrayBuffer(finalBytes.byteLength);
-new Uint8Array(finalBuffer).set(finalBytes);
-
-const finalBlob = new Blob([finalBuffer], {
-  type: "application/pdf",
-});
+      new Uint8Array(finalBuffer).set(finalBytes);
+      const finalBlob = new Blob([finalBuffer], {
+        type: "application/pdf",
+      });
 
       const url = URL.createObjectURL(finalBlob);
       const opened = window.open(url, "_blank", "noopener,noreferrer");
@@ -2706,7 +3087,7 @@ const finalBlob = new Blob([finalBuffer], {
                 {[
                   ["vehicle", "Fiche véhicule et état du dossier"],
                   ["pep", "Historique PEP / CVM"],
-                  ["bt", "Bons de travail"],
+                  ["bt", "Bons de travail complets — tâches effectuées seulement"],
                   ["documents", "Documents administratifs"],
                   ["overrides", "Écarts PEP acceptés / dérogations"],
                 ].map(([key, label]) => (
