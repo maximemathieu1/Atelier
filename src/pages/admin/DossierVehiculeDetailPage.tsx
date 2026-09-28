@@ -131,7 +131,8 @@ function moneyLabel(value?: number | string | null) {
 
 function formatDate(value?: string | null) {
   if (!value) return "—";
-  const d = new Date(`${value}T00:00:00`);
+  const clean = String(value).slice(0, 10);
+  const d = new Date(`${clean}T12:00:00`);
   if (Number.isNaN(d.getTime())) return "—";
   return d.toLocaleDateString("fr-CA");
 }
@@ -1400,7 +1401,306 @@ export default function DossierVehiculeDetailPage() {
     setExporting(true);
 
     try {
-      const { jsPDF } = await import("jspdf");
+      const [{ jsPDF }, { PDFDocument }] = await Promise.all([
+        import("jspdf"),
+        import("pdf-lib"),
+      ]);
+
+      const selectedPeps = peps.filter((pep) =>
+        isInExportPeriod(pep.date_pep || pep.created_at),
+      );
+      const selectedBts = bts.filter((bt) =>
+        isInExportPeriod(bt.date_fermeture || bt.date_ouverture || bt.created_at),
+      );
+      const selectedOverrides = complianceOverrides.filter((row) =>
+        isInExportPeriod(row.created_at || row.gap_end),
+      );
+
+      const appendixWarnings: string[] = [];
+
+      type AppendixItem = {
+        label: string;
+        category: "pep" | "cvm" | "document" | "bt";
+        blob: Blob;
+      };
+
+      const appendixItems: AppendixItem[] = [];
+
+      const downloadStorageBlob = async (
+        bucket: string,
+        path: string,
+        label: string,
+      ) => {
+        const cleanPath = String(path || "").trim();
+        if (!cleanPath) {
+          appendixWarnings.push(`${label} : chemin de fichier manquant.`);
+          return null;
+        }
+
+        const { data, error } = await supabase.storage
+          .from(bucket)
+          .download(cleanPath);
+
+        if (error || !data) {
+          appendixWarnings.push(
+            `${label} : impossible de télécharger le fichier${
+              error?.message ? ` (${error.message})` : ""
+            }.`,
+          );
+          return null;
+        }
+
+        return data;
+      };
+
+      const renderPepHtmlToPdfBlob = async (html: string) => {
+        const { default: html2canvas } = await import("html2canvas");
+
+        const iframe = document.createElement("iframe");
+        iframe.style.position = "fixed";
+        iframe.style.left = "-10000px";
+        iframe.style.top = "0";
+        iframe.style.width = "816px";
+        iframe.style.height = "1056px";
+        iframe.style.border = "0";
+        iframe.style.opacity = "0";
+        iframe.setAttribute("aria-hidden", "true");
+        document.body.appendChild(iframe);
+
+        try {
+          const doc = iframe.contentDocument;
+          if (!doc) throw new Error("Impossible de préparer le PEP.");
+
+          doc.open();
+          doc.write(html);
+          doc.close();
+
+          await new Promise<void>((resolve) => {
+            iframe.onload = () => resolve();
+            window.setTimeout(resolve, 600);
+          });
+
+          const fonts = (doc as any).fonts;
+          if (fonts?.ready) {
+            await Promise.race([
+              fonts.ready,
+              new Promise((resolve) => window.setTimeout(resolve, 1500)),
+            ]);
+          }
+
+          await new Promise((resolve) => window.setTimeout(resolve, 200));
+
+          const pages = Array.from(
+            doc.querySelectorAll(".page"),
+          ) as HTMLElement[];
+
+          const sourcePages =
+            pages.length > 0
+              ? pages
+              : ([doc.body] as unknown as HTMLElement[]);
+
+          const pepPdf = new jsPDF({
+            orientation: "portrait",
+            unit: "pt",
+            format: "letter",
+            compress: true,
+          });
+
+          for (let index = 0; index < sourcePages.length; index += 1) {
+            const page = sourcePages[index];
+            const canvas = await html2canvas(page, {
+              scale: 2,
+              useCORS: true,
+              allowTaint: true,
+              backgroundColor: "#ffffff",
+              logging: false,
+              width: Math.max(816, page.scrollWidth || 816),
+              height: Math.max(1056, page.scrollHeight || 1056),
+              windowWidth: Math.max(816, page.scrollWidth || 816),
+              windowHeight: Math.max(1056, page.scrollHeight || 1056),
+            });
+
+            if (index > 0) pepPdf.addPage("letter", "portrait");
+
+            const imgData = canvas.toDataURL("image/jpeg", 0.95);
+            const pageWidth = 612;
+            const pageHeight = 792;
+            const margin = 18;
+            const maxWidth = pageWidth - margin * 2;
+            const maxHeight = pageHeight - margin * 2;
+            const ratio = Math.min(
+              maxWidth / canvas.width,
+              maxHeight / canvas.height,
+            );
+            const width = canvas.width * ratio;
+            const height = canvas.height * ratio;
+
+            pepPdf.addImage(
+              imgData,
+              "JPEG",
+              (pageWidth - width) / 2,
+              (pageHeight - height) / 2,
+              width,
+              height,
+            );
+          }
+
+          return pepPdf.output("blob");
+        } finally {
+          iframe.remove();
+        }
+      };
+
+      if (exportSections.pep) {
+        for (const pep of selectedPeps) {
+          const pepLabel = `PEP ${formatDate(pep.date_pep || pep.created_at)}`;
+          const importedPath = importedPepStoragePath(pep);
+
+          if (importedPath) {
+            const blob = await downloadStorageBlob(
+              BUCKET_NAME,
+              importedPath,
+              pepLabel,
+            );
+            if (blob) {
+              appendixItems.push({
+                label: pepLabel,
+                category: "pep",
+                blob,
+              });
+              continue;
+            }
+          }
+
+          const linkedBt = findLinkedBtForPep(pep, bts);
+          if (linkedBt?.id) {
+            const folderPath = `bt/${linkedBt.id}/pep`;
+            const { data: files, error: listError } = await supabase.storage
+              .from("bt-documents")
+              .list(folderPath);
+
+            if (!listError && files && files.length > 0) {
+              const pdfFile =
+                files.find((file) =>
+                  file.name.toLowerCase().endsWith(".pdf"),
+                ) || files[0];
+
+              const blob = await downloadStorageBlob(
+                "bt-documents",
+                `${folderPath}/${pdfFile.name}`,
+                pepLabel,
+              );
+
+              if (blob) {
+                appendixItems.push({
+                  label: pepLabel,
+                  category: "pep",
+                  blob,
+                });
+                continue;
+              }
+            }
+          }
+
+          if (pep.html_complet) {
+            try {
+              const blob = await renderPepHtmlToPdfBlob(pep.html_complet);
+              appendixItems.push({
+                label: pepLabel,
+                category: "pep",
+                blob,
+              });
+            } catch (error) {
+              appendixWarnings.push(
+                `${pepLabel} : impossible de générer le PDF depuis l'archive HTML.`,
+              );
+              console.error("Erreur génération PEP HTML :", error);
+            }
+          } else {
+            appendixWarnings.push(`${pepLabel} : aucun document disponible.`);
+          }
+        }
+
+        for (const doc of cvmDocuments) {
+          const blob = await downloadStorageBlob(
+            BUCKET_NAME,
+            doc.storage_path,
+            `CVM ${doc.nom_fichier}`,
+          );
+          if (blob) {
+            appendixItems.push({
+              label: `CVM — ${doc.nom_fichier}`,
+              category: "cvm",
+              blob,
+            });
+          }
+        }
+      }
+
+      if (exportSections.documents) {
+        for (const doc of adminDocuments) {
+          const blob = await downloadStorageBlob(
+            BUCKET_NAME,
+            doc.storage_path,
+            `${documentTypeLabel(doc.type_document)} ${doc.nom_fichier}`,
+          );
+          if (blob) {
+            appendixItems.push({
+              label: `${documentTypeLabel(doc.type_document)} — ${doc.nom_fichier}`,
+              category: "document",
+              blob,
+            });
+          }
+        }
+      }
+
+      if (exportSections.bt && selectedBts.length > 0) {
+        const selectedBtIds = selectedBts.map((bt) => bt.id);
+        const { data: btDocsData, error: btDocsError } = await supabase
+          .from("bt_documents")
+          .select("*")
+          .in("bt_id", selectedBtIds);
+
+        if (btDocsError) {
+          appendixWarnings.push(
+            `Pièces jointes BT : impossible de charger la liste (${btDocsError.message}).`,
+          );
+        } else {
+          const btDocs = (btDocsData ?? []) as Array<{
+            id?: string;
+            bt_id?: string | null;
+            type?: string | null;
+            nom_fichier?: string | null;
+            storage_path?: string | null;
+            mime_type?: string | null;
+          }>;
+
+          for (const doc of btDocs) {
+            if (!doc.storage_path) continue;
+            if (String(doc.type || "").toLowerCase() === "pep") continue;
+
+            const bt = selectedBts.find((row) => row.id === doc.bt_id);
+            const label = `${bt?.numero || "BT"} — ${
+              doc.nom_fichier || "Pièce jointe"
+            }`;
+
+            const blob = await downloadStorageBlob(
+              "bt-documents",
+              doc.storage_path,
+              label,
+            );
+
+            if (blob) {
+              appendixItems.push({
+                label,
+                category: "bt",
+                blob,
+              });
+            }
+          }
+        }
+      }
+
       const pdf = new jsPDF({
         orientation: "portrait",
         unit: "pt",
@@ -1436,11 +1736,14 @@ export default function DossierVehiculeDetailPage() {
         y += 34;
       };
 
-      const addParagraph = (text: string, options?: { bold?: boolean; size?: number }) => {
+      const addParagraph = (
+        value: string,
+        options?: { bold?: boolean; size?: number },
+      ) => {
         pdf.setFont("helvetica", options?.bold ? "bold" : "normal");
         pdf.setFontSize(options?.size ?? 9);
         pdf.setTextColor(55, 65, 81);
-        const lines = pdf.splitTextToSize(text || "—", contentWidth);
+        const lines = pdf.splitTextToSize(value || "—", contentWidth);
         const height = Math.max(14, lines.length * 12);
         ensureSpace(height);
         pdf.text(lines, marginX, y);
@@ -1455,7 +1758,10 @@ export default function DossierVehiculeDetailPage() {
         pdf.text(label, marginX, y);
         pdf.setFont("helvetica", "normal");
         pdf.setTextColor(17, 24, 39);
-        const wrapped = pdf.splitTextToSize(value || "—", contentWidth - 150);
+        const wrapped = pdf.splitTextToSize(
+          value || "—",
+          contentWidth - 150,
+        );
         pdf.text(wrapped, marginX + 150, y);
         y += Math.max(16, wrapped.length * 11);
       };
@@ -1499,10 +1805,18 @@ export default function DossierVehiculeDetailPage() {
 
         for (const row of rows) {
           const wrapped = row.map((value, index) =>
-            pdf.splitTextToSize(value || "—", Math.max(20, widths[index] - rowPad * 2)),
+            pdf.splitTextToSize(
+              value || "—",
+              Math.max(20, widths[index] - rowPad * 2),
+            ),
           );
-          const maxLines = Math.max(...wrapped.map((cell) => cell.length));
-          const rowHeight = Math.max(22, maxLines * 10 + rowPad * 2);
+          const maxLines = Math.max(
+            ...wrapped.map((cell) => cell.length),
+          );
+          const rowHeight = Math.max(
+            22,
+            maxLines * 10 + rowPad * 2,
+          );
 
           if (y + rowHeight > bottomY) {
             addPage();
@@ -1527,7 +1841,6 @@ export default function DossierVehiculeDetailPage() {
         y += 6;
       };
 
-      // Page couverture / identification
       pdf.setFont("helvetica", "bold");
       pdf.setFontSize(20);
       pdf.setTextColor(17, 24, 39);
@@ -1555,15 +1868,44 @@ export default function DossierVehiculeDetailPage() {
         addKeyValue("NIV", nivLabel(unite));
         addKeyValue(
           "Véhicule",
-          [unite.marque, unite.modele, unite.annee].filter(Boolean).join(" ") || "—",
+          [unite.marque, unite.modele, unite.annee]
+            .filter(Boolean)
+            .join(" ") || "—",
         );
-        addKeyValue("KM actuel", `${kmLabel(unite.km_actuel ?? unite.odometre)} km`);
-        addKeyValue("Mise en service", formatDate(unite.date_mise_en_service));
-        addKeyValue("PEP actuel", `${formatDate(applicablePep?.date_pep || applicablePep?.created_at)} — ${pepCurrentStatus.label}`);
-        addKeyValue("Vignette PEP", `${unite.pep_vignette_no || "—"} — ${pepVignetteStatus.label}`);
-        addKeyValue("Assurance", `${formatDate(lastAssurance?.date_expiration)} — ${assuranceStatus.label}`);
-        addKeyValue("Immatriculation", `${formatDate(lastImmatriculation?.date_expiration)} — ${immatStatus.label}`);
-        addKeyValue("CVM", `${formatDate(lastCvm?.date_expiration)} — ${cvmStatus.label}`);
+        addKeyValue(
+          "KM actuel",
+          `${kmLabel(unite.km_actuel ?? unite.odometre)} km`,
+        );
+        addKeyValue(
+          "Mise en service",
+          formatDate(unite.date_mise_en_service),
+        );
+        addKeyValue(
+          "PEP actuel",
+          `${formatDate(
+            applicablePep?.date_pep || applicablePep?.created_at,
+          )} — ${pepCurrentStatus.label}`,
+        );
+        addKeyValue(
+          "Vignette PEP",
+          `${unite.pep_vignette_no || "—"} — ${pepVignetteStatus.label}`,
+        );
+        addKeyValue(
+          "Assurance",
+          `${formatDate(lastAssurance?.date_expiration)} — ${
+            assuranceStatus.label
+          }`,
+        );
+        addKeyValue(
+          "Immatriculation",
+          `${formatDate(lastImmatriculation?.date_expiration)} — ${
+            immatStatus.label
+          }`,
+        );
+        addKeyValue(
+          "CVM",
+          `${formatDate(lastCvm?.date_expiration)} — ${cvmStatus.label}`,
+        );
         addKeyValue(
           "Historique PEP/CVM",
           unresolvedCoverageGaps.length > 0
@@ -1574,18 +1916,16 @@ export default function DossierVehiculeDetailPage() {
 
       if (exportSections.pep) {
         addSectionTitle("2. Historique PEP / CVM");
-        const pepRows = peps
-          .filter((pep) => isInExportPeriod(pep.date_pep || pep.created_at))
-          .map((pep) => {
-            const linkedBt = findLinkedBtForPep(pep, bts);
-            return [
-              formatDate(pep.date_pep || pep.created_at),
-              kmLabel(pep.odometre),
-              pep.num_mecano || "—",
-              isImportedPep(pep) ? "Importé" : "Atelier",
-              linkedBt?.numero || "—",
-            ];
-          });
+        const pepRows = selectedPeps.map((pep) => {
+          const linkedBt = findLinkedBtForPep(pep, bts);
+          return [
+            formatDate(pep.date_pep || pep.created_at),
+            kmLabel(pep.odometre),
+            pep.num_mecano || "—",
+            isImportedPep(pep) ? "Importé" : "Atelier",
+            linkedBt?.numero || "—",
+          ];
+        });
 
         addSimpleTable(
           ["Date", "KM", "Mécano", "Provenance", "BT lié"],
@@ -1599,21 +1939,23 @@ export default function DossierVehiculeDetailPage() {
           doc.nom_fichier,
         ]);
         addParagraph("CVM au dossier", { bold: true, size: 10 });
-        addSimpleTable(["Ajouté", "Expiration", "Fichier"], cvmRows, [100, 110, 318]);
+        addSimpleTable(
+          ["Ajouté", "Expiration", "Fichier"],
+          cvmRows,
+          [100, 110, 318],
+        );
       }
 
       if (exportSections.bt) {
         addSectionTitle("3. Bons de travail");
-        const btRows = bts
-          .filter((bt) => isInExportPeriod(bt.date_fermeture || bt.date_ouverture || bt.created_at))
-          .map((bt) => [
-            bt.numero || "—",
-            formatDate(bt.date_ouverture || bt.created_at),
-            formatDate(bt.date_fermeture),
-            kmLabel(bt.km),
-            bt.statut || "—",
-            moneyLabel(bt.total_final ?? bt.total),
-          ]);
+        const btRows = selectedBts.map((bt) => [
+          bt.numero || "—",
+          formatDate(bt.date_ouverture || bt.created_at),
+          formatDate(bt.date_fermeture),
+          kmLabel(bt.km),
+          bt.statut || "—",
+          moneyLabel(bt.total_final ?? bt.total),
+        ]);
         addSimpleTable(
           ["BT", "Ouverture", "Fermeture", "KM", "Statut", "Total"],
           btRows,
@@ -1638,14 +1980,12 @@ export default function DossierVehiculeDetailPage() {
 
       if (exportSections.overrides) {
         addSectionTitle("5. Écarts PEP acceptés / dérogations");
-        const overrideRows = complianceOverrides
-          .filter((row) => isInExportPeriod(row.created_at || row.gap_end))
-          .map((row) => [
-            `${formatDate(row.gap_start)} au ${formatDate(row.gap_end)}`,
-            `${row.gap_days} j`,
-            row.justification || "—",
-            formatDate(row.created_at),
-          ]);
+        const overrideRows = selectedOverrides.map((row) => [
+          `${formatDate(row.gap_start)} au ${formatDate(row.gap_end)}`,
+          `${row.gap_days} j`,
+          row.justification || "—",
+          formatDate(row.created_at),
+        ]);
         addSimpleTable(
           ["Période", "Écart", "Justification", "Accepté le"],
           overrideRows,
@@ -1653,41 +1993,176 @@ export default function DossierVehiculeDetailPage() {
         );
       }
 
-      const periodText =
-        exportPeriod === "all" ? "Historique complet" : `${exportPeriod} derniers mois`;
-      addSectionTitle("Notes de génération");
-      addParagraph(
-        `Période appliquée aux historiques PEP, bons de travail et écarts : ${periodText}. Les documents administratifs présents au dossier sont tous listés afin de conserver les pièces courantes pertinentes au contrôle.`
-      );
-      addParagraph(
-        "Cette première version produit le dossier de synthèse imprimable. Les fichiers justificatifs originaux (PDF PEP, CVM, assurance, immatriculation et pièces jointes BT) seront intégrés à la suite du document dans l'étape suivante."
-      );
+      if (
+        exportSections.pep ||
+        exportSections.documents ||
+        exportSections.bt
+      ) {
+        addSectionTitle("Pièces justificatives annexées");
+        const counts = {
+          pep: appendixItems.filter((item) => item.category === "pep").length,
+          cvm: appendixItems.filter((item) => item.category === "cvm").length,
+          document: appendixItems.filter(
+            (item) => item.category === "document",
+          ).length,
+          bt: appendixItems.filter((item) => item.category === "bt").length,
+        };
 
-      const pageCount = pdf.getNumberOfPages();
-      for (let page = 1; page <= pageCount; page += 1) {
+        addParagraph(
+          `Documents ajoutés à la suite du sommaire : ${counts.pep} PEP, ${counts.cvm} CVM, ${counts.document} document(s) administratif(s) et ${counts.bt} pièce(s) jointe(s) de BT.`,
+        );
+
+        if (appendixWarnings.length > 0) {
+          addParagraph(
+            `${appendixWarnings.length} document(s) n'ont pas pu être annexé(s). Le sommaire demeure généré; vérifier les fichiers manquants avant de remettre le dossier.`,
+            { bold: true },
+          );
+        }
+      }
+
+      const summaryPageCount = pdf.getNumberOfPages();
+      for (let page = 1; page <= summaryPageCount; page += 1) {
         pdf.setPage(page);
         pdf.setDrawColor(229, 231, 235);
         pdf.line(marginX, 762, pageWidth - marginX, 762);
         pdf.setFont("helvetica", "normal");
         pdf.setFontSize(8);
         pdf.setTextColor(107, 114, 128);
-        pdf.text(`Dossier véhicule — ${unitLabel(unite)}`, marginX, 778);
-        pdf.text(`Page ${page} / ${pageCount}`, pageWidth - marginX, 778, { align: "right" });
+        pdf.text(
+          `Dossier véhicule — ${unitLabel(unite)}`,
+          marginX,
+          778,
+        );
+        pdf.text(
+          `Sommaire ${page} / ${summaryPageCount}`,
+          pageWidth - marginX,
+          778,
+          { align: "right" },
+        );
       }
 
-      const blob = pdf.output("blob");
-      const url = URL.createObjectURL(blob);
+      const mergedPdf = await PDFDocument.create();
+      const summaryPdf = await PDFDocument.load(
+        pdf.output("arraybuffer"),
+      );
+      const summaryPages = await mergedPdf.copyPages(
+        summaryPdf,
+        summaryPdf.getPageIndices(),
+      );
+      summaryPages.forEach((page) => mergedPdf.addPage(page));
+
+      const appendPdfBlob = async (blob: Blob, label: string) => {
+        try {
+          const source = await PDFDocument.load(await blob.arrayBuffer(), {
+            ignoreEncryption: true,
+          });
+          const pages = await mergedPdf.copyPages(
+            source,
+            source.getPageIndices(),
+          );
+          pages.forEach((page) => mergedPdf.addPage(page));
+          return true;
+        } catch (error) {
+          appendixWarnings.push(`${label} : PDF illisible ou protégé.`);
+          console.error(`Erreur fusion PDF ${label} :`, error);
+          return false;
+        }
+      };
+
+      const appendImageBlob = async (blob: Blob, label: string) => {
+        try {
+          const bytes = await blob.arrayBuffer();
+          const mime = String(blob.type || "").toLowerCase();
+          const image =
+            mime.includes("png")
+              ? await mergedPdf.embedPng(bytes)
+              : await mergedPdf.embedJpg(bytes);
+
+          const page = mergedPdf.addPage([612, 792]);
+          const maxWidth = 540;
+          const maxHeight = 720;
+          const ratio = Math.min(
+            maxWidth / image.width,
+            maxHeight / image.height,
+            1,
+          );
+          const width = image.width * ratio;
+          const height = image.height * ratio;
+
+          page.drawImage(image, {
+            x: (612 - width) / 2,
+            y: (792 - height) / 2,
+            width,
+            height,
+          });
+          return true;
+        } catch (error) {
+          appendixWarnings.push(`${label} : image impossible à intégrer.`);
+          console.error(`Erreur intégration image ${label} :`, error);
+          return false;
+        }
+      };
+
+      for (const item of appendixItems) {
+        const mime = String(item.blob.type || "").toLowerCase();
+        const lowerLabel = item.label.toLowerCase();
+
+        if (
+          mime.includes("pdf") ||
+          lowerLabel.endsWith(".pdf")
+        ) {
+          await appendPdfBlob(item.blob, item.label);
+          continue;
+        }
+
+        if (
+          mime.startsWith("image/") ||
+          /\.(jpe?g|png)$/i.test(lowerLabel)
+        ) {
+          await appendImageBlob(item.blob, item.label);
+          continue;
+        }
+
+        appendixWarnings.push(
+          `${item.label} : format non pris en charge dans le PDF consolidé.`,
+        );
+      }
+
+      const finalBytes = await mergedPdf.save();
+      const finalBlob = new Blob([finalBytes], {
+        type: "application/pdf",
+      });
+
+      const url = URL.createObjectURL(finalBlob);
       const opened = window.open(url, "_blank", "noopener,noreferrer");
 
       if (!opened) {
-        const safeUnit = unitLabel(unite).replace(/[^a-zA-Z0-9_-]+/g, "_");
-        pdf.save(`Dossier_controle_${safeUnit}_${new Date().toISOString().slice(0, 10)}.pdf`);
+        const safeUnit = unitLabel(unite).replace(
+          /[^a-zA-Z0-9_-]+/g,
+          "_",
+        );
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `Dossier_controle_${safeUnit}_${new Date()
+          .toISOString()
+          .slice(0, 10)}.pdf`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
       }
 
       window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
       setExportOpen(false);
+
+      if (appendixWarnings.length > 0) {
+        console.warn(
+          "Dossier généré avec certains documents non annexés :",
+          appendixWarnings,
+        );
+      }
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Erreur inconnue";
+      const message =
+        error instanceof Error ? error.message : "Erreur inconnue";
       console.error("Erreur export dossier véhicule :", error);
       alert(`Impossible de générer le dossier : ${message}`);
     } finally {
