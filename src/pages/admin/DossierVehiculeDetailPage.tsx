@@ -1409,7 +1409,6 @@ export default function DossierVehiculeDetailPage() {
       });
 
       const pageWidth = 612;
-      const pageHeight = 792;
       const marginX = 42;
       const topY = 46;
       const bottomY = 748;
