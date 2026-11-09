@@ -586,3 +586,82 @@ textarea.input {
     grid-template-columns: 1fr;
   }
 }
+
+/* Menu Atelier compact — styles limités à la navigation */
+.sidebar.atelier-sidebar {
+  width: 272px;
+  flex: 0 0 272px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 18px 14px 12px;
+  padding-top: calc(18px + env(safe-area-inset-top));
+  padding-bottom: calc(12px + env(safe-area-inset-bottom));
+  box-shadow: none;
+}
+.atelier-sidebar .brand {
+  position: relative;
+  flex-shrink: 0;
+  padding: 0 8px 18px;
+  margin: 0 0 14px;
+  border-bottom: none;
+}
+.atelier-sidebar .brand a { display: block; max-width: 100%; }
+.atelier-sidebar .brand-logo { width: 222px; max-height: 96px; object-fit: contain; }
+.atelier-menu-icon { flex: 0 0 auto; }
+.atelier-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  min-height: 42px;
+  padding: 8px 10px;
+  margin-bottom: 17px;
+  border: 1px solid #d5deeb;
+  border-radius: 10px;
+  color: #64748b;
+  background: #fff;
+}
+.atelier-search:focus-within { border-color: #2563eb; box-shadow: var(--ring); }
+.atelier-search input {
+  width: 100%; min-width: 0; padding: 0; border: 0; outline: 0;
+  background: transparent; color: #0f172a; font: inherit; font-size: 13px;
+}
+.atelier-search input::placeholder { color: #64748b; opacity: 1; }
+.atelier-search kbd { flex-shrink: 0; padding: 3px 4px; border-radius: 5px; background: #f1f5f9; color: #64748b; font-family: inherit; font-size: 10px; white-space: nowrap; }
+.atelier-navigation { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 2px 3px 12px; scrollbar-width: thin; scrollbar-color: #cbd5e1 transparent; }
+.atelier-navigation .navlink, .atelier-group-toggle {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  min-height: 43px; margin: 0; padding: 10px 10px; border: 1px solid transparent;
+  border-radius: 8px; color: #0f172a; background: transparent;
+  font: inherit; font-size: 14px; font-weight: 600; text-align: left;
+  text-decoration: none; line-height: 1.4; cursor: pointer;
+}
+.atelier-menu-group { margin-top: 5px; }
+.atelier-group-toggle > span:not(.atelier-chevron), .atelier-navigation .navlink > span { flex: 1; min-width: 0; }
+.atelier-group-toggle:hover, .atelier-navigation .navlink:hover { background: #f1f5fc; border-color: transparent; }
+.atelier-group-toggle.is-current { color: #1552df; }
+.atelier-chevron { display: flex; margin-left: auto; color: #64748b; transition: transform 150ms ease; }
+.atelier-chevron .atelier-menu-icon { width: 15px; height: 15px; }
+.atelier-chevron.is-open { transform: rotate(90deg); }
+.atelier-submenu { margin: 2px 0 8px 33px; }
+.atelier-submenu[hidden] { display: none; }
+.atelier-submenu .navlink { min-height: 35px; padding: 8px 10px; font-size: 13px; font-weight: 400; margin: 2px 0; }
+.atelier-navigation .navlink-active { color: #1449cc; background: #e7efff; border-color: transparent; font-weight: 700; outline: none; }
+.atelier-navigation .navlink-active:hover { background: #dce8ff; }
+.atelier-navigation a:focus-visible, .atelier-sidebar button:focus-visible, .atelier-sidebar .brand a:focus-visible { outline: 2px solid #2563eb; outline-offset: 1px; }
+.atelier-menu-empty { padding: 12px; color: #64748b; font-size: 13px; }
+.atelier-sidebar-footer { flex-shrink: 0; padding: 14px 6px 0; border-top: 1px solid #e8edf5; }
+.atelier-footer-label { display: block; margin: 0 9px 6px; font-size: 10px; letter-spacing: .09em; font-weight: 600; color: #64748b; }
+.atelier-sidebar .logout-btn { display: flex; align-items: center; justify-content: flex-start; gap: 10px; padding: 8px; border: 0; border-radius: 8px; color: #475569; background: transparent; font: inherit; font-size: 13px; font-weight: 500; }
+.atelier-sidebar .logout-btn:hover { background: #f1f5f9; }
+.atelier-sidebar .logout-btn .atelier-menu-icon { width: 18px; height: 18px; }
+.atelier-close-menu { position: absolute; top: -8px; right: -5px; width: 32px; height: 32px; border: 1px solid #e2e8f0; border-radius: 8px; background: #fff; color: #475569; font-size: 23px; cursor: pointer; }
+.sidebar.atelier-sidebar.sidebar-drawer { width: 280px; }
+@media (max-width: 900px) {
+  .atelier-sidebar .brand { padding-top: 8px; }
+  .atelier-sidebar .brand-logo { width: 185px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .atelier-chevron, .sidebar.atelier-sidebar.sidebar-drawer { transition: none; }
+}

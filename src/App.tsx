@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Routes,
   Route,
@@ -159,31 +159,143 @@ function PhoneRedirectGuard({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+type MenuIconName = "dashboard" | "work" | "vehicle" | "parts" | "accounting" | "admin" | "search" | "chevron" | "logout";
+
+function MenuIcon({ name }: { name: MenuIconName }) {
+  const paths: Record<MenuIconName, string> = {
+    dashboard: "M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z",
+    work: "M14.5 6.5l3 3 4-4a7 7 0 0 1-9 9L6 21a2.12 2.12 0 0 1-3-3l6.5-6.5a7 7 0 0 1 9-9z",
+    vehicle: "M5 17h14V5a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2z M5 10h14 M8 3v7 M16 3v7 M8 14h.01 M16 14h.01 M7 17v3 M17 17v3",
+    parts: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10z M12 7v5l4 3 M12 12l-4 3",
+    accounting: "M3 6c0-3 12-3 12 0s-12 3-12 0z M3 6v5c0 3 12 3 12 0V6 M3 11v5c0 3 12 3 12 0v-5 M18 9c4 0 5 2 3 3 M21 12v6c0 2-3 3-6 3",
+    admin: "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z M9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1z",
+    search: "M10.5 3a7.5 7.5 0 1 0 0 15 7.5 7.5 0 0 0 0-15z M16 16l5 5",
+    chevron: "M9 5l7 7-7 7",
+    logout: "M9 4H4v16h5 M10 12h11 M17 8l4 4-4 4",
+  };
+  return (
+    <svg className="atelier-menu-icon" width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d={paths[name]} />
+    </svg>
+  );
+}
+
+const MENU_GROUPS: { id: string; label: string; icon: MenuIconName; items: { to: string; label: string; keywords?: string }[] }[] = [
+  { id: "travaux", label: "Travaux", icon: "work", items: [
+    { to: "/bt", label: "Bons de travail", keywords: "BT travaux réparation" },
+    { to: "/centre-service", label: "Centre de service", keywords: "CS garantie Lion" },
+    { to: "/operation-temps-reel", label: "Opérations en temps réel", keywords: "mécaniciens" },
+  ] },
+  { id: "vehicules", label: "Véhicules", icon: "vehicle", items: [
+    { to: "/unites", label: "Unités", keywords: "véhicules autobus" },
+    { to: "/admin/dossiers-vehicules", label: "Dossiers véhicules", keywords: "CVM conformité documents" },
+    { to: "/pep", label: "PEP", keywords: "inspection entretien préventif" },
+  ] },
+  { id: "pieces", label: "Pièces et pneus", icon: "parts", items: [
+    { to: "/inventaire", label: "Inventaire", keywords: "pièces stock" },
+    { to: "/pneus", label: "Pneus" },
+  ] },
+  { id: "comptabilite", label: "Comptabilité", icon: "accounting", items: [
+    { to: "/facturation", label: "Facturation clients", keywords: "facture BT Acomba" },
+    { to: "/factures-fournisseurs", label: "Factures fournisseurs", keywords: "achats réception" },
+    { to: "/rapport-facturation-atelier", label: "Rapport de facturation atelier" },
+  ] },
+  { id: "administration", label: "Administration", icon: "admin", items: [
+    { to: "/clients", label: "Clients" },
+    { to: "/employes", label: "Employés", keywords: "personnel mécaniciens" },
+    { to: "/gestion-atelier", label: "Gestion atelier" },
+    { to: "/parametres-systeme", label: "Système", keywords: "paramètres configuration" },
+  ] },
+];
+
+function matchesMenuPath(path: string, target: string) {
+  return path === target || path.startsWith(target + "/") ||
+    (target === "/bt" && path.startsWith("/bt-mecano/")) ||
+    (target === "/parametres-systeme" && path.startsWith("/systeme/"));
+}
+
+function normalizeMenuText(value: string) {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
+
 function AppShell({ onLogout }: { onLogout: () => void | Promise<void> }) {
   const isMobile = useIsMobile(900);
   const location = useLocation();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const activeGroup = MENU_GROUPS.find((group) => group.items.some((item) => matchesMenuPath(location.pathname, item.to)))?.id ?? null;
+  const [openGroup, setOpenGroup] = useState<string | null>(activeGroup);
+  const [menuQuery, setMenuQuery] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const sidebarRef = useRef<HTMLElement>(null);
+  const query = normalizeMenuText(menuQuery.trim());
+  const queryWords = query.split(/\s+/).filter(Boolean);
+  const matchesQuery = (text: string) => queryWords.every((word) => normalizeMenuText(text).includes(word));
+  const visibleGroups = MENU_GROUPS.map((group) => ({
+    ...group,
+    items: group.items.filter((item) => matchesQuery(`${group.label} ${item.label} ${item.keywords ?? ""}`)),
+  })).filter((group) => group.items.length > 0);
+  const showDashboard = matchesQuery("Tableau de bord accueil dashboard");
+  const linkClass = ({ isActive }: { isActive: boolean }) => "navlink" + (isActive ? " navlink-active" : "");
 
-  const linkClass = useMemo(
-    () =>
-      ({ isActive }: { isActive: boolean }) =>
-        "navlink" + (isActive ? " navlink-active" : ""),
-    []
-  );
+  // Fermer seulement lors d'une navigation, jamais à l'ouverture du tiroir.
+  useEffect(() => {
+    setDrawerOpen(false);
+    setMenuQuery("");
+    setOpenGroup(activeGroup);
+  }, [location.pathname, location.search, activeGroup]);
 
   useEffect(() => {
-    if (drawerOpen) setDrawerOpen(false);
-  }, [location.pathname, location.search, drawerOpen]);
+    if (!isMobile) setDrawerOpen(false);
+  }, [isMobile]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        if (isMobile) setDrawerOpen(true);
+        searchRef.current?.focus();
+      }
+      if (event.key === "Escape") {
+        setMenuQuery("");
+        setDrawerOpen(false);
+        if (isMobile && drawerOpen) menuButtonRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isMobile, drawerOpen]);
+
+  useEffect(() => {
+    if (!isMobile || !drawerOpen) return;
+    searchRef.current?.focus();
+    const trapFocus = (event: KeyboardEvent) => {
+      if (event.key !== "Tab") return;
+      const elements = sidebarRef.current?.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), input');
+      const focusable = Array.from(elements ?? []).filter((element) => element.getClientRects().length > 0);
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault(); last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault(); first?.focus();
+      }
+    };
+    document.addEventListener("keydown", trapFocus);
+    return () => document.removeEventListener("keydown", trapFocus);
+  }, [isMobile, drawerOpen]);
 
   function closeDrawer() {
     setDrawerOpen(false);
+    menuButtonRef.current?.focus();
   }
 
   function toggleDrawer() {
-    setDrawerOpen((v) => !v);
+    setDrawerOpen((value) => !value);
   }
 
   function onNavClick() {
+    setMenuQuery("");
     if (isMobile) closeDrawer();
   }
 
@@ -195,108 +307,60 @@ function AppShell({ onLogout }: { onLogout: () => void | Promise<void> }) {
         )}
 
         <aside
-          className={
-            "sidebar" +
-            (isMobile ? " sidebar-drawer" : "") +
-            (isMobile && drawerOpen ? " open" : "")
-          }
+          ref={sidebarRef}
+          id="atelier-sidebar"
+          className={"sidebar atelier-sidebar" + (isMobile ? " sidebar-drawer" : "") + (isMobile && drawerOpen ? " open" : "")}
+          style={isMobile && !drawerOpen ? { visibility: "hidden" } : undefined}
+          role={isMobile && drawerOpen ? "dialog" : undefined}
+          aria-modal={isMobile && drawerOpen ? true : undefined}
+          aria-label="Navigation Atelier"
         >
           <div className="brand">
-            <img
-              src="/logo-gb-suite.svg"
-              className="brand-logo"
-              alt="Suite GB"
-              title="Retour au portail Suite GB"
-              onClick={() => {
-                window.location.href = SUITE_GB_URL;
-              }}
-            />
+            <a href={SUITE_GB_URL} title="Retour au portail Suite GB">
+              <img src="/logo-gb-suite.svg" className="brand-logo" alt="Groupe Breton — Suite" />
+            </a>
+            {isMobile && <button type="button" className="atelier-close-menu" onClick={closeDrawer} aria-label="Fermer le menu">×</button>}
           </div>
 
-          <div className="section">
-            <div className="section-title">ATELIER</div>
-
-            <NavLink to="/dashboard-atelier" className={linkClass} onClick={onNavClick}>
-              Tableau de bord
-            </NavLink>
-
-            <NavLink to="/bt" className={linkClass} onClick={onNavClick}>
-              Bon Travail
-            </NavLink>
-
-            <NavLink to="/centre-service" className={linkClass} onClick={onNavClick}>
-              Centre de service
-            </NavLink>
-
-            <NavLink to="/operation-temps-reel" className={linkClass} onClick={onNavClick}>
-              Opération Temps réel
-            </NavLink>
-
-            <NavLink to="/pep" className={linkClass} onClick={onNavClick}>
-              PEP
-            </NavLink>
-
-            <NavLink to="/inventaire" className={linkClass} onClick={onNavClick}>
-              Inventaire
-            </NavLink>
-
-            <NavLink to="/pneus" className={linkClass} onClick={onNavClick}>
-              Pneus
-            </NavLink>
-
-            <NavLink to="/gestion-atelier" className={linkClass} onClick={onNavClick}>
-              Gestion atelier
-            </NavLink>
+          <div className="atelier-search">
+            <MenuIcon name="search" />
+            <input ref={searchRef} type="search" aria-label="Rechercher une page du menu" placeholder="Recherche rapide…" value={menuQuery} onChange={(event) => setMenuQuery(event.target.value)} aria-controls="atelier-navigation" />
+            {!menuQuery && <kbd aria-hidden="true">Ctrl K</kbd>}
           </div>
 
-          <div className="section">
-            <div className="section-title">ADMINISTRATION</div>
+          <nav id="atelier-navigation" className="atelier-navigation" aria-label="Menu principal">
+            {showDashboard && (
+              <NavLink to="/dashboard-atelier" className={linkClass} onClick={onNavClick}>
+                <MenuIcon name="dashboard" /><span>Tableau de bord</span>
+              </NavLink>
+            )}
+            {visibleGroups.map((group) => {
+              const expanded = Boolean(query) || openGroup === group.id;
+              return (
+                <div className="atelier-menu-group" key={group.id}>
+                  <button type="button" className={"atelier-group-toggle" + (activeGroup === group.id ? " is-current" : "")} aria-expanded={expanded} aria-controls={`atelier-group-${group.id}`} onClick={() => {
+                    if (query) setMenuQuery("");
+                    setOpenGroup(expanded ? null : group.id);
+                  }}>
+                    <MenuIcon name={group.icon} /><span>{group.label}</span>
+                    <span className={"atelier-chevron" + (expanded ? " is-open" : "")}><MenuIcon name="chevron" /></span>
+                  </button>
+                  <div id={`atelier-group-${group.id}`} className="atelier-submenu" hidden={!expanded}>
+                    {group.items.map((item) => (
+                      <NavLink key={item.to} to={item.to} className={matchesMenuPath(location.pathname, item.to) ? "navlink navlink-active" : "navlink"} onClick={onNavClick}>
+                        {item.label}
+                      </NavLink>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+            {!showDashboard && visibleGroups.length === 0 && <p className="atelier-menu-empty" role="status">Aucune page trouvée.</p>}
+          </nav>
 
-            <NavLink to="/clients" className={linkClass} onClick={onNavClick}>
-              Clients
-            </NavLink>
-
-            <NavLink to="/unites" className={linkClass} onClick={onNavClick}>
-              Unités
-            </NavLink>
-
-            <NavLink to="/employes" className={linkClass} onClick={onNavClick}>
-              Employés
-            </NavLink>
-
-            <NavLink to="/admin/dossiers-vehicules" className={linkClass} onClick={onNavClick}>
-              Dossiers véhicules
-            </NavLink>
-          </div>
-
-          <div className="section">
-            <div className="section-title">COMPTABILITÉ</div>
-
-            <NavLink to="/facturation" className={linkClass} onClick={onNavClick}>
-              Facturation Client
-            </NavLink>
-
-            <NavLink to="/rapport-facturation-atelier" className={linkClass} onClick={onNavClick}>
-              Rapport facturation atelier
-            </NavLink>
-
-            <NavLink to="/factures-fournisseurs" className={linkClass} onClick={onNavClick}>
-              Factures fournisseurs
-            </NavLink>
-          </div>
-
-          <div className="section">
-            <div className="section-title">SYSTÈME</div>
-
-            <NavLink to="/parametres-systeme" className={linkClass} onClick={onNavClick}>
-              Système
-            </NavLink>
-          </div>
-
-          <div className="section">
-            <button className="logout-btn" onClick={onLogout} type="button">
-              Se déconnecter
-            </button>
+          <div className="atelier-sidebar-footer">
+            <span className="atelier-footer-label">ATELIER · SUITE GB</span>
+            <button className="logout-btn" onClick={onLogout} type="button"><MenuIcon name="logout" />Se déconnecter</button>
           </div>
         </aside>
 
@@ -305,6 +369,9 @@ function AppShell({ onLogout }: { onLogout: () => void | Promise<void> }) {
             <div className="mobile-topbar">
               <button
                 className="mobile-menu-btn"
+                ref={menuButtonRef}
+                aria-controls="atelier-sidebar"
+                aria-expanded={drawerOpen}
                 onClick={toggleDrawer}
                 aria-label="Ouvrir le menu"
                 type="button"
