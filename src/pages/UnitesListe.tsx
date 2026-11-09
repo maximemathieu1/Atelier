@@ -336,7 +336,8 @@ export default function UnitesListe() {
                       onDoubleClick={() => nav(`/unites/${u.id}`)}
                     >
                       <td style={{ ...styles.td, background: rowBg }} data-label="Unité">
-                        <button type="button" className="am-open-link" onClick={() => nav(`/unites/${u.id}`)}>{u.no_unite}</button>
+                        <div className="am-desktop-only" style={styles.mainValue}>{u.no_unite}</div>
+                        <button type="button" className="am-open-link am-mobile-only" onClick={() => nav(`/unites/${u.id}`)}>{u.no_unite}</button>
                       </td>
 
                       <td style={{ ...styles.td, background: rowBg }} data-label="État">

@@ -3566,7 +3566,7 @@ function SimpleBtTable({
       <tbody>
         {bts.map((bt) => (
           <tr key={bt.id} onDoubleClick={() => navigate(`/bt/${bt.id}`)} style={{ cursor: "default" }}>
-            <Td label="Numéro"><button type="button" className="am-open-link" onClick={() => navigate(`/bt/${bt.id}`)}>{bt.numero || "—"}</button></Td>
+            <Td label="Numéro"><span className="am-desktop-only">{bt.numero || "—"}</span><button type="button" className="am-open-link am-mobile-only" onClick={() => navigate(`/bt/${bt.id}`)}>{bt.numero || "—"}</button></Td>
             <Td label="Ouverture">{formatDate(bt.date_ouverture || bt.created_at)}</Td>
             <Td label="Fermeture">{formatDate(bt.date_fermeture)}</Td>
             <Td label="KM">{kmLabel(bt.km)}</Td>

@@ -1302,7 +1302,10 @@ return (
                         }}
                       >
                         <td style={{ ...styles.td, background: "transparent" }} data-label="No BT">
-                          <button type="button" className="am-open-link" onClick={(event) => { event.stopPropagation(); nav(`/bt/${bt.id}`); }} title="Ouvrir le bon de travail">
+                          <div className="am-desktop-only" style={styles.btLink} title="Cliquer pour ouvrir">
+                            {bt.numero || (bt as any).no_bt || "(BT)"}
+                          </div>
+                          <button type="button" className="am-open-link am-mobile-only" onClick={(event) => { event.stopPropagation(); nav(`/bt/${bt.id}`); }} title="Ouvrir le bon de travail">
                             {bt.numero || (bt as any).no_bt || "(BT)"}
                           </button>
                         </td>

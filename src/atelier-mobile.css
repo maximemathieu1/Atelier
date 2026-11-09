@@ -1,16 +1,18 @@
 /* Atelier : adaptations limitées aux pages préparées pour le téléphone.
    Les styles de bureau et les modèles PDF restent indépendants. */
 .am-mobile-only { display: none !important; }
-.am-open-link {
-  border: 0; padding: 0; margin: 0; background: transparent; color: #1d4ed8;
-  font: inherit; font-weight: 800; text-align: left; cursor: pointer;
-  text-decoration: underline; text-underline-offset: 3px;
-}
-.am-open-link:focus-visible { outline: 2px solid #2563eb; outline-offset: 3px; }
 .am-mobile-shortcuts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 16px; }
 .am-mobile-shortcuts button { min-height: 48px; border: 1px solid #cbd5e1; border-radius: 12px; padding: 10px 6px; background: #fff; color: #1e40af; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
 
 @media screen and (max-width: 767px) {
+  .atelier-responsive .am-desktop-only { display: none !important; }
+  .am-open-link {
+    border: 0; padding: 0; margin: 0; background: transparent; color: #1d4ed8;
+    font: inherit; font-weight: 800; text-align: left; cursor: pointer;
+    text-decoration: underline; text-underline-offset: 3px;
+  }
+  .am-open-link:focus-visible { outline: 2px solid #2563eb; outline-offset: 3px; }
+  
   .am-mobile-home { min-height: 0 !important; padding: 0 !important; }
   .atelier-responsive .am-embedded-maintenance { padding: 0 !important; min-width: 0; }
   .atelier-responsive { padding: 0 !important; width: 100% !important; min-width: 0 !important; max-width: 100% !important; overflow-wrap: anywhere; }

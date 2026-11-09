@@ -52,3 +52,14 @@
 
 /* Le bouton reste sous les fenêtres de photos et les formulaires ouverts. */
 .gb-todo-launch { z-index: 35; }
+
+/* Bouton compact sur PC, dégagé de la rangée des actions. */
+@media screen and (min-width: 821px) {
+  .gb-todo-launch {
+    width: 36px; height: 36px; border-radius: 10px;
+    top: max(8px, env(safe-area-inset-top));
+    right: max(12px, env(safe-area-inset-right));
+  }
+  .gb-todo-launch > svg { width: 18px; height: 18px; }
+  .gb-todo-count { top: -5px; right: -5px; min-width: 17px; padding: 2px 4px; font-size: 10px; }
+}

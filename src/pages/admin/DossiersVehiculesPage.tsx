@@ -681,7 +681,7 @@ export default function DossiersVehiculesPage() {
                           : "Double-cliquer pour ouvrir le dossier"
                       }
                     >
-                      <td style={styles.tdStrong} data-label="Unité"><button type="button" className="am-open-link" onClick={() => navigate(`/admin/dossiers-vehicules/${u.id}`)}>{unitLabel(u)}</button></td>
+                      <td style={styles.tdStrong} data-label="Unité"><span className="am-desktop-only">{unitLabel(u)}</span><button type="button" className="am-open-link am-mobile-only" onClick={() => navigate(`/admin/dossiers-vehicules/${u.id}`)}>{unitLabel(u)}</button></td>
                       <td style={styles.td} data-label="Plaque">{plateLabel(u)}</td>
                       <td style={styles.td} data-label="NIV">{nivLabel(u)}</td>
                       <td style={styles.td} data-label="Dernier PEP">{formatDate(lastPepDate)}</td>
