@@ -52,6 +52,8 @@ import PepAdmin from "./pages/pep/PepAdmin";
 
 import { supabase } from "./lib/supabaseClient";
 import "./styles.css";
+import "./atelier-mobile.css";
+import AtelierTodoPersonal from "./components/TodoPersonal";
 
 const SUITE_GB_URL = "https://suite.groupebreton.com";
 const SUITE_SUPABASE_URL =
@@ -152,7 +154,11 @@ function PhoneRedirectGuard({ children }: { children: React.ReactNode }) {
   const isPrintRoute = location.pathname.includes("/imprimer");
   const isPepFinalRoute = location.pathname.startsWith("/pep/final");
 
-  if (isPhone && !isMobileRoute && !isPrintRoute && !isPepFinalRoute) {
+  const isResponsiveRoute = ["/bt", "/unites", "/admin/dossiers-vehicules"].some(
+    (path) => location.pathname === path || location.pathname.startsWith(path + "/")
+  );
+
+  if (isPhone && !isMobileRoute && !isPrintRoute && !isPepFinalRoute && !isResponsiveRoute) {
     return <Navigate to="/mobile" replace />;
   }
 
@@ -285,6 +291,10 @@ function AppShell({ onLogout }: { onLogout: () => void | Promise<void> }) {
     return () => document.removeEventListener("keydown", trapFocus);
   }, [isMobile, drawerOpen]);
 
+  useEffect(() => {
+    if (isMobile) document.querySelector<HTMLElement>("main.content")?.scrollTo({ top: 0, left: 0 });
+  }, [location.pathname, isMobile]);
+
   function closeDrawer() {
     setDrawerOpen(false);
     menuButtonRef.current?.focus();
@@ -373,13 +383,13 @@ function AppShell({ onLogout }: { onLogout: () => void | Promise<void> }) {
                 aria-controls="atelier-sidebar"
                 aria-expanded={drawerOpen}
                 onClick={toggleDrawer}
-                aria-label="Ouvrir le menu"
+                aria-label={drawerOpen ? "Fermer le menu" : "Ouvrir le menu"}
                 type="button"
               >
                 ☰
               </button>
               <div className="mobile-topbar-title">Atelier</div>
-              <div style={{ width: 40 }} />
+              <div style={{ width: 52 }} aria-hidden="true" />
             </div>
           )}
 
@@ -451,6 +461,7 @@ function AppShell({ onLogout }: { onLogout: () => void | Promise<void> }) {
             <Route path="*" element={<Navigate to="/dashboard-atelier" replace />} />
           </Routes>
         </main>
+        {!drawerOpen && !location.pathname.includes("/imprimer") && !location.pathname.startsWith("/pep/final") && <AtelierTodoPersonal />}
       </div>
     </PhoneRedirectGuard>
   );

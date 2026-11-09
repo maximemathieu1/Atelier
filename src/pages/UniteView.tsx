@@ -176,7 +176,7 @@ function Row({
   hint?: string;
 }) {
   return (
-    <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+    <div className="am-unit-field-row" style={{ display: "flex", gap: 12, alignItems: "center" }}>
       <div style={{ width: 190, flex: "0 0 190px", fontWeight: 800, lineHeight: 1.1 }}>
         {label}
         {hint ? (
@@ -811,7 +811,7 @@ export default function UniteView({
   if (!u) return <div className="page">Chargement…</div>;
 
   return (
-    <div className="page">
+    <div className="page atelier-responsive am-unit-detail">
       <div
         style={{
           display: "flex",
@@ -879,7 +879,9 @@ export default function UniteView({
         </div>
       </div>
 
-      <div className="tabs" style={{ marginBottom: 10 }}>
+      {!modalMode && <button type="button" className="am-open-link am-mobile-only" onClick={() => nav(`/admin/dossiers-vehicules/${id}`)}>Ouvrir le dossier véhicule</button>}
+
+      <div className="tabs am-tabs" style={{ marginBottom: 10 }}>
         <TabBtn active={tab === "infos"} onClick={() => setTab("infos")}>
           Fiche unité
         </TabBtn>
@@ -1462,7 +1464,7 @@ export default function UniteView({
               </div>
             </div>
 
-            <div
+            <div className="am-grid"
               style={{
                 marginTop: 12,
                 display: "grid",
@@ -1535,7 +1537,7 @@ export default function UniteView({
             )}
 
             <div className="table-wrap" style={{ marginTop: 14 }}>
-              <table className="list">
+              <table className="list am-table">
                 <thead>
                   <tr>
                     <th style={{ paddingTop: 8, paddingBottom: 8 }}>Date</th>
@@ -1550,11 +1552,11 @@ export default function UniteView({
 
                     return (
                       <tr className="row" key={row.id} style={{ background: "rgba(0,0,0,.025)" }}>
-                        <td className="muted" style={{ paddingTop: 8, paddingBottom: 8 }}>
+                        <td className="muted" style={{ paddingTop: 8, paddingBottom: 8 }} data-label="Date">
                           {fmtDateTime(row.created_at)}
                         </td>
 
-                        <td style={{ fontWeight: 900, paddingTop: 8, paddingBottom: 8 }}>
+                        <td style={{ fontWeight: 900, paddingTop: 8, paddingBottom: 8 }} data-label="KM">
                           {isEditing ? (
                             <input
                               className="input"
@@ -1568,7 +1570,7 @@ export default function UniteView({
                           )}
                         </td>
 
-                        <td style={{ paddingTop: 8, paddingBottom: 8 }}>
+                        <td style={{ paddingTop: 8, paddingBottom: 8 }} data-label="BT">
                           {row.bt_id ? (
                             <button
                               type="button"
@@ -1583,7 +1585,7 @@ export default function UniteView({
                           )}
                         </td>
 
-                        <td style={{ textAlign: "right", paddingTop: 8, paddingBottom: 8 }}>
+                        <td style={{ textAlign: "right", paddingTop: 8, paddingBottom: 8 }} data-label="">
                           {isEditing ? (
                             <div style={{ display: "inline-flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
                               <button className="btn-primary" type="button" onClick={() => saveEditKm(row)} disabled={busy}>
@@ -1605,7 +1607,7 @@ export default function UniteView({
 
                   {kmLogs.length === 0 && (
                     <tr>
-                      <td colSpan={4} className="muted">
+                      <td colSpan={4} className="muted am-full-cell" data-label="">
                         Aucun historique de kilométrage.
                       </td>
                     </tr>
@@ -1720,7 +1722,7 @@ export default function UniteView({
             )}
 
             <div className="table-wrap" style={{ marginTop: 12 }}>
-              <table className="list">
+              <table className="list am-table">
                 <thead>
                   <tr>
                     <th>Titre</th>
@@ -1731,7 +1733,7 @@ export default function UniteView({
                 <tbody>
                   {notes.map((n) => (
                     <tr className="row" key={n.id}>
-                      <td>
+                      <td data-label="Titre">
                         <div style={{ fontWeight: 900 }}>{n.titre}</div>
                         {(() => {
                           const badge = getSuiviBadge(n.suivi_type as SuiviTacheType | null | undefined);
@@ -1754,8 +1756,8 @@ export default function UniteView({
                           ) : null;
                         })()}
                       </td>
-                      <td className="muted">{fmtDateTime(n.created_at)}</td>
-                      <td style={{ textAlign: "right" }}>
+                      <td className="muted" data-label="Créé">{fmtDateTime(n.created_at)}</td>
+                      <td style={{ textAlign: "right" }} data-label="">
                         <button
                           className="ghost"
                           onClick={() => doneNote(n.id)}
@@ -1771,7 +1773,7 @@ export default function UniteView({
 
                   {notes.length === 0 && (
                     <tr>
-                      <td colSpan={3} className="muted">
+                      <td colSpan={3} className="muted am-full-cell" data-label="">
                         Aucune note mécanique ouverte.
                       </td>
                     </tr>

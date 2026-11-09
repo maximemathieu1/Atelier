@@ -234,20 +234,20 @@ export default function UnitesListe() {
   }
 
   return (
-    <div style={styles.page}>
-      <div style={styles.topBar}>
+    <div className="atelier-responsive am-unit-list" style={styles.page}>
+      <div className="am-row" style={styles.topBar}>
         <div style={styles.titleBlock}>
           <h1 style={styles.h1}>Unités</h1>
         </div>
 
-        <div style={styles.topActions}>
+        <div className="am-row" style={styles.topActions}>
           <button type="button" style={styles.primaryBtn} onClick={addUnite} disabled={busy}>
             + Nouvelle unité
           </button>
         </div>
       </div>
 
-      <div style={styles.toolbarCard}>
+      <div className="am-row am-card" style={styles.toolbarCard}>
         <input
           style={styles.searchInput}
           placeholder="Recherche unité, client, marque, modèle, VIN, kilométrage..."
@@ -293,9 +293,16 @@ export default function UnitesListe() {
         </div>
       </div>
 
-      <div style={styles.tableShell}>
-        <div style={styles.tableWrap}>
-          <table style={styles.table}>
+      <div className="am-sort am-mobile-only">
+          <label htmlFor="am-unit-sort">Trier par</label>
+          <select id="am-unit-sort" value={sortKey} onChange={(e) => setSortKey(e.target.value as SortKey)}>
+            <option value="no_unite">Unité</option><option value="client">Client</option><option value="marque">Marque</option><option value="modele">Modèle</option><option value="niv">VIN</option><option value="km_actuel">Kilométrage</option><option value="actif">État</option>
+          </select>
+          <button type="button" onClick={() => setSortDir((value) => value === "asc" ? "desc" : "asc")} aria-label="Inverser l’ordre de tri">{sortDir === "asc" ? "↑" : "↓"}</button>
+        </div>
+        <div className="am-table-wrap" style={styles.tableShell}>
+        <div className="am-table-wrap" style={styles.tableWrap}>
+          <table className="am-table" style={styles.table}>
             <thead>
               <tr style={styles.theadRow}>
                 {renderSortableHeader("Unité", "no_unite", false, 160)}
@@ -311,7 +318,7 @@ export default function UnitesListe() {
             <tbody>
               {paginatedRows.length === 0 ? (
                 <tr>
-                  <td colSpan={7}>
+                  <td className="am-full-cell" colSpan={7} data-label="">
                     <div style={styles.emptyWrap}>
                       {rows.length === 0 ? "Aucune unité." : "Aucun résultat."}
                     </div>
@@ -328,33 +335,33 @@ export default function UnitesListe() {
                       style={{ background: rowBg, cursor: "pointer" }}
                       onDoubleClick={() => nav(`/unites/${u.id}`)}
                     >
-                      <td style={{ ...styles.td, background: rowBg }}>
-                        <div style={styles.mainValue}>{u.no_unite}</div>
+                      <td style={{ ...styles.td, background: rowBg }} data-label="Unité">
+                        <button type="button" className="am-open-link" onClick={() => nav(`/unites/${u.id}`)}>{u.no_unite}</button>
                       </td>
 
-                      <td style={{ ...styles.td, background: rowBg }}>
+                      <td style={{ ...styles.td, background: rowBg }} data-label="État">
                         <span style={u.actif === false ? styles.inactiveBadge : styles.activeBadge}>
                           {u.actif === false ? "Inactive" : "Active"}
                         </span>
                       </td>
 
-                      <td style={{ ...styles.td, background: rowBg }}>
+                      <td style={{ ...styles.td, background: rowBg }} data-label="Client">
                         <div style={styles.cellPrimary}>{client}</div>
                       </td>
 
-                      <td style={{ ...styles.td, background: rowBg }}>
+                      <td style={{ ...styles.td, background: rowBg }} data-label="Marque">
                         <div style={styles.cellPrimary}>{u.marque || "—"}</div>
                       </td>
 
-                      <td style={{ ...styles.td, background: rowBg }}>
+                      <td style={{ ...styles.td, background: rowBg }} data-label="Modèle">
                         <div style={styles.cellPrimary}>{u.modele || "—"}</div>
                       </td>
 
-                      <td style={{ ...styles.td, background: rowBg }}>
+                      <td style={{ ...styles.td, background: rowBg }} data-label="VIN">
                         <div style={styles.cellPrimary}>{renderVin(u.niv)}</div>
                       </td>
 
-                      <td style={{ ...styles.tdRight, background: rowBg, paddingRight: 24, minWidth: 150 }}>
+                      <td style={{ ...styles.tdRight, background: rowBg, paddingRight: 24, minWidth: 150 }} data-label="KM">
                         <div style={styles.cellPrimary}>{formatKm(u.km_actuel)}</div>
                       </td>
                     </tr>
@@ -365,14 +372,14 @@ export default function UnitesListe() {
           </table>
         </div>
 
-        <div style={styles.pagerWrap}>
-          <div style={styles.pagerLeft}>
+        <div className="am-row" style={styles.pagerWrap}>
+          <div className="am-row" style={styles.pagerLeft}>
             <span style={styles.resultsText}>
               Affichage {fromRow} à {toRow} sur {sortedRows.length}
             </span>
           </div>
 
-          <div style={styles.pagerRight}>
+          <div className="am-row" style={styles.pagerRight}>
             <button
               type="button"
               style={page <= 1 ? styles.ghostBtnDisabled : styles.ghostBtn}

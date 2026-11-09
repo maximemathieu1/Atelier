@@ -67,7 +67,7 @@ export default function MobileAtelierPage() {
   });
 
   return (
-    <div style={styles.page}>
+    <div className="am-mobile-home" style={styles.page}>
       <div style={styles.header}>
         <div>
           <div style={styles.kicker}>Atelier mobile</div>
@@ -78,6 +78,12 @@ export default function MobileAtelierPage() {
           ↻
         </button>
       </div>
+
+      <nav className="am-mobile-shortcuts" aria-label="Accès Atelier">
+        <button type="button" onClick={() => nav("/bt")}>Bons de travail</button>
+        <button type="button" onClick={() => nav("/unites")}>Véhicules</button>
+        <button type="button" onClick={() => nav("/admin/dossiers-vehicules")}>Dossiers</button>
+      </nav>
 
       <div style={styles.searchCard}>
         <input

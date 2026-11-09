@@ -1283,13 +1283,13 @@ Réponse manquante : ${missingReply.titre}`,
 
   return (
     <>
-      <div style={styles.card}>
-        <div style={{ ...styles.row, justifyContent: "space-between" }}>
+      <div className="am-card" style={styles.card}>
+        <div className="am-row" style={{ ...styles.row, justifyContent: "space-between" }}>
           <div style={{ fontSize: 16, fontWeight: 950 }}>
             Tâches à compléter
           </div>
 
-          <div style={styles.row}>
+          <div className="am-row" style={styles.row}>
             <button
               style={styles.btn}
               onClick={onCompleteSelectedTasks}
@@ -1317,7 +1317,7 @@ Réponse manquante : ${missingReply.titre}`,
           </div>
         </div>
 
-        <div style={{ ...styles.row, marginTop: 10 }}>
+        <div className="am-row" style={{ ...styles.row, marginTop: 10 }}>
           <button
             style={styles.btnPrimary}
             onClick={onOpenTaskModal}
@@ -1328,12 +1328,13 @@ Réponse manquante : ${missingReply.titre}`,
         </div>
 
         <div style={{ marginTop: 10 }}>
-          <table style={styles.table}>
+          <table className="am-table" style={styles.table}>
             <thead>
               <tr>
-                <th style={{ ...styles.th, width: 40 }}>
+                <th className="am-select-all" style={{ ...styles.th, width: 40 }}>
                   <input
                     type="checkbox"
+                    aria-label="Sélectionner toutes les tâches"
                     checked={
                       notes.length > 0 && notes.every((t) => selected[t.id])
                     }
@@ -1356,7 +1357,7 @@ Réponse manquante : ${missingReply.titre}`,
             <tbody>
               {notes.length === 0 ? (
                 <tr>
-                  <td style={styles.td} colSpan={5}>
+                  <td className="am-full-cell" style={styles.td} colSpan={5} data-label="">
                     <span style={styles.muted}>Aucune tâche ouverte.</span>
                   </td>
                 </tr>
@@ -1398,7 +1399,7 @@ Réponse manquante : ${missingReply.titre}`,
 
                   return (
                     <tr key={t.id} style={rowStyle}>
-                      <td style={styles.td}>
+                      <td style={styles.td} data-label="Sélection">
                         <input
                           type="checkbox"
                           checked={Boolean(selected[t.id])}
@@ -1412,7 +1413,7 @@ Réponse manquante : ${missingReply.titre}`,
                         />
                       </td>
 
-                      <td style={styles.td}>
+                      <td style={styles.td} data-label="Titre">
                         <div
                           style={{
                             fontWeight: 500,
@@ -1492,7 +1493,7 @@ Réponse manquante : ${missingReply.titre}`,
                           )}
 
                         {isRefusedClient && !isReadOnly && (
-                          <div style={{ ...styles.row, gap: 6, marginTop: 8 }}>
+                          <div className="am-row" style={{ ...styles.row, gap: 6, marginTop: 8 }}>
                             <button
                               type="button"
                               style={styles.btnMiniPrimary}
@@ -1504,11 +1505,11 @@ Réponse manquante : ${missingReply.titre}`,
                         )}
                       </td>
 
-                      <td style={styles.td}>
+                      <td style={styles.td} data-label="Créé">
                         {fmtDateTimeNoSeconds(t.created_at)}
                       </td>
 
-                      <td style={styles.td}>
+                      <td style={styles.td} data-label="Suivi">
                        <button
   type="button"
   disabled={isReadOnly}
@@ -1528,7 +1529,7 @@ Réponse manquante : ${missingReply.titre}`,
 </button>
                       </td>
 
-                      <td style={styles.photoTd}>
+                      <td style={styles.photoTd} data-label="Photos">
                         <BtTachePhotos
                           btId={btId}
                           uniteId={t.unite_id}
@@ -1549,7 +1550,7 @@ Réponse manquante : ${missingReply.titre}`,
           <span style={styles.muted}>({tachesEffectuees.length})</span>
         </div>
 
-        <table style={{ ...styles.table, marginTop: 6 }}>
+        <table className="am-table" style={{ ...styles.table, marginTop: 6 }}>
           <thead>
             <tr>
               <th style={styles.th}>Titre</th>
@@ -1562,14 +1563,14 @@ Réponse manquante : ${missingReply.titre}`,
           <tbody>
             {tachesEffectuees.length === 0 ? (
               <tr>
-                <td style={styles.td} colSpan={4}>
+                <td className="am-full-cell" style={styles.td} colSpan={4} data-label="">
                   <span style={styles.muted}>Aucune tâche effectuée.</span>
                 </td>
               </tr>
             ) : (
               tachesEffectuees.map((t) => (
                 <tr key={t.id}>
-                  <td style={styles.td}>
+                  <td style={styles.td} data-label="Titre">
                     <div
                       style={{ fontWeight: 500, textTransform: "uppercase" }}
                     >
@@ -1577,11 +1578,11 @@ Réponse manquante : ${missingReply.titre}`,
                     </div>
                   </td>
 
-                  <td style={styles.td}>
+                  <td style={styles.td} data-label="Date">
                     {fmtDateTimeNoSeconds(t.date_effectuee)}
                   </td>
 
-                  <td style={styles.photoTd}>
+                  <td style={styles.photoTd} data-label="Photos">
                     <BtTachePhotos
                       btId={btId}
                       uniteId={t.unite_id}
@@ -1590,7 +1591,7 @@ Réponse manquante : ${missingReply.titre}`,
                     />
                   </td>
 
-                  <td style={styles.td}>
+                  <td style={styles.td} data-label="Action">
                     <button
                       style={styles.btn}
                       disabled={isReadOnly}
@@ -1619,12 +1620,12 @@ Réponse manquante : ${missingReply.titre}`,
         onReload={onReloadPiecesAndRecalc}
       />
 
-      <div style={styles.card}>
+      <div className="am-card" style={styles.card}>
         <div style={{ fontSize: 16, fontWeight: 950, marginBottom: 10 }}>
           Temps pointé
         </div>
 
-        <div style={{ ...styles.row, marginBottom: 10 }}>
+        <div className="am-row" style={{ ...styles.row, marginBottom: 10 }}>
           <button
             style={styles.btnPrimary}
             onClick={onOpenTempsModal}
@@ -1643,8 +1644,8 @@ Réponse manquante : ${missingReply.titre}`,
 
         {pointagesTableAvailable && (
           <>
-            <div style={styles.tableWrap}>
-              <table style={styles.table}>
+            <div className="am-table-wrap" style={styles.tableWrap}>
+              <table className="am-table" style={styles.table}>
                 <thead>
                   <tr>
                     <th style={styles.th}>Mécano</th>
@@ -1657,7 +1658,7 @@ Réponse manquante : ${missingReply.titre}`,
                 <tbody>
                   {pointagesResume.length === 0 ? (
                     <tr>
-                      <td style={styles.td} colSpan={4}>
+                      <td className="am-full-cell" style={styles.td} colSpan={4} data-label="">
                         <span style={styles.muted}>
                           Aucun temps pointé pour ce BT.
                         </span>
@@ -1666,12 +1667,12 @@ Réponse manquante : ${missingReply.titre}`,
                   ) : (
                     pointagesResume.map((r) => (
                       <tr key={r.mecano_nom}>
-                        <td style={styles.td}>
+                        <td style={styles.td} data-label="Mécano">
                           <div style={{ fontWeight: 900 }}>{r.mecano_nom}</div>
                         </td>
-                        <td style={styles.td}>{fmtHours(r.heures)}</td>
-                        <td style={styles.td}>{money(effectiveTauxHoraire)}</td>
-                        <td style={styles.td}>
+                        <td style={styles.td} data-label="Heures">{fmtHours(r.heures)}</td>
+                        <td style={styles.td} data-label="Taux horaire">{money(effectiveTauxHoraire)}</td>
+                        <td style={styles.td} data-label="Total">
                           {money(
                             decimalToNumber(r.heures) * effectiveTauxHoraire,
                           )}
@@ -1701,8 +1702,8 @@ Réponse manquante : ${missingReply.titre}`,
                 {showPointageDetails && (
                   <>
                     {pointages.length > 0 && (
-                      <div style={styles.tableWrap}>
-                        <table style={styles.table}>
+                      <div className="am-table-wrap" style={styles.tableWrap}>
+                        <table className="am-table" style={styles.table}>
                           <thead>
                             <tr>
                               <th style={styles.th}>Mécano</th>
@@ -1727,9 +1728,9 @@ Réponse manquante : ${missingReply.titre}`,
                           <tbody>
                             {pointages.map((p) => (
                               <tr key={p.id}>
-                                <td style={styles.td}>{p.mecano_nom}</td>
+                                <td style={styles.td} data-label="Mécano">{p.mecano_nom}</td>
 
-                                <td style={styles.td}>
+                                <td style={styles.td} data-label="Début">
                                   {editingPointageId === p.id ? (
                                     <input
                                       type="datetime-local"
@@ -1749,7 +1750,7 @@ Réponse manquante : ${missingReply.titre}`,
                                   )}
                                 </td>
 
-                                <td style={styles.td}>
+                                <td style={styles.td} data-label="Fin">
                                   {editingPointageId === p.id ? (
                                     <input
                                       type="datetime-local"
@@ -1769,7 +1770,7 @@ Réponse manquante : ${missingReply.titre}`,
                                   )}
                                 </td>
 
-                                <td style={styles.td}>
+                                <td style={styles.td} data-label="Durée">
                                   {editingPointageId === p.id
                                     ? fmtHours(
                                         Math.max(
@@ -1804,9 +1805,9 @@ Réponse manquante : ${missingReply.titre}`,
                                       )}
                                 </td>
 
-                                <td style={styles.td}>{p.note || "—"}</td>
+                                <td style={styles.td} data-label="Note">{p.note || "—"}</td>
 
-                                <td style={styles.td}>
+                                <td style={styles.td} data-label="Action">
                                   <div
                                     style={styles.menuWrap}
                                     data-menu-root="pointage"
@@ -1890,8 +1891,8 @@ Réponse manquante : ${missingReply.titre}`,
                       <>
                         <div style={styles.detailSubTitle}>Temps manuel</div>
 
-                        <div style={styles.tableWrap}>
-                          <table style={styles.table}>
+                        <div className="am-table-wrap" style={styles.tableWrap}>
+                          <table className="am-table" style={styles.table}>
                             <thead>
                               <tr>
                                 <th style={styles.th}>Mécano</th>
@@ -1926,7 +1927,7 @@ Réponse manquante : ${missingReply.titre}`,
 
                                 return (
                                   <tr key={row.id}>
-                                    <td style={styles.td}>
+                                    <td style={styles.td} data-label="Mécano">
                                       {isEditing ? (
                                         <input
                                           style={{
@@ -1950,7 +1951,7 @@ Réponse manquante : ${missingReply.titre}`,
                                       )}
                                     </td>
 
-                                    <td style={styles.td}>
+                                    <td style={styles.td} data-label="Description">
                                       {isEditing ? (
                                         <input
                                           style={{
@@ -1974,7 +1975,7 @@ Réponse manquante : ${missingReply.titre}`,
                                       )}
                                     </td>
 
-                                    <td style={styles.td}>
+                                    <td style={styles.td} data-label="Heures">
                                       {isEditing ? (
                                         <input
                                           type="text"
@@ -2004,7 +2005,7 @@ Réponse manquante : ${missingReply.titre}`,
                                       )}
                                     </td>
 
-                                    <td style={styles.td}>
+                                    <td style={styles.td} data-label="Taux horaire">
                                       {isEditing ? (
                                         <input
                                           type="text"
@@ -2038,9 +2039,9 @@ Réponse manquante : ${missingReply.titre}`,
                                       )}
                                     </td>
 
-                                    <td style={styles.td}>{money(total)}</td>
+                                    <td style={styles.td} data-label="Total">{money(total)}</td>
 
-                                    <td style={styles.td}>
+                                    <td style={styles.td} data-label="Action">
                                       <div
                                         style={styles.menuWrap}
                                         data-menu-root="mainoeuvre"
@@ -2136,7 +2137,7 @@ Réponse manquante : ${missingReply.titre}`,
         )}
       </div>
 
-      <div style={styles.card}>
+      <div className="am-card" style={styles.card}>
         <div style={{ fontSize: 16, fontWeight: 950, marginBottom: 8 }}>
           Total
         </div>
@@ -2171,8 +2172,8 @@ Réponse manquante : ${missingReply.titre}`,
       </div>
 
       {sendClientChoiceOpen && (
-        <div style={styles.modalBackdrop}>
-          <div style={styles.modalCard}>
+        <div className="am-overlay" style={styles.modalBackdrop}>
+          <div className="am-dialog" style={styles.modalCard}>
             <button
               type="button"
               style={styles.modalClose}
@@ -2221,7 +2222,7 @@ Réponse manquante : ${missingReply.titre}`,
       )}
 
       {taskAuthSmsOpen && (
-        <div style={styles.modalBackdrop}>
+        <div className="am-overlay" style={styles.modalBackdrop}>
           <div style={styles.modalCardLarge}>
             <button
               type="button"
@@ -2297,7 +2298,7 @@ Réponse manquante : ${missingReply.titre}`,
       )}
 
       {vehicleReadyOpen && (
-        <div style={styles.modalBackdrop}>
+        <div className="am-overlay" style={styles.modalBackdrop}>
           <div style={styles.modalCardLarge}>
             <button
               type="button"
@@ -2345,7 +2346,7 @@ Réponse manquante : ${missingReply.titre}`,
                 onChange={(e) => setVehicleReadyEmail(e.target.value)}
               />
 
-              <div style={{ ...styles.row, gap: 14 }}>
+              <div className="am-row" style={{ ...styles.row, gap: 14 }}>
                 <label style={styles.checkRow}>
                   <input
                     type="checkbox"
@@ -2394,7 +2395,7 @@ Réponse manquante : ${missingReply.titre}`,
       )}
 
       {finalDiscussionTask && (
-        <div
+        <div className="am-overlay"
           style={styles.modalBackdrop}
           onClick={() => {
             if (!finalDiscussionSending) setFinalDiscussionTask(null);
@@ -2470,7 +2471,7 @@ Réponse manquante : ${missingReply.titre}`,
                   disabled={finalDiscussionSending}
                 />
 
-                <div
+                <div className="am-row"
                   style={{
                     ...styles.row,
                     justifyContent: "flex-end",
@@ -2506,7 +2507,7 @@ Réponse manquante : ${missingReply.titre}`,
       )}
 
       {discussionOpen && (
-        <div
+        <div className="am-overlay"
           style={styles.modalBackdrop}
           onClick={() => {
             if (!discussionSending) setDiscussionOpen(false);
@@ -2627,7 +2628,7 @@ Réponse manquante : ${missingReply.titre}`,
               </div>
             )}
 
-            <div
+            <div className="am-row"
               style={{
                 ...styles.row,
                 justifyContent: "flex-end",
@@ -2668,11 +2669,11 @@ Réponse manquante : ${missingReply.titre}`,
       )}
 
       {suiviModalTask && (
-        <div
+        <div className="am-overlay"
           style={styles.modalBackdrop}
           onClick={() => setSuiviModalTask(null)}
         >
-          <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
+          <div className="am-dialog" style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
             <button
               type="button"
               style={styles.modalClose}

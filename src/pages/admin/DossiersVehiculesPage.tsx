@@ -620,7 +620,7 @@ export default function DossiersVehiculesPage() {
   }, [unites, search]);
 
   return (
-    <div style={styles.page}>
+    <div className="atelier-responsive am-dossiers" style={styles.page}>
       <div style={styles.header}>
         <div>
           <h1 style={styles.title}>Dossiers véhicules</h1>
@@ -630,8 +630,8 @@ export default function DossiersVehiculesPage() {
         </div>
       </div>
 
-      <div style={styles.card}>
-        <div style={styles.toolbar}>
+      <div className="am-card" style={styles.card}>
+        <div className="am-row" style={styles.toolbar}>
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -644,8 +644,8 @@ export default function DossiersVehiculesPage() {
         {loading ? (
           <div style={styles.empty}>Chargement…</div>
         ) : (
-          <div style={styles.tableWrap}>
-            <table style={styles.table}>
+          <div className="am-table-wrap" style={styles.tableWrap}>
+            <table className="am-table" style={styles.table}>
               <thead>
                 <tr>
                   <th style={styles.th}>Unité</th>
@@ -681,13 +681,13 @@ export default function DossiersVehiculesPage() {
                           : "Double-cliquer pour ouvrir le dossier"
                       }
                     >
-                      <td style={styles.tdStrong}>{unitLabel(u)}</td>
-                      <td style={styles.td}>{plateLabel(u)}</td>
-                      <td style={styles.td}>{nivLabel(u)}</td>
-                      <td style={styles.td}>{formatDate(lastPepDate)}</td>
-                      <td style={styles.td}>{kmLabel(u)}</td>
-                      <td style={styles.td}>{docsCount}</td>
-                      <td style={styles.td}>
+                      <td style={styles.tdStrong} data-label="Unité"><button type="button" className="am-open-link" onClick={() => navigate(`/admin/dossiers-vehicules/${u.id}`)}>{unitLabel(u)}</button></td>
+                      <td style={styles.td} data-label="Plaque">{plateLabel(u)}</td>
+                      <td style={styles.td} data-label="NIV">{nivLabel(u)}</td>
+                      <td style={styles.td} data-label="Dernier PEP">{formatDate(lastPepDate)}</td>
+                      <td style={styles.td} data-label="KM actuel">{kmLabel(u)}</td>
+                      <td style={styles.td} data-label="Documents">{docsCount}</td>
+                      <td style={styles.td} data-label="État dossier">
                         {hasAlert ? (
                           <div style={styles.alertCell}>
                             <span
@@ -712,7 +712,7 @@ export default function DossiersVehiculesPage() {
 
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={7} style={styles.emptyTd}>
+                    <td className="am-full-cell" colSpan={7} style={styles.emptyTd} data-label="">
                       Aucune unité trouvée.
                     </td>
                   </tr>

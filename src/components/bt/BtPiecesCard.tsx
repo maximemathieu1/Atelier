@@ -1630,12 +1630,12 @@ export default function BtPiecesCard({
 
   return (
     <>
-      <div style={styles.card}>
+      <div className="am-card" style={styles.card}>
         <div style={{ fontSize: 16, fontWeight: 950, marginBottom: 10 }}>
           Pièces
         </div>
 
-        <div style={{ ...styles.row, marginBottom: 10 }}>
+        <div className="am-row" style={{ ...styles.row, marginBottom: 10 }}>
           <button
             style={styles.btnPrimary}
             onClick={openSelectionModal}
@@ -1653,7 +1653,7 @@ export default function BtPiecesCard({
         )}
 
         <div style={{ marginTop: 10 }}>
-          <table style={styles.table}>
+          <table className="am-table" style={styles.table}>
             <thead>
               <tr>
                 <th style={{ ...styles.th, width: 130 }}>SKU</th>
@@ -1672,7 +1672,7 @@ export default function BtPiecesCard({
             <tbody>
               {pieces.length === 0 ? (
                 <tr>
-                  <td style={styles.td} colSpan={9}>
+                  <td className="am-full-cell" style={styles.td} colSpan={9} data-label="">
                     <span style={styles.muted}>Aucune pièce.</span>
                   </td>
                 </tr>
@@ -1685,7 +1685,7 @@ export default function BtPiecesCard({
 
                   return (
                     <tr key={p.id}>
-                      <td style={styles.td}>
+                      <td style={styles.td} data-label="SKU">
                         <input
                           style={{
                             ...styles.input,
@@ -1700,7 +1700,7 @@ export default function BtPiecesCard({
                           disabled={isReadOnly || !piecesTableAvailable}
                         />
                       </td>
-                      <td style={styles.td}>
+                      <td style={styles.td} data-label="Description">
                         <input
                           style={{
                             ...styles.input,
@@ -1717,7 +1717,7 @@ export default function BtPiecesCard({
                           disabled={isReadOnly || !piecesTableAvailable}
                         />
                       </td>
-                      <td style={styles.td}>
+                      <td style={styles.td} data-label="Unité">
                         {uniteVide ? (
                           <div style={styles.dashBox}>—</div>
                         ) : (
@@ -1736,7 +1736,7 @@ export default function BtPiecesCard({
                           />
                         )}
                       </td>
-                      <td style={styles.td}>
+                      <td style={styles.td} data-label="Qté">
                         <input
                           style={{
                             ...styles.input,
@@ -1754,7 +1754,7 @@ export default function BtPiecesCard({
                           disabled={isReadOnly || !piecesTableAvailable}
                         />
                       </td>
-                      <td style={styles.td}>
+                      <td style={styles.td} data-label="Coût unitaire">
                         <input
                           style={{
                             ...styles.input,
@@ -1778,10 +1778,10 @@ export default function BtPiecesCard({
                           disabled={isReadOnly || !piecesTableAvailable}
                         />
                       </td>
-                      <td style={styles.td}>{pct(margePct)}</td>
-                      <td style={styles.td}>{money(factureU)}</td>
-                      <td style={styles.td}>{money(lineTotal)}</td>
-                      <td style={styles.td}>
+                      <td style={styles.td} data-label="Marge">{pct(margePct)}</td>
+                      <td style={styles.td} data-label="Prix facturé unitaire">{money(factureU)}</td>
+                      <td style={styles.td} data-label="Total facturé">{money(lineTotal)}</td>
+                      <td style={styles.td} data-label="Action">
                         <button
                           style={styles.btn}
                           disabled={isReadOnly || !piecesTableAvailable}
@@ -1800,8 +1800,8 @@ export default function BtPiecesCard({
       </div>
 
       {pieceModalOpen && (
-        <div style={styles.modalBackdrop} onClick={closePieceModal}>
-          <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
+        <div className="am-overlay" style={styles.modalBackdrop} onClick={closePieceModal}>
+          <div className="am-dialog" style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
             <div style={styles.modalHeader}>
               <h3 style={styles.modalTitle}>Ajouter une pièce</h3>
               <button
@@ -1813,7 +1813,7 @@ export default function BtPiecesCard({
               </button>
             </div>
 
-            <div style={styles.modalBody}>
+            <div className="am-dialog-body" style={styles.modalBody}>
               <div style={styles.modalSection}>
                 <div style={styles.modalSectionTitle}>Recherche inventaire</div>
 
@@ -1889,7 +1889,7 @@ export default function BtPiecesCard({
                       Création rapide inventaire
                     </div>
 
-                    <div style={styles.quickCreateGrid}>
+                    <div className="am-grid" style={styles.quickCreateGrid}>
                       <div>
                         <label style={styles.fieldLabel}>SKU / code</label>
                         <input
@@ -2158,7 +2158,7 @@ export default function BtPiecesCard({
                   <div style={styles.selectedList}>
                     {pendingPieces.map((row) => (
                       <div key={row.key} style={styles.selectedItem}>
-                        <div style={styles.selectedLine}>
+                        <div className="am-grid" style={styles.selectedLine}>
                           <input
                             style={{
                               ...styles.input,
@@ -2261,7 +2261,7 @@ export default function BtPiecesCard({
               </div>
             </div>
 
-            <div style={styles.modalFooter}>
+            <div className="am-dialog-footer" style={styles.modalFooter}>
               <button
                 type="button"
                 style={styles.btnDanger}
@@ -2416,7 +2416,7 @@ export default function BtPiecesCard({
                         {formatKm(ev.km)}
                       </div>
 
-                      <div style={{ ...styles.row, marginTop: 12 }}>
+                      <div className="am-row" style={{ ...styles.row, marginTop: 12 }}>
                         <button
                           type="button"
                           style={hasValidSuiviKm() ? styles.btnPrimary : styles.btnDisabled}
@@ -2497,7 +2497,7 @@ export default function BtPiecesCard({
             </div>
 
             {suiviInstallationMode ? (
-              <div style={styles.modalFooter}>
+              <div className="am-dialog-footer" style={styles.modalFooter}>
                 <button
                   type="button"
                   style={styles.btn}

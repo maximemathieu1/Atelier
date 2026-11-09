@@ -1066,9 +1066,9 @@ export default function UniteEntretienPage({
   if (!id) return <div style={styles.page}>ID unité manquant.</div>;
 
   return (
-    <div style={styles.page}>
+    <div className="am-embedded-maintenance" style={styles.page}>
       {!embedded && (
-        <div style={{ ...styles.row, justifyContent: "space-between", marginBottom: 12 }}>
+        <div className="am-row" style={{ ...styles.row, justifyContent: "space-between", marginBottom: 12 }}>
           <div>
             <h1 style={{ margin: 0 }}>Entretien périodique</h1>
             <div style={{ color: "rgba(0,0,0,.6)" }}>
@@ -1078,7 +1078,7 @@ export default function UniteEntretienPage({
             </div>
           </div>
 
-          <div style={styles.row}>
+          <div className="am-row" style={styles.row}>
             <button style={styles.btn} type="button" onClick={() => nav(`/unites/${id}`)}>
               Retour à la fiche unité
             </button>
@@ -1087,11 +1087,11 @@ export default function UniteEntretienPage({
       )}
 
       {loading || !unite ? (
-        <div style={styles.card}>Chargement…</div>
+        <div className="am-card" style={styles.card}>Chargement…</div>
       ) : (
         <>
-          <div style={styles.card}>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 10 }}>
+          <div className="am-card" style={styles.card}>
+            <div className="am-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 10 }}>
               <Panel title="Unité">
                 <div style={{ fontWeight: 900, fontSize: 22 }}>{unite.no_unite}</div>
                 <div style={{ color: "rgba(0,0,0,.65)" }}>
@@ -1110,8 +1110,8 @@ export default function UniteEntretienPage({
             </div>
           </div>
 
-          <div style={styles.card}>
-            <div style={{ ...styles.row, justifyContent: "space-between", marginBottom: 10 }}>
+          <div className="am-card" style={styles.card}>
+            <div className="am-row" style={{ ...styles.row, justifyContent: "space-between", marginBottom: 10 }}>
               <div style={{ fontWeight: 900, fontSize: 16 }}>Entretiens applicables</div>
 
               <button
@@ -1126,7 +1126,7 @@ export default function UniteEntretienPage({
               </button>
             </div>
 
-            <table style={styles.table}>
+            <table className="am-table" style={styles.table}>
               <thead>
                 <tr>
                   <th style={styles.th}>Entretien</th>
@@ -1140,7 +1140,7 @@ export default function UniteEntretienPage({
               <tbody>
                 {rows.length === 0 ? (
                   <tr>
-                    <td style={styles.td} colSpan={6}>
+                    <td className="am-full-cell" style={styles.td} colSpan={6} data-label="">
                       <span style={{ color: "rgba(0,0,0,.6)" }}>
                         Aucun entretien configuré pour cette unité.
                       </span>
@@ -1161,7 +1161,7 @@ export default function UniteEntretienPage({
 
                     return (
                       <tr key={rowMenuId}>
-                        <td style={styles.td}>
+                        <td style={styles.td} data-label="Entretien">
                           <div style={{ fontWeight: 900 }}>{row.nom}</div>
                           {row.description ? (
                             <div style={{ color: "rgba(0,0,0,.6)", fontSize: 13 }}>{row.description}</div>
@@ -1173,9 +1173,9 @@ export default function UniteEntretienPage({
                           </div>
                         </td>
 
-                        <td style={styles.td}>{freq}</td>
+                        <td style={styles.td} data-label="Fréquence">{freq}</td>
 
-                        <td style={styles.td}>
+                        <td style={styles.td} data-label="Dernier fait">
                           {row.lastDone ? (
                             <>
                               <div>{fmtDate(row.lastDone.date_effectuee)}</div>
@@ -1188,9 +1188,9 @@ export default function UniteEntretienPage({
                           )}
                         </td>
 
-                        <td style={styles.td}>{nextDueText(row, unite.km_actuel)}</td>
+                        <td style={styles.td} data-label="Prochain dû">{nextDueText(row, unite.km_actuel)}</td>
 
-                        <td style={styles.td}>
+                        <td style={styles.td} data-label="Statut">
                           <span
                             style={{
                               ...styles.badge,
@@ -1203,7 +1203,7 @@ export default function UniteEntretienPage({
                           </span>
                         </td>
 
-                        <td style={{ ...styles.td, textAlign: "right", whiteSpace: "nowrap" }}>
+                        <td style={{ ...styles.td, textAlign: "right", whiteSpace: "nowrap" }} data-label="Action">
                           <div
                             style={styles.menuWrap}
                             onClick={(e) => {
@@ -1224,7 +1224,7 @@ export default function UniteEntretienPage({
 
                             {rowMenuOpenId === rowMenuId && (
                               <div style={styles.menu}>
-                                <div style={styles.menuGrid}>
+                                <div className="am-grid" style={styles.menuGrid}>
                                   <button
                                     style={styles.menuItem}
                                     type="button"
@@ -1287,10 +1287,10 @@ export default function UniteEntretienPage({
             </table>
           </div>
 
-          <div style={styles.card}>
+          <div className="am-card" style={styles.card}>
             <div style={{ fontWeight: 900, fontSize: 16, marginBottom: 10 }}>Historique</div>
 
-            <table style={styles.table}>
+            <table className="am-table" style={styles.table}>
               <thead>
                 <tr>
                   <th style={styles.th}>Date</th>
@@ -1304,7 +1304,7 @@ export default function UniteEntretienPage({
               <tbody>
                 {historique.length === 0 ? (
                   <tr>
-                    <td style={styles.td} colSpan={6}>
+                    <td className="am-full-cell" style={styles.td} colSpan={6} data-label="">
                       <span style={{ color: "rgba(0,0,0,.6)" }}>
                         Aucun historique pour cette unité.
                       </span>
@@ -1322,12 +1322,12 @@ export default function UniteEntretienPage({
                         onDoubleClick={() => openBt(h.bt_id)}
                         title={h.bt_id ? "Double-clique pour ouvrir le BT" : undefined}
                       >
-                        <td style={styles.td}>{fmtDate(h.date_effectuee)}</td>
-                        <td style={{ ...styles.td, fontWeight: 900 }}>{h.nom_snapshot}</td>
-                        <td style={styles.td}>{bt?.numero || (h.bt_id ? "BT lié" : "—")}</td>
-                        <td style={styles.td}>{fmtKm(h.km_effectue)}</td>
-                        <td style={styles.td}>{h.note || ""}</td>
-                        <td style={{ ...styles.td, textAlign: "right" }}>
+                        <td style={styles.td} data-label="Date">{fmtDate(h.date_effectuee)}</td>
+                        <td style={{ ...styles.td, fontWeight: 900 }} data-label="Entretien">{h.nom_snapshot}</td>
+                        <td style={styles.td} data-label="BT">{bt?.numero || (h.bt_id ? "BT lié" : "—")}</td>
+                        <td style={styles.td} data-label="KM">{fmtKm(h.km_effectue)}</td>
+                        <td style={styles.td} data-label="Note">{h.note || ""}</td>
+                        <td style={{ ...styles.td, textAlign: "right" }} data-label="Action">
                           <div
                             style={styles.menuWrap}
                             onClick={(e) => {
@@ -1348,7 +1348,7 @@ export default function UniteEntretienPage({
 
                             {histMenuOpenId === histMenuId && (
                               <div style={styles.menu}>
-                                <div style={styles.menuGrid}>
+                                <div className="am-grid" style={styles.menuGrid}>
                                   <button
                                     style={styles.menuItem}
                                     type="button"
@@ -1390,14 +1390,14 @@ export default function UniteEntretienPage({
       )}
 
       {addOpen && (
-        <div
+        <div className="am-overlay"
           style={styles.modalBackdrop}
           onClick={() => {
             if (busy) return;
             setAddOpen(false);
           }}
         >
-          <div
+          <div className="am-dialog"
             style={styles.modalCard}
             onClick={(e) => {
               e.stopPropagation();
@@ -1407,7 +1407,7 @@ export default function UniteEntretienPage({
               Ajouter entretien périodique
             </div>
 
-            <div style={styles.tabsWrap}>
+            <div className="am-tabs" style={styles.tabsWrap}>
               <button
                 style={{
                   ...styles.tabBtn,
@@ -1454,7 +1454,7 @@ export default function UniteEntretienPage({
                   </div>
                 )}
 
-                <div style={{ ...styles.row, justifyContent: "flex-end", marginTop: 14 }}>
+                <div className="am-row" style={{ ...styles.row, justifyContent: "flex-end", marginTop: 14 }}>
                   <button
                     style={styles.btn}
                     type="button"
@@ -1475,7 +1475,7 @@ export default function UniteEntretienPage({
               </>
             ) : (
               <>
-                <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 1fr", gap: 12 }}>
+                <div className="am-grid" style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 1fr", gap: 12 }}>
                   <input
                     style={{ ...styles.input, width: "100%", minWidth: 0 }}
                     placeholder="Nom"
@@ -1507,7 +1507,7 @@ export default function UniteEntretienPage({
                   />
                 </div>
 
-                <div style={{ ...styles.row, justifyContent: "flex-end", marginTop: 14 }}>
+                <div className="am-row" style={{ ...styles.row, justifyContent: "flex-end", marginTop: 14 }}>
                   <button
                     style={styles.btn}
                     type="button"
@@ -1535,7 +1535,7 @@ export default function UniteEntretienPage({
       )}
 
       {itemEditorOpen && (
-        <div
+        <div className="am-overlay"
           style={styles.modalBackdrop}
           onClick={() => {
             if (busy) return;
@@ -1543,7 +1543,7 @@ export default function UniteEntretienPage({
             resetItemEditor();
           }}
         >
-          <div
+          <div className="am-dialog"
             style={styles.modalCard}
             onClick={(e) => {
               e.stopPropagation();
@@ -1553,7 +1553,7 @@ export default function UniteEntretienPage({
               Modifier l’entretien
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 1fr", gap: 12 }}>
+            <div className="am-grid" style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 1fr", gap: 12 }}>
               <input
                 style={{ ...styles.input, width: "100%", minWidth: 0 }}
                 placeholder="Nom"
@@ -1585,7 +1585,7 @@ export default function UniteEntretienPage({
               />
             </div>
 
-            <div style={{ ...styles.row, justifyContent: "flex-end", marginTop: 14 }}>
+            <div className="am-row" style={{ ...styles.row, justifyContent: "flex-end", marginTop: 14 }}>
               <button
                 style={styles.btn}
                 type="button"
@@ -1611,7 +1611,7 @@ export default function UniteEntretienPage({
       )}
 
       {manualOpen && (
-        <div
+        <div className="am-overlay"
           style={styles.modalBackdrop}
           onClick={() => {
             if (busy) return;
@@ -1620,7 +1620,7 @@ export default function UniteEntretienPage({
             setEditingHistory(null);
           }}
         >
-          <div
+          <div className="am-dialog"
             style={styles.modalCard}
             onClick={(e) => {
               e.stopPropagation();
@@ -1638,7 +1638,7 @@ export default function UniteEntretienPage({
               </b>
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <div className="am-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div>
                 <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 6 }}>Date</div>
                 <input
@@ -1677,7 +1677,7 @@ export default function UniteEntretienPage({
               </div>
             ) : null}
 
-            <div style={{ ...styles.row, justifyContent: "flex-end", marginTop: 14 }}>
+            <div className="am-row" style={{ ...styles.row, justifyContent: "flex-end", marginTop: 14 }}>
               <button
                 style={styles.btn}
                 type="button"

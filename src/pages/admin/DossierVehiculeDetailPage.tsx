@@ -2555,13 +2555,15 @@ export default function DossierVehiculeDetailPage() {
   }
 
   return (
-    <div style={styles.page}>
+    <div className="atelier-responsive am-dossier-detail" style={styles.page}>
       <button type="button" onClick={() => navigate("/admin/dossiers-vehicules")} style={styles.backBtn}>
         ← Retour aux dossiers véhicules
       </button>
 
-      <div style={styles.headerCard}>
-        <div style={styles.headerTop}>
+      <button type="button" className="am-open-link am-mobile-only" onClick={() => navigate(`/unites/${uniteId}`)}>Ouvrir la fiche unité</button>
+
+      <div className="am-card" style={styles.headerCard}>
+        <div className="am-row" style={styles.headerTop}>
           <div>
             <h1 style={styles.title}>Dossier véhicule — {unitLabel(unite)}</h1>
             <p style={styles.subtitle}>
@@ -2578,7 +2580,7 @@ export default function DossierVehiculeDetailPage() {
           </button>
         </div>
 
-        <div style={styles.headerGrid}>
+        <div className="am-grid" style={styles.headerGrid}>
           <Info label="Plaque" value={plateLabel(unite)} />
           <Info label="NIV" value={nivLabel(unite)} />
           <Info label="Véhicule" value={[unite.marque, unite.modele, unite.annee].filter(Boolean).join(" ") || "—"} />
@@ -2593,7 +2595,7 @@ export default function DossierVehiculeDetailPage() {
         </div>
       </div>
 
-      <div style={styles.tabs}>
+      <div className="am-tabs" style={styles.tabs}>
         {tabs.map((t) => (
           <button
             key={t.key}
@@ -2610,8 +2612,8 @@ export default function DossierVehiculeDetailPage() {
       </div>
 
       {activeTab === "apercu" && (
-        <div style={styles.grid2}>
-          <div style={styles.card}>
+        <div className="am-grid" style={styles.grid2}>
+          <div className="am-card" style={styles.card}>
             <h2 style={styles.cardTitle}>Résumé</h2>
             <div style={styles.summaryRows}>
             <Summary label="Dernier PEP" value={formatDate(applicablePep?.date_pep || applicablePep?.created_at)} />
@@ -2623,7 +2625,7 @@ export default function DossierVehiculeDetailPage() {
             </div>
           </div>
 
-          <div style={styles.card}>
+          <div className="am-card" style={styles.card}>
             <h2 style={styles.cardTitle}>Surveillance</h2>
             <div style={styles.summaryRows}>
               <SummaryWithBadge label="PEP" value={formatDate(applicablePep?.date_pep || applicablePep?.created_at)} badge={pepCurrentStatus} />
@@ -2739,7 +2741,7 @@ export default function DossierVehiculeDetailPage() {
             </div>
           </div>
 
-          <div style={styles.card}>
+          <div className="am-card" style={styles.card}>
             <h2 style={styles.cardTitle}>Documents récents</h2>
             {recentDocs.length === 0 ? (
               <div style={styles.empty}>Aucun document importé.</div>
@@ -2756,7 +2758,7 @@ export default function DossierVehiculeDetailPage() {
             )}
           </div>
 
-          <div style={styles.cardWide}>
+          <div className="am-card" style={styles.cardWide}>
             <h2 style={styles.cardTitle}>BT récents</h2>
             {recentBts.length === 0 ? (
               <div style={styles.empty}>Aucun BT pour cette unité.</div>
@@ -2768,7 +2770,7 @@ export default function DossierVehiculeDetailPage() {
       )}
 
       {activeTab === "pep" && (
-        <div style={styles.card}>
+        <div className="am-card" style={styles.card}>
           <h2 style={styles.cardTitle}>Vignette PEP installée</h2>
 
           <div style={styles.vignetteBox}>
@@ -2782,7 +2784,7 @@ export default function DossierVehiculeDetailPage() {
               />
             </div>
 
-            <div style={styles.fieldGroup}>
+            <div className="am-field" style={styles.fieldGroup}>
               <label style={styles.fieldLabel}>Expiration vignette PEP</label>
               <input
                 value={vignetteExpiration}
@@ -2832,10 +2834,10 @@ export default function DossierVehiculeDetailPage() {
 
                 return (
                   <tr key={pep.id}>
-                    <Td>{formatDate(pep.date_pep || pep.created_at)}</Td>
-                    <Td>{kmLabel(pep.odometre)}</Td>
-                    <Td>{pep.num_mecano || "—"}</Td>
-                    <Td>
+                    <Td label="Date">{formatDate(pep.date_pep || pep.created_at)}</Td>
+                    <Td label="KM">{kmLabel(pep.odometre)}</Td>
+                    <Td label="Mécano">{pep.num_mecano || "—"}</Td>
+                    <Td label="Provenance">
                       <span
                         style={{
                           ...styles.statusBadge,
@@ -2848,7 +2850,7 @@ export default function DossierVehiculeDetailPage() {
                         {isImportedPep(pep) ? "Importé" : "Atelier"}
                       </span>
                     </Td>
-                    <Td>
+                    <Td label="BT lié">
                       {linkedBt ? (
                         <button
                           style={styles.linkBtn}
@@ -2861,12 +2863,12 @@ export default function DossierVehiculeDetailPage() {
                         <span style={{ color: "#9ca3af" }}>Aucun BT lié</span>
                       )}
                     </Td>
-                    <Td>
+                    <Td label="Document">
                       <button style={styles.linkBtn} onClick={() => openPepArchive(pep)} type="button">
                         Voir PEP
                       </button>
                     </Td>
-                    <Td>
+                    <Td label="Actions">
                       <button
                         type="button"
                         style={styles.dangerBtn}
@@ -2893,14 +2895,14 @@ export default function DossierVehiculeDetailPage() {
       )}
 
       {activeTab === "bt" && (
-        <div style={styles.card}>
+        <div className="am-card" style={styles.card}>
           <h2 style={styles.cardTitle}>Bons de travail</h2>
           <SimpleBtTable bts={bts} navigate={navigate} />
         </div>
       )}
 
       {activeTab === "rondes" && (
-        <div style={styles.card}>
+        <div className="am-card" style={styles.card}>
           <h2 style={styles.cardTitle}>Rondes de sécurité</h2>
           <p style={styles.subtitle}>
             Les rondes sont consultées dans Cybercat / Penless. Cette section sert de raccourci.
@@ -2919,15 +2921,15 @@ export default function DossierVehiculeDetailPage() {
       )}
 
       {activeTab === "documents" && (
-        <div style={styles.card}>
+        <div className="am-card" style={styles.card}>
           <h2 style={styles.cardTitle}>Documents administratifs</h2>
           <p style={styles.subtitle}>
             Import manuel seulement : immatriculation, assurance, contrat, rappel constructeur, CVM ou autre.
             Les PEP et BT ne doivent pas être importés ici.
           </p>
 
-          <div style={styles.uploadBox}>
-            <div style={styles.fieldGroup}>
+          <div className="am-grid" style={styles.uploadBox}>
+            <div className="am-field" style={styles.fieldGroup}>
               <label style={styles.fieldLabel}>Type de document</label>
               <select value={docType} onChange={(e) => setDocType(e.target.value)} style={styles.select}>
                 {DOCUMENT_TYPES.map((t) => (
@@ -2938,7 +2940,7 @@ export default function DossierVehiculeDetailPage() {
               </select>
             </div>
 
-            <div style={styles.fieldGroup}>
+            <div className="am-field" style={styles.fieldGroup}>
               <label style={styles.fieldLabel}>Expiration document</label>
               <input
                 value={docExpiration}
@@ -2949,7 +2951,7 @@ export default function DossierVehiculeDetailPage() {
               />
             </div>
 
-            <div style={styles.fieldGroupNote}>
+            <div className="am-field" style={styles.fieldGroupNote}>
               <label style={styles.fieldLabel}>Note interne</label>
               <input
                 value={docNote}
@@ -2959,7 +2961,7 @@ export default function DossierVehiculeDetailPage() {
               />
             </div>
 
-            <div style={styles.fieldGroupFile}>
+            <div className="am-field" style={styles.fieldGroupFile}>
               <label style={styles.fieldLabel}>Document</label>
 
               <div
@@ -3031,13 +3033,13 @@ export default function DossierVehiculeDetailPage() {
       )}
 
       {exportOpen && (
-        <div
+        <div className="am-overlay"
           style={styles.modalOverlay}
           onMouseDown={(e) => {
             if (e.target === e.currentTarget && !exporting) setExportOpen(false);
           }}
         >
-          <div style={{ ...styles.modalCard, width: "min(720px, 94vw)", maxHeight: "88vh" }}>
+          <div className="am-dialog" style={{ ...styles.modalCard, width: "min(720px, 94vw)", maxHeight: "88vh" }}>
             <div style={styles.modalHeader}>
               <div>
                 <h2 style={styles.modalTitle}>Imprimer le dossier complet</h2>
@@ -3056,7 +3058,7 @@ export default function DossierVehiculeDetailPage() {
               </button>
             </div>
 
-            <div style={styles.modalBody}>
+            <div className="am-dialog-body" style={styles.modalBody}>
               <div style={styles.exportNotice}>
                 Les sections sont cochées par défaut. La période s’applique aux historiques PEP, BT et écarts; les documents administratifs courants demeurent inclus.
               </div>
@@ -3083,7 +3085,7 @@ export default function DossierVehiculeDetailPage() {
               <div style={{ height: 18 }} />
 
               <div style={styles.exportSectionTitle}>Sections à inclure</div>
-              <div style={styles.exportGrid}>
+              <div className="am-grid" style={styles.exportGrid}>
                 {[
                   ["vehicle", "Fiche véhicule et état du dossier"],
                   ["pep", "Historique PEP / CVM"],
@@ -3108,7 +3110,7 @@ export default function DossierVehiculeDetailPage() {
               </div>
             </div>
 
-            <div style={styles.modalFooter}>
+            <div className="am-dialog-footer" style={styles.modalFooter}>
               <button
                 type="button"
                 style={styles.secondaryBtn}
@@ -3131,13 +3133,13 @@ export default function DossierVehiculeDetailPage() {
       )}
 
       {overrideHistoryOpen && (
-        <div
+        <div className="am-overlay"
           style={styles.modalOverlay}
           onMouseDown={(e) => {
             if (e.target === e.currentTarget) setOverrideHistoryOpen(false);
           }}
         >
-          <div style={{ ...styles.modalCard, width: "min(700px, 94vw)", maxHeight: "80vh" }}>
+          <div className="am-dialog" style={{ ...styles.modalCard, width: "min(700px, 94vw)", maxHeight: "80vh" }}>
             <div style={styles.modalHeader}>
               <div>
                 <h2 style={styles.modalTitle}>Historique des écarts acceptés</h2>
@@ -3155,7 +3157,7 @@ export default function DossierVehiculeDetailPage() {
               </button>
             </div>
 
-            <div style={styles.modalBody}>
+            <div className="am-dialog-body" style={styles.modalBody}>
               {complianceOverrides.length === 0 ? (
                 <div style={styles.empty}>Aucune dérogation enregistrée.</div>
               ) : (
@@ -3180,7 +3182,7 @@ export default function DossierVehiculeDetailPage() {
               )}
             </div>
 
-            <div style={styles.modalFooter}>
+            <div className="am-dialog-footer" style={styles.modalFooter}>
               <button
                 type="button"
                 style={styles.primaryBtn}
@@ -3194,10 +3196,10 @@ export default function DossierVehiculeDetailPage() {
       )}
 
       {overrideOpen && coverageGap && (
-        <div style={styles.modalOverlay} onMouseDown={(e) => {
+        <div className="am-overlay" style={styles.modalOverlay} onMouseDown={(e) => {
           if (e.target === e.currentTarget && !savingOverride) setOverrideOpen(false);
         }}>
-          <div style={{ ...styles.modalCard, width: "min(520px, 94vw)", maxHeight: "none" }}>
+          <div className="am-dialog" style={{ ...styles.modalCard, width: "min(520px, 94vw)", maxHeight: "none" }}>
             <div style={styles.modalHeader}>
               <div>
                 <h2 style={styles.modalTitle}>Accepter l’écart historique</h2>
@@ -3209,11 +3211,11 @@ export default function DossierVehiculeDetailPage() {
               </div>
               <button type="button" style={styles.modalCloseBtn} onClick={() => setOverrideOpen(false)} disabled={savingOverride}>×</button>
             </div>
-            <div style={styles.modalBody}>
+            <div className="am-dialog-body" style={styles.modalBody}>
               <div style={styles.gapAnalysisBox}>
                 <div style={styles.gapAnalysisTitle}>Analyse de l’écart</div>
 
-                <div style={styles.gapAnalysisGrid}>
+                <div className="am-grid" style={styles.gapAnalysisGrid}>
                   <div style={styles.gapAnalysisItem}>
                     <span style={styles.fieldLabel}>PEP précédent</span>
                     <strong>
@@ -3294,7 +3296,7 @@ export default function DossierVehiculeDetailPage() {
                 autoFocus
               />
             </div>
-            <div style={styles.modalFooter}>
+            <div className="am-dialog-footer" style={styles.modalFooter}>
               <button type="button" style={styles.secondaryBtn} onClick={() => setOverrideOpen(false)} disabled={savingOverride}>Annuler</button>
               <button
                 type="button"
@@ -3310,13 +3312,13 @@ export default function DossierVehiculeDetailPage() {
       )}
 
       {pepImportOpen && (
-        <div
+        <div className="am-overlay"
           style={styles.modalOverlay}
           onMouseDown={(e) => {
             if (e.target === e.currentTarget) closePepImportModal();
           }}
         >
-          <div style={styles.modalCard}>
+          <div className="am-dialog" style={styles.modalCard}>
             <div style={styles.modalHeader}>
               <div>
                 <h2 style={styles.modalTitle}>Importer PEP</h2>
@@ -3335,7 +3337,7 @@ export default function DossierVehiculeDetailPage() {
               </button>
             </div>
 
-            <div style={styles.modalBody}>
+            <div className="am-dialog-body" style={styles.modalBody}>
               <input
                 ref={pepImportFileRef}
                 type="file"
@@ -3372,7 +3374,7 @@ export default function DossierVehiculeDetailPage() {
               {pepImportDrafts.length > 0 && (
                 <div style={styles.pepImportList}>
                   {pepImportDrafts.map((draft) => (
-                    <div key={draft.id} style={styles.pepImportRow}>
+                    <div className="am-grid" key={draft.id} style={styles.pepImportRow}>
                       <div style={styles.pepImportFile}>
                         <strong>{draft.file.name}</strong>
                         <span style={styles.muted}>
@@ -3380,7 +3382,7 @@ export default function DossierVehiculeDetailPage() {
                         </span>
                       </div>
 
-                      <div style={styles.pepImportField}>
+                      <div className="am-field" style={styles.pepImportField}>
                         <label style={styles.fieldLabel}>Date du PEP *</label>
                         <input
                           type="date"
@@ -3394,7 +3396,7 @@ export default function DossierVehiculeDetailPage() {
                         />
                       </div>
 
-                      <div style={styles.pepImportFieldSmall}>
+                      <div className="am-field" style={styles.pepImportFieldSmall}>
                         <label style={styles.fieldLabel}>KM</label>
                         <input
                           type="number"
@@ -3410,7 +3412,7 @@ export default function DossierVehiculeDetailPage() {
                         />
                       </div>
 
-                      <div style={styles.pepImportField}>
+                      <div className="am-field" style={styles.pepImportField}>
                         <label style={styles.fieldLabel}>Mécano / atelier</label>
                         <input
                           value={draft.mecano}
@@ -3438,7 +3440,7 @@ export default function DossierVehiculeDetailPage() {
               )}
             </div>
 
-            <div style={styles.modalFooter}>
+            <div className="am-dialog-footer" style={styles.modalFooter}>
               <button
                 type="button"
                 style={styles.secondaryBtn}
@@ -3489,7 +3491,7 @@ function Info({
 
 function Summary({ label, value }: { label: string; value: string }) {
   return (
-    <div style={styles.summaryRow}>
+    <div className="am-row" style={styles.summaryRow}>
       <span>{label}</span>
       <strong>{value}</strong>
     </div>
@@ -3506,7 +3508,7 @@ function SummaryWithBadge({
   badge: { label: string; style: React.CSSProperties };
 }) {
   return (
-    <div style={styles.summaryRow}>
+    <div className="am-row" style={styles.summaryRow}>
       <span>{label}</span>
       <span style={styles.summaryRight}>
         <strong>{value}</strong>
@@ -3518,8 +3520,8 @@ function SummaryWithBadge({
 
 function DataTable({ children }: { children: React.ReactNode }) {
   return (
-    <div style={styles.tableWrap}>
-      <table style={styles.table}>{children}</table>
+    <div className="am-table-wrap" style={styles.tableWrap}>
+      <table className="am-table" style={styles.table}>{children}</table>
     </div>
   );
 }
@@ -3528,8 +3530,8 @@ function Th({ children }: { children: React.ReactNode }) {
   return <th style={styles.th}>{children}</th>;
 }
 
-function Td({ children }: { children: React.ReactNode }) {
-  return <td style={styles.td}>{children}</td>;
+function Td({ children, label }: { children: React.ReactNode; label?: string }) {
+  return <td style={styles.td} data-label={label}>{children}</td>;
 }
 
 function EmptyRow({ colSpan, label }: { colSpan: number; label: string }) {
@@ -3564,12 +3566,12 @@ function SimpleBtTable({
       <tbody>
         {bts.map((bt) => (
           <tr key={bt.id} onDoubleClick={() => navigate(`/bt/${bt.id}`)} style={{ cursor: "default" }}>
-            <Td>{bt.numero || "—"}</Td>
-            <Td>{formatDate(bt.date_ouverture || bt.created_at)}</Td>
-            <Td>{formatDate(bt.date_fermeture)}</Td>
-            <Td>{kmLabel(bt.km)}</Td>
-            <Td>{bt.statut || "—"}</Td>
-            <Td>{moneyLabel(bt.total_final ?? bt.total)}</Td>
+            <Td label="Numéro"><button type="button" className="am-open-link" onClick={() => navigate(`/bt/${bt.id}`)}>{bt.numero || "—"}</button></Td>
+            <Td label="Ouverture">{formatDate(bt.date_ouverture || bt.created_at)}</Td>
+            <Td label="Fermeture">{formatDate(bt.date_fermeture)}</Td>
+            <Td label="KM">{kmLabel(bt.km)}</Td>
+            <Td label="Statut">{bt.statut || "—"}</Td>
+            <Td label="Total">{moneyLabel(bt.total_final ?? bt.total)}</Td>
           </tr>
         ))}
         {bts.length === 0 && <EmptyRow colSpan={6} label="Aucun BT pour cette unité." />}
@@ -3607,20 +3609,20 @@ function DocumentsTable({
 
           return (
             <tr key={doc.id}>
-              <Td>{documentTypeLabel(doc.type_document)}</Td>
-              <Td>{doc.nom_fichier}</Td>
-              <Td>{formatDate(doc.date_expiration)}</Td>
-              <Td>
+              <Td label="Type">{documentTypeLabel(doc.type_document)}</Td>
+              <Td label="Fichier">{doc.nom_fichier}</Td>
+              <Td label="Expiration">{formatDate(doc.date_expiration)}</Td>
+              <Td label="Statut">
                 {status.label === "—" ? (
                   "—"
                 ) : (
                   <span style={{ ...styles.statusBadge, ...status.style }}>{status.label}</span>
                 )}
               </Td>
-              <Td>{formatDate(doc.created_at)}</Td>
-              <Td>{fileSizeLabel(doc.taille_bytes)}</Td>
-              <Td>{doc.note || "—"}</Td>
-              <Td>
+              <Td label="Date ajout">{formatDate(doc.created_at)}</Td>
+              <Td label="Taille">{fileSizeLabel(doc.taille_bytes)}</Td>
+              <Td label="Note">{doc.note || "—"}</Td>
+              <Td label="Actions">
                 <button type="button" style={styles.linkBtn} onClick={() => onOpen(doc)}>
                   Ouvrir
                 </button>

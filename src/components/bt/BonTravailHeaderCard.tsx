@@ -221,7 +221,7 @@ export default function BonTravailHeaderCard({
 
   return (
     <>
-      <div className="no-print" style={styles.stickyBtBar}>
+      <div className="no-print am-bt-status" style={styles.stickyBtBar}>
         <div style={{ fontSize: 18, fontWeight: 950 }}>
           {bt.numero || (bt as any).no_bt || "(BT)"}
         </div>
@@ -231,8 +231,8 @@ export default function BonTravailHeaderCard({
         {Boolean(bt.verrouille) && <span style={styles.pill}>Verrouillé</span>}
       </div>
 
-      <div style={styles.cardMuted}>
-        <div style={styles.topMetaGrid}>
+      <div className="am-card" style={styles.cardMuted}>
+        <div className="am-grid" style={styles.topMetaGrid}>
           <div
             style={{
               ...styles.topMetaItem,
@@ -271,6 +271,7 @@ export default function BonTravailHeaderCard({
             </div>
 
             <div style={styles.topMetaValue}>{unite.no_unite || "—"}</div>
+            {onOpenUniteModal && <button type="button" className="am-open-link am-mobile-only" onClick={onOpenUniteModal}>Ouvrir la fiche unité</button>}
             <div style={styles.topMetaSub}>
               {[unite.marque, unite.modele, unite.annee]
                 .filter(Boolean)
@@ -319,11 +320,12 @@ export default function BonTravailHeaderCard({
           >
             <div style={styles.topMetaLabel}>Client</div>
             <div style={styles.topMetaValue}>{snapshotClientNom}</div>
+            {onOpenClientModal && <button type="button" className="am-open-link am-mobile-only" onClick={onOpenClientModal}>Ouvrir la fiche client</button>}
           </div>
         </div>
 
-        <div style={styles.topFormGrid}>
-          <div style={styles.topField}>
+        <div className="am-grid" style={styles.topFormGrid}>
+          <div className="am-field" style={styles.topField}>
             <div style={styles.topFieldLabel}>Date d’ouverture</div>
             <input
               type="datetime-local"
@@ -334,7 +336,7 @@ export default function BonTravailHeaderCard({
             />
           </div>
 
-          <div style={styles.topField}>
+          <div className="am-field" style={styles.topField}>
             <div style={styles.topFieldLabel}>Date de fermeture</div>
             <input
               type="datetime-local"
@@ -345,7 +347,7 @@ export default function BonTravailHeaderCard({
             />
           </div>
 
-          <div style={styles.topField}>
+          <div className="am-field" style={styles.topField}>
             <div style={styles.topFieldLabel}>KM actuel BT</div>
             <input
               style={{ ...styles.input, width: "100%", minWidth: 0 }}
@@ -357,7 +359,7 @@ export default function BonTravailHeaderCard({
             />
           </div>
 
-          <div style={styles.topField}>
+          <div className="am-field" style={styles.topField}>
             <div style={styles.topFieldLabel}>Bon de commande / PO</div>
             <input
               style={{ ...styles.input, width: "100%", minWidth: 0 }}

@@ -3494,7 +3494,7 @@ ${noms}`);
   if (!id) return <div style={styles.page}>BT introuvable</div>;
 
   return (
-    <div style={styles.page}>
+    <div className="atelier-responsive am-bt-page" style={styles.page}>
       <style>
         {`
           @media print {
@@ -3515,14 +3515,14 @@ ${noms}`);
       </style>
 
       <div
-        className="no-print"
+        className="no-print am-row"
         style={{
           ...styles.row,
           justifyContent: "space-between",
           alignItems: "flex-start",
         }}
       >
-        <div style={styles.row}>
+        <div className="am-row" style={styles.row}>
           <div>
             <div style={styles.h1}>
               {isFactureDirecte
@@ -3542,7 +3542,7 @@ ${noms}`);
           </div>
         </div>
 
-        <div style={styles.row}>
+        <div className="am-row am-page-header-actions" style={styles.row}>
           <button style={styles.btn} onClick={() => nav(-1)}>
             Retour
           </button>
@@ -3605,16 +3605,16 @@ ${noms}`);
       </div>
 
       {err && (
-        <div style={{ ...styles.card, borderColor: "rgba(220,38,38,.35)" }}>
+        <div className="am-card" style={{ ...styles.card, borderColor: "rgba(220,38,38,.35)" }}>
           <b>Erreur:</b> {err}
         </div>
       )}
 
       {loading || !bt ? (
-        <div style={styles.card}>Chargement…</div>
+        <div className="am-card" style={styles.card}>Chargement…</div>
       ) : (
         <>
-          <div className="no-print" style={styles.tabsWrap}>
+          <div className="no-print am-tabs" style={styles.tabsWrap}>
             <button
               type="button"
               style={
@@ -3652,7 +3652,7 @@ ${noms}`);
             <>
               {!isFactureDirecte && (
               <div
-                className="no-print"
+                className="no-print am-card"
                 style={{
                   ...styles.card,
                   display: "flex",
@@ -3678,7 +3678,7 @@ ${noms}`);
                   </div>
                 </div>
 
-                <div style={styles.row}>
+                <div className="am-row" style={styles.row}>
                   {samsaraKm != null && !isReadOnly && String(samsaraKm) !== kmInput.trim() && (
                     <button
                       type="button"
@@ -3707,8 +3707,8 @@ ${noms}`);
               )}
 
               {isFactureDirecte ? (
-                <div style={styles.card}>
-                  <div style={{ ...styles.row, justifyContent: "space-between" }}>
+                <div className="am-card" style={styles.card}>
+                  <div className="am-row" style={{ ...styles.row, justifyContent: "space-between" }}>
                     <div>
                       <div style={{ fontSize: 13, fontWeight: 900, color: "#64748b" }}>
                         FACTURE DIRECTE
@@ -3730,7 +3730,7 @@ ${noms}`);
                       Voir client
                     </button>
                   </div>
-                  <div style={{ ...styles.row, marginTop: 14 }}>
+                  <div className="am-row" style={{ ...styles.row, marginTop: 14 }}>
                     <label style={{ display: "grid", gap: 6, fontWeight: 800 }}>
                       Bon de commande
                       <input
@@ -3783,7 +3783,7 @@ ${noms}`);
               ) : null}
 
               {isFactureDirecte && (
-                <div style={styles.card}>
+                <div className="am-card" style={styles.card}>
                   <div style={{ fontSize: 16, fontWeight: 950, marginBottom: 10 }}>
                     Description
                   </div>
@@ -3926,8 +3926,8 @@ ${noms}`);
               </div>
             </>
           ) : activeTab === "documents" ? (
-            <div style={styles.card}>
-              <div
+            <div className="am-card" style={styles.card}>
+              <div className="am-row"
                 style={{
                   ...styles.row,
                   justifyContent: "space-between",
@@ -4048,7 +4048,7 @@ ${noms}`);
               />
 
               {documents.length > 0 && !documentsLoading && (
-                <div style={styles.documentsToolbar}>
+                <div className="am-row" style={styles.documentsToolbar}>
                   <label
                     style={{
                       display: "flex",
@@ -4138,7 +4138,7 @@ ${noms}`);
                           </div>
                         </div>
 
-                        <div
+                        <div className="am-row"
                           style={{ ...styles.row, justifyContent: "flex-end" }}
                         >
                           <button
@@ -4191,11 +4191,11 @@ ${noms}`);
       )}
 
       {sendChoiceModalOpen && (
-        <div
+        <div className="am-overlay"
           style={styles.modalBackdrop}
           onClick={() => setSendChoiceModalOpen(false)}
         >
-          <div
+          <div className="am-dialog"
             style={{ ...styles.modalCard, maxWidth: 520 }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -4210,7 +4210,7 @@ ${noms}`);
               </button>
             </div>
 
-            <div style={{ ...styles.modalBody, display: "grid", gap: 12 }}>
+            <div className="am-dialog-body" style={{ ...styles.modalBody, display: "grid", gap: 12 }}>
               <button
                 type="button"
                 style={{
@@ -4242,13 +4242,13 @@ ${noms}`);
       )}
 
       {sendDocsModalOpen && (
-        <div
+        <div className="am-overlay"
           style={styles.modalBackdrop}
           onClick={() => {
             if (!sendingDocuments) setSendDocsModalOpen(false);
           }}
         >
-          <div
+          <div className="am-dialog"
             style={{ ...styles.modalCard, maxWidth: 700 }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -4268,7 +4268,7 @@ ${noms}`);
               </button>
             </div>
 
-            <div style={styles.modalBody}>
+            <div className="am-dialog-body" style={styles.modalBody}>
               <div style={{ display: "grid", gap: 12 }}>
                 <div>
                   <div style={{ fontWeight: 800, marginBottom: 6 }}>
@@ -4519,7 +4519,7 @@ ${noms}`);
               </div>
             </div>
 
-            <div style={styles.modalFooter}>
+            <div className="am-dialog-footer" style={styles.modalFooter}>
               <button
                 type="button"
                 style={styles.btnDanger}
@@ -4547,8 +4547,8 @@ ${noms}`);
       )}
 
       {taskModalOpen && (
-        <div style={styles.modalBackdrop}>
-          <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
+        <div className="am-overlay" style={styles.modalBackdrop}>
+          <div className="am-dialog" style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
             <div style={styles.modalHeader}>
               <h3 style={styles.modalTitle}>Nouvelle tâche</h3>
               <button
@@ -4560,7 +4560,7 @@ ${noms}`);
               </button>
             </div>
 
-            <div style={styles.modalBody}>
+            <div className="am-dialog-body" style={styles.modalBody}>
               <input
                 style={{ ...styles.input, width: "100%", minWidth: 0 }}
                 placeholder="Entrer la tâche"
@@ -4609,7 +4609,7 @@ ${noms}`);
               ) : null}
             </div>
 
-            <div style={styles.modalFooter}>
+            <div className="am-dialog-footer" style={styles.modalFooter}>
               <button
                 type="button"
                 style={styles.btnDanger}
@@ -4633,8 +4633,8 @@ ${noms}`);
       )}
 
       {autorisationModalTask && (
-        <div style={styles.modalBackdrop} onClick={closeAutorisationModal}>
-          <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
+        <div className="am-overlay" style={styles.modalBackdrop} onClick={closeAutorisationModal}>
+          <div className="am-dialog" style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
             <div style={styles.modalHeader}>
               <h3 style={styles.modalTitle}>Autoriser à faire</h3>
               <button
@@ -4647,7 +4647,7 @@ ${noms}`);
               </button>
             </div>
 
-            <div style={styles.modalBody}>
+            <div className="am-dialog-body" style={styles.modalBody}>
               <div style={{ fontWeight: 900, marginBottom: 8 }}>
                 {autorisationModalTask.titre}
               </div>
@@ -4670,7 +4670,7 @@ ${noms}`);
               />
             </div>
 
-            <div style={styles.modalFooter}>
+            <div className="am-dialog-footer" style={styles.modalFooter}>
               <button
                 type="button"
                 style={styles.btnDanger}
@@ -4695,8 +4695,8 @@ ${noms}`);
       )}
 
       {tempsModalOpen && (
-        <div style={styles.modalBackdrop} onClick={closeTempsModal}>
-          <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
+        <div className="am-overlay" style={styles.modalBackdrop} onClick={closeTempsModal}>
+          <div className="am-dialog" style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
             <div style={styles.modalHeader}>
               <h3 style={styles.modalTitle}>Ajouter du temps</h3>
               <button
@@ -4708,8 +4708,8 @@ ${noms}`);
               </button>
             </div>
 
-            <div style={styles.modalBody}>
-              <div style={{ ...styles.row, alignItems: "flex-start" }}>
+            <div className="am-dialog-body" style={styles.modalBody}>
+              <div className="am-row" style={{ ...styles.row, alignItems: "flex-start" }}>
                 <input
                   style={{ ...styles.input, minWidth: 220 }}
                   placeholder="Mécano"
@@ -4727,7 +4727,7 @@ ${noms}`);
                 />
               </div>
 
-              <div
+              <div className="am-row"
                 style={{
                   ...styles.row,
                   marginTop: 10,
@@ -4760,7 +4760,7 @@ ${noms}`);
               </div>
             </div>
 
-            <div style={styles.modalFooter}>
+            <div className="am-dialog-footer" style={styles.modalFooter}>
               <button
                 type="button"
                 style={styles.btnDanger}
@@ -4782,11 +4782,11 @@ ${noms}`);
       )}
 
       {confirmTerminerOpen && (
-        <div
+        <div className="am-overlay"
           style={styles.modalBackdrop}
           onClick={() => setConfirmTerminerOpen(false)}
         >
-          <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
+          <div className="am-dialog" style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
             <div style={styles.modalHeader}>
               <h3 style={styles.modalTitle}>Terminer le bon de travail</h3>
               <button
@@ -4798,7 +4798,7 @@ ${noms}`);
               </button>
             </div>
 
-            <div style={styles.modalBody}>
+            <div className="am-dialog-body" style={styles.modalBody}>
               <p style={{ marginTop: 0 }}>
                 Que veux-tu faire avec ce bon de travail ?
               </p>
@@ -4837,11 +4837,11 @@ ${noms}`);
       )}
 
       {closeDateModalOpen && pendingCloseMode && bt && (
-        <div
+        <div className="am-overlay"
           style={styles.modalBackdrop}
           onClick={() => setCloseDateModalOpen(false)}
         >
-          <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
+          <div className="am-dialog" style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
             <div style={styles.modalHeader}>
               <h3 style={styles.modalTitle}>Date de fermeture</h3>
               <button
@@ -4857,7 +4857,7 @@ ${noms}`);
               </button>
             </div>
 
-            <div style={styles.modalBody}>
+            <div className="am-dialog-body" style={styles.modalBody}>
               <p style={{ marginTop: 0 }}>
                 Ce bon de travail appartient à un mois précédent.
               </p>
@@ -5091,13 +5091,13 @@ ${noms}`);
 
       {changeUniteModalOpen && bt && unite && (
         <div
-          className="no-print"
+          className="no-print am-overlay"
           style={styles.modalBackdrop}
           onClick={() => {
             if (!changingUnite) setChangeUniteModalOpen(false);
           }}
         >
-          <div
+          <div className="am-dialog"
             style={{ ...styles.modalCard, maxWidth: 920 }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -5113,7 +5113,7 @@ ${noms}`);
               </button>
             </div>
 
-            <div style={styles.modalBody}>
+            <div className="am-dialog-body" style={styles.modalBody}>
               <div
                 style={{
                   background: "#f8fafc",
@@ -5128,7 +5128,7 @@ ${noms}`);
                 {unite.no_unite || "—"}
               </div>
 
-              <div style={{ ...styles.row, alignItems: "stretch" }}>
+              <div className="am-row" style={{ ...styles.row, alignItems: "stretch" }}>
                 <input
                   style={{ ...styles.input, flex: 1, minWidth: 260 }}
                   placeholder="Rechercher par unité, plaque, NIV, marque..."
@@ -5171,7 +5171,7 @@ ${noms}`);
                     Aucune unité à afficher.
                   </div>
                 ) : (
-                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <table className="am-table" style={{ width: "100%", borderCollapse: "collapse" }}>
                     <thead>
                       <tr style={{ background: "#f8fafc" }}>
                         <th
@@ -5245,7 +5245,7 @@ ${noms}`);
                                 borderBottom: "1px solid #eef2f7",
                                 fontWeight: 950,
                               }}
-                            >
+                             data-label="Unité">
                               {u.no_unite || "—"}
                               {same ? (
                                 <span
@@ -5264,7 +5264,7 @@ ${noms}`);
                                 padding: "10px 12px",
                                 borderBottom: "1px solid #eef2f7",
                               }}
-                            >
+                             data-label="Véhicule">
                               {[u.marque, u.modele, u.annee]
                                 .filter(Boolean)
                                 .join(" ") || "—"}
@@ -5274,7 +5274,7 @@ ${noms}`);
                                 padding: "10px 12px",
                                 borderBottom: "1px solid #eef2f7",
                               }}
-                            >
+                             data-label="Plaque / NIV">
                               <div>{u.plaque || "—"}</div>
                               <div
                                 style={{
@@ -5290,7 +5290,7 @@ ${noms}`);
                                 padding: "10px 12px",
                                 borderBottom: "1px solid #eef2f7",
                               }}
-                            >
+                             data-label="Client">
                               {u.client_nom || "—"}
                             </td>
                           </tr>
@@ -5302,7 +5302,7 @@ ${noms}`);
               </div>
             </div>
 
-            <div style={styles.modalFooter}>
+            <div className="am-dialog-footer" style={styles.modalFooter}>
               <button
                 type="button"
                 style={styles.btnDanger}
@@ -5321,6 +5321,13 @@ ${noms}`);
               </button>
             </div>
           </div>
+        </div>
+      )}
+      {bt && !loading && (
+        <div className="am-bt-actions am-mobile-only no-print" aria-label="Actions du bon de travail">
+          <button type="button" onClick={() => nav(-1)}>Retour</button>
+          <button type="button" onClick={() => setActiveTab("documents")}>Documents ({documents.length})</button>
+          <button type="button" disabled={isReadOnly || isFactureDirecte} onClick={() => { setTaskModalValue(""); setPendingTasks([]); setTaskModalOpen(true); }}>+ Tâche</button>
         </div>
       )}
     </div>

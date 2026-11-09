@@ -1164,14 +1164,14 @@ export default function BTListe() {
 }
 
 return (
-  <div style={styles.page}>
-    <div style={styles.topBar}>
+  <div className="atelier-responsive am-bt-list" style={styles.page}>
+    <div className="am-row" style={styles.topBar}>
       <div style={styles.titleBlock}>
         <h1 style={styles.h1}>Bons de travail</h1>
         <div style={styles.subtitle}>Vue liste dans le style nolisé</div>
       </div>
 
-      <div style={styles.topActions}>
+      <div className="am-row" style={styles.topActions}>
         <button
           type="button"
           style={styles.ghostBtn}
@@ -1192,7 +1192,7 @@ return (
 
     {err ? <div style={styles.errorBox}>Erreur : {err}</div> : null}
 
-    <div style={styles.toolbarCard}>
+    <div className="am-row am-card" style={styles.toolbarCard}>
       <input
         style={styles.searchInput}
         placeholder="Recherche BT, unité, NIV, 8 derniers série, plaque, client..."
@@ -1238,13 +1238,20 @@ return (
       </div>
     </div>
 
-    <div style={styles.tableShell}>
+    <div className="am-sort am-mobile-only">
+        <label htmlFor="am-bt-sort">Trier par</label>
+        <select id="am-bt-sort" value={sortKey} onChange={(event) => setSortKey(event.target.value as typeof sortKey)}>
+          <option value="date">Date</option><option value="numero">No BT</option><option value="unite">Unité</option><option value="client">Client</option><option value="km">KM</option><option value="pieces">Pièces + atelier</option><option value="mo">Main-d’œuvre</option><option value="total">Total</option><option value="statut">Statut</option>
+        </select>
+        <button type="button" onClick={() => setSortDir((value) => value === "asc" ? "desc" : "asc")} aria-label="Inverser l’ordre de tri">{sortDir === "asc" ? "↑" : "↓"}</button>
+      </div>
+      <div className="am-table-wrap" style={styles.tableShell}>
       {loading ? (
         <div style={styles.emptyWrap}>Chargement…</div>
       ) : (
         <>
-          <div style={styles.tableWrap}>
-            <table style={styles.table}>
+          <div className="am-table-wrap" style={styles.tableWrap}>
+            <table className="am-table" style={styles.table}>
               <thead>
                 <tr style={styles.theadRow}>
                   {renderSortableHeader("No BT", "numero")}
@@ -1262,7 +1269,7 @@ return (
               <tbody>
                 {paginatedRows.length === 0 ? (
                   <tr>
-                    <td colSpan={9}>
+                    <td className="am-full-cell" colSpan={9} data-label="">
                       <div style={styles.emptyWrap}>Aucun bon de travail.</div>
                     </td>
                   </tr>
@@ -1294,13 +1301,13 @@ return (
                           e.currentTarget.style.background = rowBg;
                         }}
                       >
-                        <td style={{ ...styles.td, background: "transparent" }}>
-                          <div style={styles.btLink} title="Cliquer pour ouvrir">
+                        <td style={{ ...styles.td, background: "transparent" }} data-label="No BT">
+                          <button type="button" className="am-open-link" onClick={(event) => { event.stopPropagation(); nav(`/bt/${bt.id}`); }} title="Ouvrir le bon de travail">
                             {bt.numero || (bt as any).no_bt || "(BT)"}
-                          </div>
+                          </button>
                         </td>
 
-                        <td style={{ ...styles.td, background: "transparent" }}>
+                        <td style={{ ...styles.td, background: "transparent" }} data-label="Unité">
                           <div
                             style={{
                               ...styles.cellPrimary,
@@ -1317,31 +1324,31 @@ return (
                           </div>
                         </td>
 
-                        <td style={{ ...styles.td, background: "transparent" }} title={client}>
+                        <td style={{ ...styles.td, background: "transparent" }} title={client} data-label="Client">
                           <div style={styles.cellPrimary}>{client}</div>
                         </td>
 
-                        <td style={{ ...styles.td, background: "transparent" }}>
+                        <td style={{ ...styles.td, background: "transparent" }} data-label="KM">
                           <div style={styles.cellPrimary}>{kmVal ?? "—"}</div>
                         </td>
 
-                        <td style={{ ...styles.td, background: "transparent" }}>
+                        <td style={{ ...styles.td, background: "transparent" }} data-label="Date">
                           <div style={styles.cellPrimary}>{fmtDate(opened)}</div>
                         </td>
 
-                        <td style={{ ...styles.tdAmount, background: "transparent" }}>
+                        <td style={{ ...styles.tdAmount, background: "transparent" }} data-label="Pièces + atelier">
                           {money(totalPiecesAtelier)}
                         </td>
 
-                        <td style={{ ...styles.tdAmount, background: "transparent" }}>
+                        <td style={{ ...styles.tdAmount, background: "transparent" }} data-label="Main-d’œuvre">
                           {money(totalMainOeuvre)}
                         </td>
 
-                        <td style={{ ...styles.tdAmount, background: "transparent" }}>
+                        <td style={{ ...styles.tdAmount, background: "transparent" }} data-label="Total">
                           {money(grandTotal)}
                         </td>
 
-                        <td style={{ ...styles.td, background: "transparent" }}>
+                        <td style={{ ...styles.td, background: "transparent" }} data-label="Statut">
                           <span
                             style={{
                               ...styles.statusPill,
@@ -1362,14 +1369,14 @@ return (
             </table>
           </div>
 
-            <div style={styles.pagerWrap}>
-              <div style={styles.pagerLeft}>
+            <div className="am-row" style={styles.pagerWrap}>
+              <div className="am-row" style={styles.pagerLeft}>
                 <span style={styles.resultsText}>
                   Affichage {fromRow} à {toRow} sur {filteredSorted.length}
                 </span>
               </div>
 
-              <div style={styles.pagerRight}>
+              <div className="am-row" style={styles.pagerRight}>
                 <button
                   type="button"
                   style={page <= 1 ? styles.ghostBtnDisabled : styles.ghostBtn}
@@ -1429,8 +1436,8 @@ return (
       />
 
       {showInvoiceModal && (
-        <div style={styles.modalOverlay} onMouseDown={closeInvoiceModal}>
-          <div style={styles.modalCard} onMouseDown={(e) => e.stopPropagation()}>
+        <div className="am-overlay" style={styles.modalOverlay} onMouseDown={closeInvoiceModal}>
+          <div className="am-dialog" style={styles.modalCard} onMouseDown={(e) => e.stopPropagation()}>
             <div style={styles.modalHeader}>
               <h2 style={styles.modalTitle}>Nouvelle facture</h2>
               <button
@@ -1501,7 +1508,7 @@ return (
 
             {invoiceErr ? <div style={styles.modalError}>{invoiceErr}</div> : null}
 
-            <div style={styles.modalFooter}>
+            <div className="am-dialog-footer" style={styles.modalFooter}>
               <button
                 type="button"
                 style={styles.ghostBtn}
@@ -1529,8 +1536,8 @@ return (
       )}
 
       {showNewModal && (
-        <div style={styles.modalOverlay} onMouseDown={closeNewModal}>
-          <div style={styles.modalCard} onMouseDown={(e) => e.stopPropagation()}>
+        <div className="am-overlay" style={styles.modalOverlay} onMouseDown={closeNewModal}>
+          <div className="am-dialog" style={styles.modalCard} onMouseDown={(e) => e.stopPropagation()}>
             <div style={styles.modalHeader}>
               <h2 style={styles.modalTitle}>Nouveau bon de travail</h2>
               <button
@@ -1611,7 +1618,7 @@ return (
 
             {createErr ? <div style={styles.modalError}>{createErr}</div> : null}
 
-            <div style={styles.modalFooter}>
+            <div className="am-dialog-footer" style={styles.modalFooter}>
               <button
                 type="button"
                 style={styles.ghostBtn}
