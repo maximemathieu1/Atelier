@@ -99,3 +99,16 @@
 @media print {
   .am-mobile-only, .am-bt-actions, .am-sort, .am-mobile-shortcuts { display: none !important; }
 }
+
+
+/* PC et tablette : les pages utilisent toute la zone à droite du menu.
+   Seul le conteneur direct de la page est visé, jamais ses fenêtres internes. */
+@media screen and (min-width: 768px) {
+  .app-shell > main.content > :is(div, section, article, form):not(.mobile-topbar):not(.am-overlay):not([role="dialog"]):not([style*="position: fixed"]) {
+    width: 100% !important;
+    max-width: none !important;
+    min-width: 0 !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
+}
