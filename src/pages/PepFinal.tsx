@@ -582,18 +582,6 @@ function dateOnlyToIsoMidday(value?: string | null) {
   return `${dateOnlyOrToday(value)}T12:00:00.000Z`;
 }
 
-function getMonthRangeIso(datePep: string) {
-  const safeDate = dateOnlyOrToday(datePep);
-  const [year, month] = safeDate.split("-").map(Number);
-
-  const start = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0));
-  const end = new Date(Date.UTC(year, month, 1, 0, 0, 0));
-
-  return {
-    startIso: start.toISOString(),
-    endIso: end.toISOString(),
-  };
-}
 
 function isPepTaskLabel(value: unknown) {
   const v = normalizeText(value);
@@ -641,70 +629,41 @@ async function resolvePepHourlyRate(uniteId: string) {
 }
 
 async function getOrCreatePepBt(
+  pepArchiveId: string,
   uniteId: string,
   datePep: string,
   km: number | null,
   mecanoNom: string | null,
   numMecano: string | null
 ) {
-  const { startIso, endIso } = getMonthRangeIso(datePep);
-
-  const { data: existingBt, error: existingBtErr } = await supabase
-    .from("bons_travail")
-    .select("*")
-    .eq("unite_id", uniteId)
-    .in("statut", ["ouvert", "a_faire", "en_cours"])
-    .gte("date_ouverture", startIso)
-    .lt("date_ouverture", endIso)
-    .order("date_ouverture", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (existingBtErr) throw existingBtErr;
-
-  if (existingBt?.id) {
-    if (
-      km != null &&
-      Number.isFinite(km) &&
-      (existingBt.km == null || Number(km) > Number(existingBt.km || 0))
-    ) {
-      const { error: kmErr } = await supabase
-        .from("bons_travail")
-        .update({ km })
-        .eq("id", existingBt.id);
-      if (kmErr) throw kmErr;
-      return { bt: { ...existingBt, km }, created: false as const };
-    }
-    return { bt: existingBt, created: false as const };
-  }
-
-  const { data: createdBt, error: createBtErr } = await supabase
-    .from("bons_travail")
-    .insert({
-      unite_id: uniteId,
-      statut: "ouvert",
-      date_ouverture: dateOnlyToIsoMidday(datePep),
-      km,
-    })
-    .select("*")
-    .single();
-
-  if (createBtErr) throw createBtErr;
-
   const tauxHoraire = await resolvePepHourlyRate(uniteId);
   const mecanoNomFinal =
     String(mecanoNom || "").trim() || String(numMecano || "").trim() || "PEP";
 
-  const { error: moErr } = await supabase.from("bt_main_oeuvre").insert({
-    bt_id: createdBt.id,
-    mecano_nom: mecanoNomFinal,
-    description: null,
-    heures: 1,
-    taux_horaire: tauxHoraire,
-  });
-  if (moErr) throw moErr;
+  // Une fonction SQL transactionnelle réserve UN BT ordinaire par archive.
+  // Jamais de recherche de BT existant par unité/mois (qui pouvait trouver un CS).
+  const { data: liaison, error: liaisonErr } = await supabase.rpc(
+    "pep_obtenir_bt_dedie",
+    {
+      p_archive_id: pepArchiveId,
+      p_date_pep: dateOnlyOrToday(datePep),
+      p_km: km,
+      p_mecano_nom: mecanoNomFinal,
+      p_taux_horaire: tauxHoraire,
+    }
+  );
+  if (liaisonErr) throw new Error(`BT dédié au PEP : ${liaisonErr.message}`);
+  const info = Array.isArray(liaison) ? liaison[0] : liaison;
+  const btId = String(info?.bt_id || "").trim();
+  if (!btId) throw new Error("Le BT dédié n'a pas été créé ou retrouvé.");
 
-  return { bt: createdBt, created: true as const };
+  const { data: bt, error: btErr } = await supabase
+    .from("bons_travail").select("*").eq("id", btId).single();
+  if (btErr) throw btErr;
+  if (!bt || bt.unite_id !== uniteId || bt.type_bt === "centre_service") {
+    throw new Error("BT PEP invalide : impossible d'associer le PEP à un Centre de service.");
+  }
+  return { bt, created: Boolean(info?.bt_cree) };
 }
 
 async function syncPepTaskAndHistorique(btRow: any, datePep: string, km: number | null) {
@@ -1462,6 +1421,7 @@ export default function PepFinal() {
       setChecklistItem("bt", "active", "Recherche ou création du BT");
 
       const { bt } = await getOrCreatePepBt(
+        pepArchiveId,
         payload.unite_id,
         datePep,
         km,
