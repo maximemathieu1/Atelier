@@ -225,6 +225,19 @@ type UniteNoteRow = {
   } | null;
 };
 
+type PepDefautRow = {
+  id: string;
+  unite_id: string;
+  niveau: "mineur" | "majeur";
+  description: string;
+  constate_at: string;
+  repaired_at: string | null;
+  validated_at: string | null;
+  unite_note_id: string | null;
+  bt_reparation_id: string | null;
+  unites?: { no_unite?: string | null; marque?: string | null; modele?: string | null } | null;
+};
+
 type AutorisationRow = {
   id: string;
   bt_id: string;
@@ -295,6 +308,29 @@ export default function DashboardAtelier() {
   });
 
   const [openTasks, setOpenTasks] = useState<UniteNoteRow[]>([]);
+  const [pepDefauts, setPepDefauts] = useState<PepDefautRow[]>([]);
+  const [pepFocus, setPepFocus] = useState(false);
+  // Le décompte est calculé localement, sans interrogation répétée de Supabase.
+  const [pepNow, setPepNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setPepNow(Date.now()), 30000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const pepOuverts = useMemo(() => pepDefauts.filter((d) =>
+    d.niveau === "mineur" ? !d.repaired_at : !d.validated_at
+  ), [pepDefauts]);
+  const pepMineurs = useMemo(() => pepOuverts.filter(d => d.niveau === "mineur"), [pepOuverts]);
+  const pepBloquants = useMemo(() => pepOuverts.filter(d => d.niveau === "majeur" ||
+    (d.niveau === "mineur" && pepNow >= Date.parse(d.constate_at) + 48 * 3600000)), [pepOuverts, pepNow]);
+  const pep48Count = useMemo(() => new Set(pepMineurs.map(d => d.unite_id)).size, [pepMineurs]);
+  function pepTempsRestant(d: PepDefautRow) {
+    const diff = Date.parse(d.constate_at) + 48 * 3600000 - pepNow;
+    if (!Number.isFinite(diff)) return "Date invalide";
+    if (diff <= 0) return "Délai expiré";
+    const minutes = Math.ceil(diff / 60000);
+    return `${Math.floor(minutes / 60)} h ${String(minutes % 60).padStart(2, "0")}`;
+  }
+
   const [btModalId, setBtModalId] = useState<string | null>(null);
   const [expandedSuiviGroups, setExpandedSuiviGroups] = useState<Set<string>>(
     () => new Set(),
@@ -526,6 +562,7 @@ export default function DashboardAtelier() {
         historiqueRes,
         openTasksRes,
         autorisationsRes,
+        pepRes,
       ] = await Promise.all([
         supabase
           .from("bons_travail")
@@ -737,6 +774,10 @@ export default function DashboardAtelier() {
           )
           .order("updated_at", { ascending: false })
           .limit(500),
+        supabase.from("pep_defauts")
+          .select("id,unite_id,niveau,description,constate_at,repaired_at,validated_at,unite_note_id,bt_reparation_id,unites:unite_id(no_unite,marque,modele)")
+          .order("constate_at", { ascending: true })
+          .limit(1000),
       ]);
 
       if (btRes.error)
@@ -877,6 +918,12 @@ export default function DashboardAtelier() {
       });
 
       setOpenTasks(openTasksRows);
+      if (pepRes.error) {
+        console.error("Dashboard pep_defauts error:", pepRes.error);
+        setErrorMsg("Le suivi PEP n'a pas pu être chargé : vérifier la migration pep_defauts et ses accès.");
+      } else {
+        setPepDefauts((pepRes.data ?? []) as unknown as PepDefautRow[]);
+      }
 
       if (
         btRes.error ||
@@ -1067,7 +1114,7 @@ export default function DashboardAtelier() {
                 Number(lastDone.km_effectue) + Number(it.periodicite_km);
               const remainingKm = nextKm - Number(unite.km_actuel);
               parts.push(
-                `${fmtNumberLocal(remainingKm)} km`,
+                remainingKm <= 0 ? "0 km" : `${fmtNumberLocal(remainingKm)} km`,
               );
             } else if (it.periodicite_km != null) {
               parts.push(`${fmtNumberLocal(it.periodicite_km)} km`);
@@ -1081,7 +1128,9 @@ export default function DashboardAtelier() {
               if (dueDate) {
                 const remainingDays = daysBetween(today, dueDate);
                 parts.push(
-                  `${fmtNumberLocal(remainingDays)} ${Math.abs(remainingDays) === 1 ? "jour" : "jours"}`,
+                  remainingDays <= 0
+                    ? "0 jour"
+                    : `${fmtNumberLocal(remainingDays)} jours`,
                 );
               }
             } else if (it.periodicite_jours != null) {
@@ -1175,7 +1224,7 @@ export default function DashboardAtelier() {
           const nextKm = Number(lastDone.km_effectue) + Number(frequenceKm);
           const remainingKm = nextKm - Number(it.unites.km_actuel);
           parts.push(
-            `${fmtNumberLocal(remainingKm)} km`,
+            remainingKm <= 0 ? "0 km" : `${fmtNumberLocal(remainingKm)} km`,
           );
         } else if (frequenceKm != null) {
           parts.push(`${fmtNumberLocal(frequenceKm)} km`);
@@ -1189,7 +1238,9 @@ export default function DashboardAtelier() {
           if (dueDate) {
             const remainingDays = daysBetween(today, dueDate);
             parts.push(
-              `${fmtNumberLocal(remainingDays)} ${Math.abs(remainingDays) === 1 ? "jour" : "jours"}`,
+              remainingDays <= 0
+                ? "0 jour"
+                : `${fmtNumberLocal(remainingDays)} jours`,
             );
           }
         } else if (frequenceJours != null) {
@@ -1462,7 +1513,11 @@ export default function DashboardAtelier() {
   const stats = useMemo(
     () => ({
       suivis: suiviTasksCount,
-      horsService: horsServiceTasks.length,
+      horsService: new Set([
+        ...horsServiceTasks.map(t => t.unite_id),
+        ...pepBloquants.map(d => d.unite_id),
+      ]).size,
+      pep48: pep48Count,
       urgent: urgentTasks.length,
       aPlanifier: planifierTasks.length,
       autorisations: autorisationsEnAttenteCount,
@@ -1478,6 +1533,8 @@ export default function DashboardAtelier() {
     [
       suiviTasksCount,
       horsServiceTasks.length,
+      pepBloquants,
+      pep48Count,
       urgentTasks.length,
       planifierTasks.length,
       autorisationsEnAttenteCount,
@@ -1855,12 +1912,18 @@ export default function DashboardAtelier() {
               <div style={styles.summaryPanelTitle}>
                 Véhicules / Tâches critiques
               </div>
-              <div style={styles.summaryCardsThree}>
+              <div style={styles.summaryCardsFour}>
                 <StatCard
                   label="Hors service"
                   value={stats.horsService}
                   tone="red"
                   onClick={() => setActiveTab("suivis")}
+                />
+                <StatCard
+                  label="48 H · PEP"
+                  value={stats.pep48}
+                  tone="orange"
+                  onClick={() => { setPepFocus(true); setActiveTab("suivis"); }}
                 />
                 <StatCard
                   label="Urgent"
@@ -2084,7 +2147,48 @@ export default function DashboardAtelier() {
       )}
 
       {activeTab === "suivis" && (
-        <div style={styles.suiviColumns}>
+        <div>
+          <SectionCard
+            title="PEP — défectuosités actives"
+            subtitle="Mineures : 48 heures après le constat. Majeures et mineures échues : hors service jusqu'à résolution."
+          >
+            <div style={{ ...styles.rowActions, marginBottom: 12 }}>
+              <button type="button" style={pepFocus ? styles.btnPrimary : styles.btnSecondary}
+                onClick={() => setPepFocus(v => !v)}>
+                {pepFocus ? "Afficher tous les suivis" : "Voir les 48 H · PEP"}
+              </button>
+            </div>
+            {pepOuverts.length === 0 ? <EmptyState text="Aucune défectuosité PEP active." /> : (
+              <div style={styles.listStack}>
+                {[...pepOuverts]
+                  .filter(d => !pepFocus || d.niveau === "mineur")
+                  .sort((a,b) => {
+                    const aBlocked = a.niveau === "majeur" || pepNow >= Date.parse(a.constate_at) + 48*3600000;
+                    const bBlocked = b.niveau === "majeur" || pepNow >= Date.parse(b.constate_at) + 48*3600000;
+                    return Number(bBlocked) - Number(aBlocked) || Date.parse(a.constate_at) - Date.parse(b.constate_at);
+                  })
+                  .map(d => {
+                    const bloque = d.niveau === "majeur" || pepNow >= Date.parse(d.constate_at) + 48*3600000;
+                    const bt = d.bt_reparation_id || data.btOuverts.find(b => b.unite_id === d.unite_id)?.id;
+                    return <div key={d.id} style={styles.suiviTaskGroup}>
+                      <div style={styles.suiviTaskGroupHeader}>
+                        <div style={{minWidth: 0, flex: 1}}>
+                          <div style={styles.rowTitle}>Unité {d.unites?.no_unite ?? "—"} — {d.description}</div>
+                          <div style={styles.rowSub}>Constaté le {new Date(d.constate_at).toLocaleString("fr-CA")} · {d.niveau === "majeur" ? "Défectuosité majeure" : "Défectuosité mineure"}</div>
+                        </div>
+                        <span style={{...styles.badge, ...(bloque ? styles.badgeDanger : styles.badgeWarning)}}>
+                          {bloque ? "HORS SERVICE" : pepTempsRestant(d)}
+                        </span>
+                        {bt && <button type="button" style={styles.btnSecondary} onClick={() => setBtModalId(bt)}>Voir BT</button>}
+                      </div>
+                      {d.niveau === "majeur" && d.repaired_at && !d.validated_at &&
+                        <div style={styles.rowSub}>Réparation consignée — validation de remise en service requise.</div>}
+                    </div>;
+                  })}
+              </div>
+            )}
+          </SectionCard>
+          {!pepFocus && <div style={styles.suiviColumns}>
           <SectionCard
             title="🔴 Hors service"
             subtitle="Unités à ne pas sortir"
@@ -2147,6 +2251,7 @@ export default function DashboardAtelier() {
               </div>
             )}
           </SectionCard>
+          </div>}
         </div>
       )}
 
@@ -2548,17 +2653,6 @@ function EntretienFilterBar({
   );
 }
 
-// Afficher les dépassements en rouge, sans gras, tout en conservant le texte normal.
-function renderProchainDuText(value: string): ReactNode {
-  return value.split(/(-\d[\d \u00a0\u202f]*(?:km|jours?))/g).filter(Boolean).map((part, index) =>
-    /^-\d/.test(part) ? (
-      <span key={index} style={{ color: "#b91c1c", fontWeight: 400 }}>{part}</span>
-    ) : (
-      <strong key={index}>{part}</strong>
-    ),
-  );
-}
-
 function EntretienList({
   items,
   getEntretienBadge,
@@ -2619,7 +2713,7 @@ function EntretienList({
               </div>
               <div style={styles.rowMeta}>
                 <span>
-                  Prochain dû : {renderProchainDuText(item.prochainDuText)}
+                  Prochain dû : <strong>{item.prochainDuText}</strong>
                 </span>
                 {item.templateNom ? (
                   <>
