@@ -54,6 +54,7 @@ import { supabase } from "./lib/supabaseClient";
 import "./styles.css";
 import "./atelier-mobile.css";
 import AtelierTodoPersonal from "./components/TodoPersonal";
+import GlobalAtelierSearch from "./components/GlobalAtelierSearch";
 
 const SUITE_GB_URL = "https://suite.groupebreton.com";
 const SUITE_SUPABASE_URL =
@@ -220,34 +221,22 @@ function matchesMenuPath(path: string, target: string) {
     (target === "/parametres-systeme" && path.startsWith("/systeme/"));
 }
 
-function normalizeMenuText(value: string) {
-  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-}
-
 function AppShell({ onLogout }: { onLogout: () => void | Promise<void> }) {
   const isMobile = useIsMobile(900);
   const location = useLocation();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const activeGroup = MENU_GROUPS.find((group) => group.items.some((item) => matchesMenuPath(location.pathname, item.to)))?.id ?? null;
   const [openGroup, setOpenGroup] = useState<string | null>(activeGroup);
-  const [menuQuery, setMenuQuery] = useState("");
-  const searchRef = useRef<HTMLInputElement>(null);
+  const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const sidebarRef = useRef<HTMLElement>(null);
-  const query = normalizeMenuText(menuQuery.trim());
-  const queryWords = query.split(/\s+/).filter(Boolean);
-  const matchesQuery = (text: string) => queryWords.every((word) => normalizeMenuText(text).includes(word));
-  const visibleGroups = MENU_GROUPS.map((group) => ({
-    ...group,
-    items: group.items.filter((item) => matchesQuery(`${group.label} ${item.label} ${item.keywords ?? ""}`)),
-  })).filter((group) => group.items.length > 0);
-  const showDashboard = matchesQuery("Tableau de bord accueil dashboard");
+  const visibleGroups = MENU_GROUPS;
+  const showDashboard = true;
   const linkClass = ({ isActive }: { isActive: boolean }) => "navlink" + (isActive ? " navlink-active" : "");
 
   // Fermer seulement lors d'une navigation, jamais à l'ouverture du tiroir.
   useEffect(() => {
     setDrawerOpen(false);
-    setMenuQuery("");
     setOpenGroup(activeGroup);
   }, [location.pathname, location.search, activeGroup]);
 
@@ -259,22 +248,20 @@ function AppShell({ onLogout }: { onLogout: () => void | Promise<void> }) {
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
-        if (isMobile) setDrawerOpen(true);
-        searchRef.current?.focus();
+        setGlobalSearchOpen(true);
       }
       if (event.key === "Escape") {
-        setMenuQuery("");
+        if (globalSearchOpen) { setGlobalSearchOpen(false); return; }
         setDrawerOpen(false);
         if (isMobile && drawerOpen) menuButtonRef.current?.focus();
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [isMobile, drawerOpen]);
+  }, [isMobile, drawerOpen, globalSearchOpen]);
 
   useEffect(() => {
     if (!isMobile || !drawerOpen) return;
-    searchRef.current?.focus();
     const trapFocus = (event: KeyboardEvent) => {
       if (event.key !== "Tab") return;
       const elements = sidebarRef.current?.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), input');
@@ -305,7 +292,6 @@ function AppShell({ onLogout }: { onLogout: () => void | Promise<void> }) {
   }
 
   function onNavClick() {
-    setMenuQuery("");
     if (isMobile) closeDrawer();
   }
 
@@ -332,11 +318,11 @@ function AppShell({ onLogout }: { onLogout: () => void | Promise<void> }) {
             {isMobile && <button type="button" className="atelier-close-menu" onClick={closeDrawer} aria-label="Fermer le menu">×</button>}
           </div>
 
-          <div className="atelier-search">
+          <button type="button" className="atelier-search atelier-global-search-trigger" onClick={() => setGlobalSearchOpen(true)} aria-label="Recherche globale Atelier">
             <MenuIcon name="search" />
-            <input ref={searchRef} type="search" aria-label="Rechercher une page du menu" placeholder="Recherche rapide…" value={menuQuery} onChange={(event) => setMenuQuery(event.target.value)} aria-controls="atelier-navigation" />
-            {!menuQuery && <kbd aria-hidden="true">Ctrl K</kbd>}
-          </div>
+            <span style={{ flex: 1, textAlign: "left" }}>Recherche globale…</span>
+            <kbd aria-hidden="true">Ctrl K</kbd>
+          </button>
 
           <nav id="atelier-navigation" className="atelier-navigation" aria-label="Menu principal">
             {showDashboard && (
@@ -345,11 +331,10 @@ function AppShell({ onLogout }: { onLogout: () => void | Promise<void> }) {
               </NavLink>
             )}
             {visibleGroups.map((group) => {
-              const expanded = Boolean(query) || openGroup === group.id;
+              const expanded = openGroup === group.id;
               return (
                 <div className="atelier-menu-group" key={group.id}>
                   <button type="button" className={"atelier-group-toggle" + (activeGroup === group.id ? " is-current" : "")} aria-expanded={expanded} aria-controls={`atelier-group-${group.id}`} onClick={() => {
-                    if (query) setMenuQuery("");
                     setOpenGroup(expanded ? null : group.id);
                   }}>
                     <MenuIcon name={group.icon} /><span>{group.label}</span>
@@ -365,7 +350,6 @@ function AppShell({ onLogout }: { onLogout: () => void | Promise<void> }) {
                 </div>
               );
             })}
-            {!showDashboard && visibleGroups.length === 0 && <p className="atelier-menu-empty" role="status">Aucune page trouvée.</p>}
           </nav>
 
           <div className="atelier-sidebar-footer">
@@ -461,6 +445,7 @@ function AppShell({ onLogout }: { onLogout: () => void | Promise<void> }) {
             <Route path="*" element={<Navigate to="/dashboard-atelier" replace />} />
           </Routes>
         </main>
+        <GlobalAtelierSearch open={globalSearchOpen} onClose={() => setGlobalSearchOpen(false)} />
         {!drawerOpen && !location.pathname.includes("/imprimer") && !location.pathname.startsWith("/pep/final") && <AtelierTodoPersonal />}
       </div>
     </PhoneRedirectGuard>

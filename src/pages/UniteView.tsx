@@ -216,8 +216,18 @@ export default function UniteView({
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [busy, setBusy] = useState(false);
-  const [tab, setTab] = useState<TabKey>("infos");
+  const [tab, setTab] = useState<TabKey>(() => {
+    const initial = new URLSearchParams(window.location.search).get("tab");
+    return initial === "pep" || initial === "kilometrage" || initial === "entretien" || initial === "notes" ? initial : "infos";
+  });
   const [modalEditMode, setModalEditMode] = useState(false);
+
+  useEffect(() => {
+    const requested = searchParams.get("tab");
+    if (requested === "pep" || requested === "kilometrage" || requested === "entretien" || requested === "notes" || requested === "infos") {
+      setTab(requested);
+    }
+  }, [searchParams]);
 
   const [u, setU] = useState<Unite | null>(null);
   const [notes, setNotes] = useState<NoteMeca[]>([]);
