@@ -181,7 +181,7 @@ function nextDueText(row: ItemRow, currentKm: number | null) {
       {parts.map((part, index) => (
         <span key={index}>
           {index > 0 ? " • " : ""}
-          <span style={part.overdue ? { color: "#b91c1c", fontWeight: 900 } : undefined}>
+          <span style={part.overdue ? { color: "#b91c1c", fontWeight: 400 } : undefined}>
             {part.value}
           </span>
         </span>

@@ -1067,7 +1067,7 @@ export default function DashboardAtelier() {
                 Number(lastDone.km_effectue) + Number(it.periodicite_km);
               const remainingKm = nextKm - Number(unite.km_actuel);
               parts.push(
-                remainingKm <= 0 ? "0 km" : `${fmtNumberLocal(remainingKm)} km`,
+                `${fmtNumberLocal(remainingKm)} km`,
               );
             } else if (it.periodicite_km != null) {
               parts.push(`${fmtNumberLocal(it.periodicite_km)} km`);
@@ -1081,9 +1081,7 @@ export default function DashboardAtelier() {
               if (dueDate) {
                 const remainingDays = daysBetween(today, dueDate);
                 parts.push(
-                  remainingDays <= 0
-                    ? "0 jour"
-                    : `${fmtNumberLocal(remainingDays)} jours`,
+                  `${fmtNumberLocal(remainingDays)} ${Math.abs(remainingDays) === 1 ? "jour" : "jours"}`,
                 );
               }
             } else if (it.periodicite_jours != null) {
@@ -1177,7 +1175,7 @@ export default function DashboardAtelier() {
           const nextKm = Number(lastDone.km_effectue) + Number(frequenceKm);
           const remainingKm = nextKm - Number(it.unites.km_actuel);
           parts.push(
-            remainingKm <= 0 ? "0 km" : `${fmtNumberLocal(remainingKm)} km`,
+            `${fmtNumberLocal(remainingKm)} km`,
           );
         } else if (frequenceKm != null) {
           parts.push(`${fmtNumberLocal(frequenceKm)} km`);
@@ -1191,9 +1189,7 @@ export default function DashboardAtelier() {
           if (dueDate) {
             const remainingDays = daysBetween(today, dueDate);
             parts.push(
-              remainingDays <= 0
-                ? "0 jour"
-                : `${fmtNumberLocal(remainingDays)} jours`,
+              `${fmtNumberLocal(remainingDays)} ${Math.abs(remainingDays) === 1 ? "jour" : "jours"}`,
             );
           }
         } else if (frequenceJours != null) {
@@ -2552,6 +2548,17 @@ function EntretienFilterBar({
   );
 }
 
+// Afficher les dépassements en rouge, sans gras, tout en conservant le texte normal.
+function renderProchainDuText(value: string): ReactNode {
+  return value.split(/(-\d[\d \u00a0\u202f]*(?:km|jours?))/g).filter(Boolean).map((part, index) =>
+    /^-\d/.test(part) ? (
+      <span key={index} style={{ color: "#b91c1c", fontWeight: 400 }}>{part}</span>
+    ) : (
+      <strong key={index}>{part}</strong>
+    ),
+  );
+}
+
 function EntretienList({
   items,
   getEntretienBadge,
@@ -2612,7 +2619,7 @@ function EntretienList({
               </div>
               <div style={styles.rowMeta}>
                 <span>
-                  Prochain dû : <strong>{item.prochainDuText}</strong>
+                  Prochain dû : {renderProchainDuText(item.prochainDuText)}
                 </span>
                 {item.templateNom ? (
                   <>
