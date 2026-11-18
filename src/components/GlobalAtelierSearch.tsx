@@ -14,14 +14,24 @@ type BtResult = {
 type ClientResult = { id: string; nom: string };
 type PieceResult = { id: string; nom: string | null; sku: string | null; quantite: number | null };
 
-type Props = { open: boolean; onClose: () => void };
+type Props = { onClose?: () => void };
 const kmText = (value: number | null) => value == null ? "—" : `${Number(value).toLocaleString("fr-CA")} km`;
 const norm = (value: string | null | undefined) => (value || "").trim().toLowerCase();
 const activeBt = (statut: string | null) => ["en_cours", "en cours", "ouvert", "a_faire", "à faire"].includes(norm(statut));
 
-export default function GlobalAtelierSearch({ open, onClose }: Props) {
+export default function GlobalAtelierSearch({ onClose }: Props) {
   const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState({ top: 0, left: 0, width: 560 });
+  const close = () => { setOpen(false); onClose?.(); };
+  const reposition = () => {
+    const rect = inputRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const width = Math.min(580, window.innerWidth - 16);
+    setPosition({ top: rect.bottom + 6, left: Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)), width });
+  };
   const requestRef = useRef(0);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
@@ -32,12 +42,21 @@ export default function GlobalAtelierSearch({ open, onClose }: Props) {
   const [pieces, setPieces] = useState<PieceResult[]>([]);
 
   useEffect(() => {
-    if (open) {
-      setQuery(""); setUnits([]); setBts([]); setClients([]); setPieces([]); setError("");
-      requestRef.current += 1;
-      const focus = window.setTimeout(() => inputRef.current?.focus(), 0);
-      return () => window.clearTimeout(focus);
-    }
+    if (!open) return;
+    reposition();
+    const update = () => reposition();
+    const outside = (event: PointerEvent) => {
+      if (rootRef.current?.contains(event.target as Node)) return;
+      close();
+    };
+    document.addEventListener("pointerdown", outside);
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      document.removeEventListener("pointerdown", outside);
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
   }, [open]);
 
   useEffect(() => {
@@ -49,7 +68,7 @@ export default function GlobalAtelierSearch({ open, onClose }: Props) {
       return;
     }
     const timeout = window.setTimeout(async () => {
-      setLoading(true); setError("");
+      setLoading(true); setError(""); setUnits([]); setBts([]); setClients([]); setPieces([]);
       // Éviter que des caractères spéciaux modifient le filtre PostgREST .or().
       const term = search.replace(/[,().%*_]/g, " ").trim().slice(0, 70);
       if (!term) { setLoading(false); return; }
@@ -84,10 +103,10 @@ export default function GlobalAtelierSearch({ open, onClose }: Props) {
             foundBts = Array.from(byId.values());
           }
         }
-        foundBts.sort((a, b) => Number(activeBt(b.statut)) - Number(activeBt(a.statut)) ||
+        foundBts.sort((a, b) =>
           (b.date_ouverture ?? "").localeCompare(a.date_ouverture ?? ""));
         setUnits(foundUnits);
-        setBts(foundBts.slice(0, 20));
+        setBts(foundBts.slice(0, 2));
         setClients(clientRes.error ? [] : (clientRes.data ?? []) as ClientResult[]);
         setPieces(pieceRes.error ? [] : (pieceRes.data ?? []) as PieceResult[]);
       } catch (e) {
@@ -102,24 +121,60 @@ export default function GlobalAtelierSearch({ open, onClose }: Props) {
   useEffect(() => {
     if (!open) return;
     const handleKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); onClose(); }
+      if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); close(); }
     };
     window.addEventListener("keydown", handleKey, true);
     return () => window.removeEventListener("keydown", handleKey, true);
   }, [open, onClose]);
 
-  const go = (path: string) => { onClose(); navigate(path); };
-  if (!open) return null;
+  const go = (path: string) => { close(); setQuery(""); navigate(path); };
+  const openLatestPep = async (unit: UniteResult) => {
+    // Ouvrir immédiatement l’onglet pour éviter le blocage des fenêtres surgissantes.
+    const pepWindow = window.open("", "_blank");
+    if (!pepWindow) {
+      setError("Le navigateur bloque l’ouverture du PEP. Autorise les fenêtres surgissantes pour Atelier.");
+      return;
+    }
+    pepWindow.document.title = `Dernier PEP — ${unit.no_unite}`;
+    pepWindow.document.body.textContent = "Chargement du dernier PEP…";
+    try {
+      const { data, error: pepError } = await supabase
+        .from("pep_archives")
+        .select("id,date_pep,html_complet")
+        .eq("unite", unit.no_unite)
+        .order("date_pep", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (pepError) throw pepError;
+      if (!data?.html_complet) {
+        pepWindow.document.body.textContent = `Aucun PEP archivé trouvé pour l’unité ${unit.no_unite}.`;
+        return;
+      }
+      pepWindow.document.open();
+      pepWindow.document.write(String(data.html_complet));
+      pepWindow.document.close();
+      close();
+      setQuery("");
+    } catch (err) {
+      pepWindow.document.body.textContent = "Impossible de charger le dernier PEP.";
+      setError(err instanceof Error ? err.message : "Impossible de charger le dernier PEP.");
+    }
+  };
+
   const hasResults = units.length + bts.length + clients.length + pieces.length > 0;
   return (
-    <div className="gas-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <section className="gas-dialog" role="dialog" aria-modal="true" aria-label="Recherche globale Atelier">
-        <div className="gas-header">
-          <span aria-hidden="true">⌕</span>
-          <input ref={inputRef} aria-label="Rechercher une unité, un BT, un NIV, un client ou une pièce"
-            placeholder="Unité, BT, NIV, client, pièce…" value={query} onChange={e => setQuery(e.target.value)} />
-          <button className="gas-close" type="button" onClick={onClose} aria-label="Fermer">Esc ×</button>
-        </div>
+    <div ref={rootRef} className="gas-inline-root">
+      <div className="atelier-search gas-inline-input">
+        <span className="gas-search-icon" aria-hidden="true">⌕</span>
+        <input id="atelier-global-search-input" ref={inputRef}
+          type="search" autoComplete="off" aria-label="Recherche globale Atelier"
+          aria-expanded={open} aria-controls="atelier-global-results"
+          placeholder="Recherche rapide…" value={query}
+          onFocus={() => { reposition(); setOpen(true); }}
+          onChange={e => { setQuery(e.target.value); setOpen(true); }} />
+        {!query && <kbd aria-hidden="true">Ctrl K</kbd>}
+      </div>
+      {open && <div id="atelier-global-results" className="gas-dropdown" style={{ top: position.top, left: position.left, width: position.width }}>
         <div className="gas-results">
           {query.trim().length < 2 && <p className="gas-hint">Entrez au moins 2 caractères. Exemple : 2361, BT00353 ou un NIV.</p>}
           {loading && <p className="gas-hint">Recherche en cours…</p>}
@@ -135,13 +190,13 @@ export default function GlobalAtelierSearch({ open, onClose }: Props) {
               <div className="gas-actions">
                 <button type="button" onClick={() => go(`/unites/${u.id}`)}>Fiche</button>
                 <button type="button" onClick={() => go(`/unites/${u.id}?tab=kilometrage`)}>KM</button>
-                <button type="button" onClick={() => go(`/unites/${u.id}?tab=pep`)}>PEP (configuration)</button>
+                <button type="button" onClick={() => void openLatestPep(u)}>PEP</button>
                 <button type="button" onClick={() => go(`/unites/${u.id}?tab=entretien`)}>Entretiens</button>
                 <button type="button" onClick={() => go(`/admin/dossiers-vehicules/${u.id}`)}>Dossier</button>
               </div>
             </div>)}
           </div>}
-          {bts.length > 0 && <div className="gas-section"><div className="gas-section-title">Bons de travail ({bts.length})</div>
+          {bts.length > 0 && <div className="gas-section"><div className="gas-section-title">Bons de travail (2 derniers maximum)</div>
             {bts.map(bt => <button type="button" className="gas-result" key={bt.id} onClick={() => go(`/bt/${bt.id}`)}>
               <strong>{bt.numero || "BT"}</strong>
               <span>{bt.client_nom || ""}{bt.client_nom && bt.statut ? " • " : ""}{bt.statut || ""}</span>
@@ -155,8 +210,7 @@ export default function GlobalAtelierSearch({ open, onClose }: Props) {
             {pieces.map(item => <button type="button" className="gas-result" key={item.id} onClick={() => go("/inventaire")}><strong>{item.sku || item.nom || "Pièce"}</strong><span>{item.nom || ""} • Qté : {item.quantite ?? "—"}</span></button>)}
           </div>}
         </div>
-        <div className="gas-footer">Ctrl + K pour rechercher · Échap pour fermer</div>
-      </section>
+      </div>}
     </div>
   );
 }

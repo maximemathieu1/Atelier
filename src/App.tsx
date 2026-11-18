@@ -227,7 +227,6 @@ function AppShell({ onLogout }: { onLogout: () => void | Promise<void> }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const activeGroup = MENU_GROUPS.find((group) => group.items.some((item) => matchesMenuPath(location.pathname, item.to)))?.id ?? null;
   const [openGroup, setOpenGroup] = useState<string | null>(activeGroup);
-  const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const sidebarRef = useRef<HTMLElement>(null);
   const visibleGroups = MENU_GROUPS;
@@ -248,17 +247,17 @@ function AppShell({ onLogout }: { onLogout: () => void | Promise<void> }) {
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
-        setGlobalSearchOpen(true);
+        if (isMobile) setDrawerOpen(true);
+        window.setTimeout(() => document.getElementById("atelier-global-search-input")?.focus(), 0);
       }
       if (event.key === "Escape") {
-        if (globalSearchOpen) { setGlobalSearchOpen(false); return; }
         setDrawerOpen(false);
         if (isMobile && drawerOpen) menuButtonRef.current?.focus();
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [isMobile, drawerOpen, globalSearchOpen]);
+  }, [isMobile, drawerOpen]);
 
   useEffect(() => {
     if (!isMobile || !drawerOpen) return;
@@ -318,11 +317,7 @@ function AppShell({ onLogout }: { onLogout: () => void | Promise<void> }) {
             {isMobile && <button type="button" className="atelier-close-menu" onClick={closeDrawer} aria-label="Fermer le menu">×</button>}
           </div>
 
-          <button type="button" className="atelier-search atelier-global-search-trigger" onClick={() => setGlobalSearchOpen(true)} aria-label="Recherche globale Atelier">
-            <MenuIcon name="search" />
-            <span style={{ flex: 1, textAlign: "left" }}>Recherche globale…</span>
-            <kbd aria-hidden="true">Ctrl K</kbd>
-          </button>
+          <GlobalAtelierSearch />
 
           <nav id="atelier-navigation" className="atelier-navigation" aria-label="Menu principal">
             {showDashboard && (
@@ -445,7 +440,6 @@ function AppShell({ onLogout }: { onLogout: () => void | Promise<void> }) {
             <Route path="*" element={<Navigate to="/dashboard-atelier" replace />} />
           </Routes>
         </main>
-        <GlobalAtelierSearch open={globalSearchOpen} onClose={() => setGlobalSearchOpen(false)} />
         {!drawerOpen && !location.pathname.includes("/imprimer") && !location.pathname.startsWith("/pep/final") && <AtelierTodoPersonal />}
       </div>
     </PhoneRedirectGuard>

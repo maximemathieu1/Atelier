@@ -24,3 +24,17 @@
 .gas-active { font-size:11px; color:#047857; background:#ecfdf5; border:1px solid #a7f3d0; border-radius:20px; padding:2px 7px; font-style:normal; }
 .gas-footer { padding:10px 16px; border-top:1px solid #e6eaf0; color:#94a3b8; font-size:11px; }
 @media(max-width:600px) { .gas-backdrop { padding:14px 8px; } .gas-dialog { max-height:94vh; } .gas-actions button { font-size:11px; } }
+
+/* Recherche intégrée dans la barre latérale, sans fenêtre modale */
+.gas-inline-root { position:relative; z-index:100; margin-bottom:10px; }
+.gas-inline-input { display:flex; align-items:center; gap:8px; }
+.gas-inline-input input { width:100%; flex:1; min-width:0; border:0; outline:0; background:transparent; color:inherit; font:inherit; font-size:13px; }
+.gas-inline-input input::-webkit-search-cancel-button { cursor:pointer; }
+.gas-inline-input kbd { flex-shrink:0; }
+.gas-search-icon { color:#64748b; font-size:23px; line-height:1; }
+.gas-dropdown { position:fixed; z-index:30000; max-height:min(66vh,620px); overflow:hidden; border:1px solid #dbe3ef; border-radius:12px; background:#fff; color:#182236; box-shadow:0 16px 44px rgba(15,23,42,.19); }
+.gas-dropdown .gas-results { overflow-y:auto; max-height:min(66vh,620px); min-height:0; padding:6px 10px; }
+.gas-dropdown .gas-section-title { padding:9px 8px 5px; }
+.gas-dropdown .gas-unit { margin:3px 0 6px; }
+.gas-dropdown .gas-hint { padding:14px 8px; }
+@media(max-width:600px) { .gas-dropdown { max-height:65vh; } .gas-dropdown .gas-results { max-height:65vh; } }
