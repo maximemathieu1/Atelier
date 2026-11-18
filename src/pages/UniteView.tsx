@@ -390,6 +390,26 @@ export default function UniteView({
     setNotes((data as any) ?? []);
   }
 
+  // Masquer uniquement les relevés Samsara répétés pour le même jour et le même KM.
+  // Les journaux manuels, liés à un BT, et les valeurs différentes sont conservés.
+  const visibleKmLogs = useMemo(() => {
+    const seen = new Set<string>();
+    return kmLogs.filter((row) => {
+      if (row.bt_id || !String(row.source ?? "").toLowerCase().includes("samsara") || row.km == null) {
+        return true;
+      }
+      const timestamp = new Date(row.created_at);
+      if (Number.isNaN(timestamp.getTime())) return true;
+      const day = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "America/Toronto", year: "numeric", month: "2-digit", day: "2-digit",
+      }).format(timestamp);
+      const key = `${day}|${Number(row.km)}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [kmLogs]);
+
   async function loadKmLogs() {
     if (!id) return;
 
@@ -1547,7 +1567,7 @@ export default function UniteView({
                   </tr>
                 </thead>
                 <tbody>
-                  {kmLogs.map((row) => {
+                  {visibleKmLogs.map((row) => {
                     const isEditing = editingKmId === row.id;
 
                     return (
@@ -1605,7 +1625,7 @@ export default function UniteView({
                     );
                   })}
 
-                  {kmLogs.length === 0 && (
+                  {visibleKmLogs.length === 0 && (
                     <tr>
                       <td colSpan={4} className="muted am-full-cell" data-label="">
                         Aucun historique de kilométrage.

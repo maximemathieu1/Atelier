@@ -126,22 +126,34 @@ function dueStatus(row: ItemRow, currentKm: number | null) {
   return { label: "OK", tone: "#065f46", bg: "#ecfdf5", border: "#a7f3d0" };
 }
 
-function nextDueText(row: ItemRow) {
+function nextDueText(row: ItemRow, currentKm: number | null) {
   const h = row.lastDone;
   if (!h) return "Jamais effectué";
 
-  const parts: string[] = [];
-
-  if (row.frequence_km != null && h.km_effectue != null) {
-    parts.push(`KM: ${fmtKm(Number(h.km_effectue) + Number(row.frequence_km))}`);
+  const parts: { value: string; overdue: boolean }[] = [];
+  if (row.frequence_km != null && h.km_effectue != null && currentKm != null) {
+    const remainingKm = Number(h.km_effectue) + Number(row.frequence_km) - Number(currentKm);
+    parts.push({ value: `${fmtKm(remainingKm)}`, overdue: remainingKm < 0 });
   }
-
   if (row.frequence_jours != null && h.date_effectuee) {
-    const d = addDays(h.date_effectuee, Number(row.frequence_jours));
-    parts.push(`Date: ${d ? d.toLocaleDateString("fr-CA") : "—"}`);
+    const dueDate = addDays(h.date_effectuee, Number(row.frequence_jours));
+    if (dueDate) {
+      const remainingDays = Math.ceil((dueDate.getTime() - new Date().getTime()) / 86400000);
+      parts.push({ value: `${remainingDays.toLocaleString("fr-CA")} ${Math.abs(remainingDays) === 1 ? "jour" : "jours"}`, overdue: remainingDays < 0 });
+    }
   }
-
-  return parts.length ? parts.join(" • ") : "—";
+  return parts.length ? (
+    <>
+      {parts.map((part, index) => (
+        <span key={index}>
+          {index > 0 ? " • " : ""}
+          <span style={part.overdue ? { color: "#b91c1c", fontWeight: 900 } : undefined}>
+            {part.value}
+          </span>
+        </span>
+      ))}
+    </>
+  ) : "—";
 }
 
 function Panel({ title, children }: { title: string; children: React.ReactNode }) {
@@ -610,7 +622,7 @@ export default function UniteEntretienTab({
                       )}
                     </td>
 
-                    <td style={styles.td}>{nextDueText(row)}</td>
+                    <td style={styles.td}>{nextDueText(row, unite.km_actuel)}</td>
 
                     <td style={styles.td}>
                       <span

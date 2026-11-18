@@ -151,8 +151,6 @@ function dueStatus(row: ItemRow, currentKm: number | null) {
 
 function nextDueText(row: ItemRow, currentKm: number | null) {
   const h = row.lastDone;
-  const today = new Date();
-
   if (!h) {
     const parts: string[] = [];
     if (row.frequence_km != null) parts.push(`${fmtNumber(row.frequence_km)} km`);
@@ -160,29 +158,36 @@ function nextDueText(row: ItemRow, currentKm: number | null) {
     return parts.length ? parts.join(" • ") : "—";
   }
 
-  const parts: string[] = [];
-
+  const parts: { value: string; overdue: boolean }[] = [];
   if (row.frequence_km != null && h.km_effectue != null && currentKm != null) {
-    const nextKm = Number(h.km_effectue) + Number(row.frequence_km);
-    const remainingKm = nextKm - Number(currentKm);
-    if (remainingKm <= 0) parts.push("0 km");
-    else parts.push(`${fmtNumber(remainingKm)} km`);
+    const remainingKm = Number(h.km_effectue) + Number(row.frequence_km) - Number(currentKm);
+    parts.push({ value: `${fmtNumber(remainingKm)} km`, overdue: remainingKm < 0 });
   } else if (row.frequence_km != null) {
-    parts.push(`${fmtNumber(row.frequence_km)} km`);
+    parts.push({ value: `${fmtNumber(row.frequence_km)} km`, overdue: false });
   }
 
   if (row.frequence_jours != null && h.date_effectuee) {
     const dueDate = addDays(h.date_effectuee, Number(row.frequence_jours));
     if (dueDate) {
-      const remainingDays = daysBetween(today, dueDate);
-      if (remainingDays <= 0) parts.push("0 jour");
-      else parts.push(`${fmtNumber(remainingDays)} jours`);
+      const remainingDays = daysBetween(new Date(), dueDate);
+      parts.push({ value: `${fmtNumber(remainingDays)} ${Math.abs(remainingDays) === 1 ? "jour" : "jours"}`, overdue: remainingDays < 0 });
     }
   } else if (row.frequence_jours != null) {
-    parts.push(`${fmtNumber(row.frequence_jours)} jours`);
+    parts.push({ value: `${fmtNumber(row.frequence_jours)} jours`, overdue: false });
   }
 
-  return parts.length ? parts.join(" • ") : "—";
+  return parts.length ? (
+    <>
+      {parts.map((part, index) => (
+        <span key={index}>
+          {index > 0 ? " • " : ""}
+          <span style={part.overdue ? { color: "#b91c1c", fontWeight: 900 } : undefined}>
+            {part.value}
+          </span>
+        </span>
+      ))}
+    </>
+  ) : "—";
 }
 
 function Panel({ title, children }: { title: string; children: React.ReactNode }) {
