@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
+import { createClient } from "@supabase/supabase-js";
 import "./GlobalAtelierSearch.css";
 
 type UniteResult = {
@@ -13,6 +14,32 @@ type BtResult = {
 };
 type ClientResult = { id: string; nom: string };
 type PieceResult = { id: string; nom: string | null; sku: string | null; quantite: number | null };
+
+type CircuitDriver = {
+  id: string;
+  circuit: string;
+  unite: string;
+  nom_conducteur: string | null;
+  telephone: string | null;
+  compagnie: string | null;
+};
+
+// Lecture seule du projet Circuits scolaires. La clé anon est publique;
+// les droits de lecture sont appliqués par les politiques RLS de ce projet.
+// Ne jamais utiliser une clé service_role dans une application Vite.
+const circuitsUrl = (import.meta.env.VITE_CIRCUIT_SUPABASE_URL || "https://ukftoqjgyychsswfxqyw.supabase.co") as string;
+const circuitsAnonKey = import.meta.env.VITE_CIRCUIT_SUPABASE_ANON_KEY as string | undefined;
+const circuitsDb = circuitsUrl && circuitsAnonKey
+  ? createClient(circuitsUrl, circuitsAnonKey, {
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+    })
+  : null;
+
+const normalizeUnit = (value: string | null | undefined) =>
+  (value ?? "").trim().replace(/^0+(?=\d)/, "").toUpperCase();
+const isReserveCircuit = (value: string) =>
+  /SPARE|R[EÉ]SERVE/i.test(value.normalize("NFD").replace(/[\u0300-\u036f]/g, ""));
+const phoneHref = (value: string) => `tel:${value.replace(/[^\d+]/g, "")}`;
 
 type Props = { onClose?: () => void };
 const kmText = (value: number | null) => value == null ? "—" : `${Number(value).toLocaleString("fr-CA")} km`;
@@ -40,6 +67,8 @@ export default function GlobalAtelierSearch({ onClose }: Props) {
   const [bts, setBts] = useState<BtResult[]>([]);
   const [clients, setClients] = useState<ClientResult[]>([]);
   const [pieces, setPieces] = useState<PieceResult[]>([]);
+  const [drivers, setDrivers] = useState<CircuitDriver[]>([]);
+  const [driversNotice, setDriversNotice] = useState("");
 
   useEffect(() => {
     if (!open) return;
@@ -64,11 +93,11 @@ export default function GlobalAtelierSearch({ onClose }: Props) {
     const search = query.trim();
     const requestId = ++requestRef.current;
     if (search.length < 2) {
-      setLoading(false); setUnits([]); setBts([]); setClients([]); setPieces([]); setError("");
+      setLoading(false); setUnits([]); setBts([]); setClients([]); setPieces([]); setDrivers([]); setDriversNotice(""); setError("");
       return;
     }
     const timeout = window.setTimeout(async () => {
-      setLoading(true); setError(""); setUnits([]); setBts([]); setClients([]); setPieces([]);
+      setLoading(true); setError(""); setUnits([]); setBts([]); setClients([]); setPieces([]); setDrivers([]); setDriversNotice("");
       // Éviter que des caractères spéciaux modifient le filtre PostgREST .or().
       const term = search.replace(/[,().%*_]/g, " ").trim().slice(0, 70);
       if (!term) { setLoading(false); return; }
@@ -105,6 +134,33 @@ export default function GlobalAtelierSearch({ onClose }: Props) {
         }
         foundBts.sort((a, b) =>
           (b.date_ouverture ?? "").localeCompare(a.date_ouverture ?? ""));
+        // Les circuits utilisent un projet Supabase distinct. On lit uniquement
+        // les affectations des unités trouvées, avec les politiques RLS du projet.
+        if (foundUnits.length && !circuitsDb) {
+          setDriversNotice("Connexion Circuits scolaires non configurée dans Atelier.");
+        }
+        if (foundUnits.length && circuitsDb) {
+          try {
+            const unitNumbers = [...new Set(foundUnits.flatMap(u => {
+              const value = u.no_unite.trim();
+              return value ? [value, value.padStart(4, "0")] : [];
+            }))];
+            const { data: circuitRows, error: circuitError } = await circuitsDb
+              .from("circuits_scolaires")
+              .select("id,circuit,unite,nom_conducteur,telephone,compagnie")
+              .in("unite", unitNumbers)
+              .limit(100);
+            if (requestRef.current !== requestId) return;
+            if (circuitError) throw circuitError;
+            const rows = (circuitRows ?? []) as CircuitDriver[];
+            rows.sort((a, b) => Number(isReserveCircuit(a.circuit)) - Number(isReserveCircuit(b.circuit)) || a.circuit.localeCompare(b.circuit, "fr-CA", { numeric: true }));
+            setDrivers(rows);
+          } catch (driverError) {
+            if (requestRef.current !== requestId) return;
+            setDriversNotice("Coordonnées des conducteurs indisponibles (accès Circuits scolaires à vérifier).");
+            console.warn("Lecture des affectations scolaires impossible", driverError);
+          }
+        }
         setUnits(foundUnits);
         setBts(foundBts.slice(0, 2));
         setClients(clientRes.error ? [] : (clientRes.data ?? []) as ClientResult[]);
@@ -187,6 +243,13 @@ export default function GlobalAtelierSearch({ onClose }: Props) {
                 <strong>Unité {u.no_unite}</strong><span>{[u.marque,u.modele].filter(Boolean).join(" ") || "Véhicule"}</span>
               </button>
               <div className="gas-facts"><span>KM actuel : <b>{kmText(u.km_actuel)}</b></span><span>NIV : <b>{u.niv || "—"}</b></span>{u.plaque && <span>Plaque : {u.plaque}</span>}</div>
+              {drivers.filter(d => normalizeUnit(d.unite) === normalizeUnit(u.no_unite) && (d.nom_conducteur?.trim() || d.telephone?.trim())).map(d => (
+                <div className="gas-driver" key={d.id}>
+                  <span>Conducteur{d.circuit ? ` · Circuit ${d.circuit}` : ""} : <strong>{d.nom_conducteur?.trim() || "Non assigné"}</strong></span>
+                  {d.telephone?.trim() && <a href={phoneHref(d.telephone)} onClick={event => event.stopPropagation()}>{d.telephone}</a>}
+                </div>
+              ))}
+              {driversNotice && <div className="gas-driver-notice">{driversNotice}</div>}
               <div className="gas-actions">
                 <button type="button" onClick={() => go(`/unites/${u.id}`)}>Fiche</button>
                 <button type="button" onClick={() => go(`/unites/${u.id}?tab=kilometrage`)}>KM</button>
