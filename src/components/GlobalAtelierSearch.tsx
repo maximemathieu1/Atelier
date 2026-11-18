@@ -234,8 +234,15 @@ export default function GlobalAtelierSearch({ onClose }: Props) {
               <div className="gas-facts"><span>KM actuel : <b>{kmText(u.km_actuel)}</b></span><span>NIV : <b>{u.niv || "—"}</b></span>{u.plaque && <span>Plaque : {u.plaque}</span>}</div>
               {drivers.filter(d => normalizeUnit(d.unite) === normalizeUnit(u.no_unite) && (d.nom_conducteur?.trim() || d.telephone?.trim())).map(d => (
                 <div className="gas-driver" key={d.id}>
-                  <span>Conducteur{d.circuit ? ` · Circuit ${d.circuit}` : ""} : <strong>{d.nom_conducteur?.trim() || "Non assigné"}</strong></span>
-                  {d.telephone?.trim() && <a href={phoneHref(d.telephone)} onClick={event => event.stopPropagation()}>{d.telephone}</a>}
+                  <div className="gas-driver-main">
+                    <span className="gas-driver-label">Conducteur{d.circuit ? ` · Circuit ${d.circuit}` : ""}</span>
+                    <strong>{d.nom_conducteur?.trim() || "Non assigné"}</strong>
+                  </div>
+                  {d.telephone?.trim() && (
+                    <a className="gas-driver-phone" href={phoneHref(d.telephone)} onClick={event => event.stopPropagation()} aria-label={`Appeler ${d.nom_conducteur?.trim() || "le conducteur"} au ${d.telephone}`}>
+                      <span aria-hidden="true">☎</span> {d.telephone}
+                    </a>
+                  )}
                 </div>
               ))}
               {driversNotice && <div className="gas-driver-notice">{driversNotice}</div>}
