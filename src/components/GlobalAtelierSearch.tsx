@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
-import { createClient } from "@supabase/supabase-js";
 import "./GlobalAtelierSearch.css";
 
 type UniteResult = {
@@ -24,17 +23,8 @@ type CircuitDriver = {
   compagnie: string | null;
 };
 
-// Lecture seule du projet Circuits scolaires. La clé anon est publique;
-// les droits de lecture sont appliqués par les politiques RLS de ce projet.
-// Ne jamais utiliser une clé service_role dans une application Vite.
-const circuitsUrl = (import.meta.env.VITE_CIRCUIT_SUPABASE_URL || "https://ukftoqjgyychsswfxqyw.supabase.co") as string;
-const circuitsAnonKey = import.meta.env.VITE_CIRCUIT_SUPABASE_ANON_KEY as string | undefined;
-const circuitsDb = circuitsUrl && circuitsAnonKey
-  ? createClient(circuitsUrl, circuitsAnonKey, {
-      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
-    })
-  : null;
-
+// Les affectations sont lues par une fonction Edge du projet Atelier.
+// Aucune clé du projet Circuits scolaires n'est exposée dans le navigateur.
 const normalizeUnit = (value: string | null | undefined) =>
   (value ?? "").trim().replace(/^0+(?=\d)/, "").toUpperCase();
 const isReserveCircuit = (value: string) =>
@@ -134,30 +124,29 @@ export default function GlobalAtelierSearch({ onClose }: Props) {
         }
         foundBts.sort((a, b) =>
           (b.date_ouverture ?? "").localeCompare(a.date_ouverture ?? ""));
-        // Les circuits utilisent un projet Supabase distinct. On lit uniquement
-        // les affectations des unités trouvées, avec les politiques RLS du projet.
-        if (foundUnits.length && !circuitsDb) {
-          setDriversNotice("Connexion Circuits scolaires non configurée dans Atelier.");
-        }
-        if (foundUnits.length && circuitsDb) {
+        // L'appel passe par la fonction Edge Atelier qui valide la session
+        // avant de lire Circuits scolaires avec une clé serveur protégée.
+        if (foundUnits.length) {
           try {
-            const unitNumbers = [...new Set(foundUnits.flatMap(u => {
-              const value = u.no_unite.trim();
-              return value ? [value, value.padStart(4, "0")] : [];
-            }))];
-            const { data: circuitRows, error: circuitError } = await circuitsDb
-              .from("circuits_scolaires")
-              .select("id,circuit,unite,nom_conducteur,telephone,compagnie")
-              .in("unite", unitNumbers)
-              .limit(100);
+            const unitNumbers = [...new Set(foundUnits.map(u => u.no_unite.trim()).filter(Boolean))];
+            const { data: response, error: driverError } = await supabase.functions.invoke(
+              "atelier-conducteurs-unite",
+              { body: { unites: unitNumbers } }
+            );
             if (requestRef.current !== requestId) return;
-            if (circuitError) throw circuitError;
-            const rows = (circuitRows ?? []) as CircuitDriver[];
-            rows.sort((a, b) => Number(isReserveCircuit(a.circuit)) - Number(isReserveCircuit(b.circuit)) || a.circuit.localeCompare(b.circuit, "fr-CA", { numeric: true }));
+            if (driverError) throw driverError;
+            if (!response || response.ok !== true || !Array.isArray(response.conducteurs)) {
+              throw new Error(response?.error || "Réponse Circuits scolaires invalide.");
+            }
+            const rows = response.conducteurs as CircuitDriver[];
+            rows.sort((a, b) =>
+              Number(isReserveCircuit(a.circuit)) - Number(isReserveCircuit(b.circuit)) ||
+              a.circuit.localeCompare(b.circuit, "fr-CA", { numeric: true })
+            );
             setDrivers(rows);
           } catch (driverError) {
             if (requestRef.current !== requestId) return;
-            setDriversNotice("Coordonnées des conducteurs indisponibles (accès Circuits scolaires à vérifier).");
+            setDriversNotice("Conducteurs indisponibles : vérifier la fonction Edge Atelier.");
             console.warn("Lecture des affectations scolaires impossible", driverError);
           }
         }
