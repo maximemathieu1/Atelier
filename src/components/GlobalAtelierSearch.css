@@ -74,3 +74,9 @@
   white-space: nowrap;
 }
 .gas-dropdown .gas-driver-phone:hover { text-decoration: underline; }
+
+/* Recherche par numéro de circuit */
+.gas-circuit { display:flex; flex-wrap:wrap; align-items:center; gap:7px 12px; padding:10px 12px; border:1px solid #dbe4f1; border-radius:9px; margin-top:7px; font-size:13px; }
+.gas-circuit strong { color:#142c52; }
+.gas-circuit span { color:#4f617b; }
+.gas-circuit a { color:#1e57b0; text-decoration:underline; white-space:nowrap; }

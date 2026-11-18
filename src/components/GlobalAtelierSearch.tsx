@@ -59,6 +59,7 @@ export default function GlobalAtelierSearch({ onClose }: Props) {
   const [pieces, setPieces] = useState<PieceResult[]>([]);
   const [drivers, setDrivers] = useState<CircuitDriver[]>([]);
   const [driversNotice, setDriversNotice] = useState("");
+  const [circuitResults, setCircuitResults] = useState<CircuitDriver[]>([]);
 
   useEffect(() => {
     if (!open) return;
@@ -83,33 +84,92 @@ export default function GlobalAtelierSearch({ onClose }: Props) {
     const search = query.trim();
     const requestId = ++requestRef.current;
     if (search.length < 2) {
-      setLoading(false); setUnits([]); setBts([]); setClients([]); setPieces([]); setDrivers([]); setDriversNotice(""); setError("");
+      setLoading(false); setUnits([]); setBts([]); setClients([]); setPieces([]); setDrivers([]); setCircuitResults([]); setDriversNotice(""); setError("");
       return;
     }
     const timeout = window.setTimeout(async () => {
-      setLoading(true); setError(""); setUnits([]); setBts([]); setClients([]); setPieces([]); setDrivers([]); setDriversNotice("");
+      setLoading(true); setError(""); setUnits([]); setBts([]); setClients([]); setPieces([]); setDrivers([]); setCircuitResults([]); setDriversNotice("");
       // Éviter que des caractères spéciaux modifient le filtre PostgREST .or().
       const term = search.replace(/[,().%*_]/g, " ").trim().slice(0, 70);
       if (!term) { setLoading(false); return; }
+      const explicitCircuit = /^(?:circuit|circ)[\s#:-]*(\d{2,8})$/i.exec(search);
+      const circuitNumber = explicitCircuit?.[1] ?? (/^\d{2,8}$/.test(search) ? search : "");
+      // Une recherche par circuit doit rester possible sans unité trouvée initialement.
+      const ordinarySearch = !explicitCircuit;
       try {
+        const empty = { data: [], error: null };
         const [uRes, btRes, clientRes, pieceRes] = await Promise.all([
-          supabase.from("unites")
+          ordinarySearch ? supabase.from("unites")
             .select("id,no_unite,marque,modele,niv,plaque,km_actuel")
             .or(`no_unite.ilike.%${term}%,niv.ilike.%${term}%,plaque.ilike.%${term}%,marque.ilike.%${term}%,modele.ilike.%${term}%`)
-            .limit(12),
-          supabase.from("bons_travail")
+            .limit(12) : Promise.resolve(empty),
+          ordinarySearch ? supabase.from("bons_travail")
             .select("id,numero,statut,unite_id,client_nom,date_ouverture")
             .or(`numero.ilike.%${term}%,client_nom.ilike.%${term}%`)
-            .order("date_ouverture", { ascending: false }).limit(15),
-          supabase.from("clients").select("id,nom").ilike("nom", `%${term}%`).limit(8),
-          supabase.from("inventaire_items").select("id,nom,sku,quantite")
-            .or(`nom.ilike.%${term}%,sku.ilike.%${term}%`).limit(8),
+            .order("date_ouverture", { ascending: false }).limit(15) : Promise.resolve(empty),
+          ordinarySearch ? supabase.from("clients").select("id,nom").ilike("nom", `%${term}%`).limit(8) : Promise.resolve(empty),
+          ordinarySearch ? supabase.from("inventaire_items").select("id,nom,sku,quantite")
+            .or(`nom.ilike.%${term}%,sku.ilike.%${term}%`).limit(8) : Promise.resolve(empty),
         ]);
         if (requestRef.current !== requestId) return;
         if (uRes.error) throw uRes.error;
         if (btRes.error) throw btRes.error;
         const foundUnits = (uRes.data ?? []) as UniteResult[];
         let foundBts = (btRes.data ?? []) as BtResult[];
+        // Recherche unique par appel Edge : unités + circuit éventuel.
+        // La fonction sécurisée renvoie les affectations du projet Circuits scolaires.
+        if (foundUnits.length || circuitNumber) {
+          try {
+            const unitNumbers = [...new Set(foundUnits.map(u => u.no_unite.trim()).filter(Boolean))];
+            const { data: response, error: driverError } = await supabase.functions.invoke(
+              "atelier-conducteurs-unite",
+              { body: { unites: unitNumbers, ...(circuitNumber ? { circuit: circuitNumber } : {}) } }
+            );
+            if (requestRef.current !== requestId) return;
+            if (driverError) throw driverError;
+            if (!response || response.ok !== true || !Array.isArray(response.conducteurs)) {
+              throw new Error(response?.error || "Réponse Circuits scolaires invalide.");
+            }
+            const rows = response.conducteurs as CircuitDriver[];
+            rows.sort((a, b) =>
+              Number(isReserveCircuit(a.circuit)) - Number(isReserveCircuit(b.circuit)) ||
+              a.circuit.localeCompare(b.circuit, "fr-CA", { numeric: true })
+            );
+            setDrivers(rows);
+            if (circuitNumber) {
+              const normalizedCircuit = circuitNumber.replace(/^0+(?=\d)/, "");
+              const matched = rows.filter(d => {
+                if (!/^\d+$/.test(d.circuit.trim())) return false;
+                const code = d.circuit.trim().replace(/^0+(?=\d)/, "");
+                return circuitNumber.length === 2
+                  ? code.startsWith(normalizedCircuit) || d.circuit.startsWith(circuitNumber)
+                  : code === normalizedCircuit;
+              });
+              setCircuitResults(matched);
+              // Retrouver les véhicules associés au circuit, même lorsqu'aucun
+              // numéro d'unité n'a été saisi dans le champ de recherche.
+              const missingNumbers = [...new Set(matched.map(d => d.unite.trim()).filter(Boolean))]
+                .filter(n => !foundUnits.some(u => normalizeUnit(u.no_unite) === normalizeUnit(n)))
+                .slice(0, 20);
+              if (missingNumbers.length) {
+                const unitVariants = [...new Set(missingNumbers.flatMap(n =>
+                  [n, normalizeUnit(n), normalizeUnit(n).padStart(4, "0")]))];
+                const fetched = await supabase.from("unites")
+                  .select("id,no_unite,marque,modele,niv,plaque,km_actuel")
+                  .in("no_unite", unitVariants).limit(20);
+                if (requestRef.current !== requestId) return;
+                if (fetched.error) throw fetched.error;
+                for (const u of (fetched.data ?? []) as UniteResult[]) {
+                  if (!foundUnits.some(existing => existing.id === u.id)) foundUnits.push(u);
+                }
+              }
+            }
+          } catch (driverError) {
+            if (requestRef.current !== requestId) return;
+            setDriversNotice("Circuits scolaires indisponibles : vérifier la fonction Edge Atelier.");
+            console.warn("Lecture des affectations scolaires impossible", driverError);
+          }
+        }
         if (foundUnits.length) {
           const linked = await supabase.from("bons_travail")
             .select("id,numero,statut,unite_id,client_nom,date_ouverture")
@@ -124,32 +184,6 @@ export default function GlobalAtelierSearch({ onClose }: Props) {
         }
         foundBts.sort((a, b) =>
           (b.date_ouverture ?? "").localeCompare(a.date_ouverture ?? ""));
-        // L'appel passe par la fonction Edge Atelier qui valide la session
-        // avant de lire Circuits scolaires avec une clé serveur protégée.
-        if (foundUnits.length) {
-          try {
-            const unitNumbers = [...new Set(foundUnits.map(u => u.no_unite.trim()).filter(Boolean))];
-            const { data: response, error: driverError } = await supabase.functions.invoke(
-              "atelier-conducteurs-unite",
-              { body: { unites: unitNumbers } }
-            );
-            if (requestRef.current !== requestId) return;
-            if (driverError) throw driverError;
-            if (!response || response.ok !== true || !Array.isArray(response.conducteurs)) {
-              throw new Error(response?.error || "Réponse Circuits scolaires invalide.");
-            }
-            const rows = response.conducteurs as CircuitDriver[];
-            rows.sort((a, b) =>
-              Number(isReserveCircuit(a.circuit)) - Number(isReserveCircuit(b.circuit)) ||
-              a.circuit.localeCompare(b.circuit, "fr-CA", { numeric: true })
-            );
-            setDrivers(rows);
-          } catch (driverError) {
-            if (requestRef.current !== requestId) return;
-            setDriversNotice("Conducteurs indisponibles : vérifier la fonction Edge Atelier.");
-            console.warn("Lecture des affectations scolaires impossible", driverError);
-          }
-        }
         setUnits(foundUnits);
         setBts(foundBts.slice(0, 2));
         setClients(clientRes.error ? [] : (clientRes.data ?? []) as ClientResult[]);
@@ -206,7 +240,7 @@ export default function GlobalAtelierSearch({ onClose }: Props) {
     }
   };
 
-  const hasResults = units.length + bts.length + clients.length + pieces.length > 0;
+  const hasResults = units.length + bts.length + clients.length + pieces.length + circuitResults.length > 0;
   return (
     <div ref={rootRef} className="gas-inline-root">
       <div className="atelier-search gas-inline-input">
@@ -221,10 +255,19 @@ export default function GlobalAtelierSearch({ onClose }: Props) {
       </div>
       {open && <div id="atelier-global-results" className="gas-dropdown" style={{ top: position.top, left: position.left, width: position.width }}>
         <div className="gas-results">
-          {query.trim().length < 2 && <p className="gas-hint">Entrez au moins 2 caractères. Exemple : 2361, BT00353 ou un NIV.</p>}
+          {query.trim().length < 2 && <p className="gas-hint">Entrez au moins 2 caractères. Exemple : 2412, circuit 034, BT00353 ou un NIV.</p>}
           {loading && <p className="gas-hint">Recherche en cours…</p>}
           {error && <p className="gas-error" role="alert">{error}</p>}
           {!loading && !error && query.trim().length >= 2 && !hasResults && <p className="gas-hint">Aucun résultat trouvé.</p>}
+          {circuitResults.length > 0 && <div className="gas-section">
+            <div className="gas-section-title">Circuits scolaires ({circuitResults.length})</div>
+            {circuitResults.map(d => <div className="gas-circuit" key={d.id}>
+              <strong>Circuit {d.circuit}</strong>
+              <span>Unité {d.unite || "non assignée"}{d.compagnie ? ` · ${d.compagnie}` : ""}</span>
+              {d.nom_conducteur && <span>Conducteur : <b>{d.nom_conducteur}</b></span>}
+              {d.telephone?.trim() && <a href={phoneHref(d.telephone)} aria-label={`Appeler ${d.nom_conducteur || "le conducteur"}`} onClick={e => e.stopPropagation()}>☎ {d.telephone}</a>}
+            </div>)}
+          </div>}
           {units.length > 0 && <div className="gas-section">
             <div className="gas-section-title">Véhicules ({units.length})</div>
             {units.map(u => <div className="gas-unit" key={u.id}>
