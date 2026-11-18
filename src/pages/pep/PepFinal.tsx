@@ -55,6 +55,24 @@ type ArchiveStep =
   | "done"
   | "error";
 
+type PepReparationItem = {
+  id: string;
+  niveau: "mineur" | "majeur";
+  description: string;
+  repaired_at: string | null;
+  validated_at: string | null;
+};
+
+function lireDefautsPep(data: unknown): PepReparationItem[] {
+  const liste = (data as { defauts?: unknown } | null)?.defauts;
+  if (!Array.isArray(liste)) throw new Error("Réponse du suivi PEP invalide.");
+  return liste.filter((d): d is PepReparationItem =>
+    !!d && typeof d === "object" && typeof d.id === "string" &&
+    (d.niveau === "mineur" || d.niveau === "majeur") &&
+    typeof d.description === "string"
+  );
+}
+
 type ArchiveContext = {
   pepArchiveId: string;
   btId: string;
@@ -63,7 +81,7 @@ type ArchiveContext = {
 };
 
 const PEP_TEMPLATE_ID = "d71006cc-cfd7-4e49-83dd-918ee4201b89";
-type ArchiveChecklistKey = "archive" | "bt" | "entretien" | "pdf" | "upload" | "attach";
+type ArchiveChecklistKey = "archive" | "bt" | "entretien" | "defauts" | "pdf" | "upload" | "attach";
 type ArchiveChecklistStatus = "pending" | "active" | "done" | "error";
 type ArchiveChecklistItem = {
   key: ArchiveChecklistKey;
@@ -76,6 +94,7 @@ const DEFAULT_ARCHIVE_CHECKLIST: ArchiveChecklistItem[] = [
   { key: "archive", label: "Archivage du PEP", status: "pending" },
   { key: "bt", label: "Liaison au bon de travail", status: "pending" },
   { key: "entretien", label: "Entretien périodique PEP", status: "pending" },
+  { key: "defauts", label: "Suivi des défectuosités PEP", status: "pending" },
   { key: "pdf", label: "Génération du PDF", status: "pending" },
   { key: "upload", label: "Envoi dans les documents du BT", status: "pending" },
   { key: "attach", label: "Attachement au bon de travail", status: "pending" },
@@ -563,18 +582,6 @@ function dateOnlyToIsoMidday(value?: string | null) {
   return `${dateOnlyOrToday(value)}T12:00:00.000Z`;
 }
 
-function getMonthRangeIso(datePep: string) {
-  const safeDate = dateOnlyOrToday(datePep);
-  const [year, month] = safeDate.split("-").map(Number);
-
-  const start = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0));
-  const end = new Date(Date.UTC(year, month, 1, 0, 0, 0));
-
-  return {
-    startIso: start.toISOString(),
-    endIso: end.toISOString(),
-  };
-}
 
 function isPepTaskLabel(value: unknown) {
   const v = normalizeText(value);
@@ -622,70 +629,41 @@ async function resolvePepHourlyRate(uniteId: string) {
 }
 
 async function getOrCreatePepBt(
+  pepArchiveId: string,
   uniteId: string,
   datePep: string,
   km: number | null,
   mecanoNom: string | null,
   numMecano: string | null
 ) {
-  const { startIso, endIso } = getMonthRangeIso(datePep);
-
-  const { data: existingBt, error: existingBtErr } = await supabase
-    .from("bons_travail")
-    .select("*")
-    .eq("unite_id", uniteId)
-    .in("statut", ["ouvert", "a_faire", "en_cours"])
-    .gte("date_ouverture", startIso)
-    .lt("date_ouverture", endIso)
-    .order("date_ouverture", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (existingBtErr) throw existingBtErr;
-
-  if (existingBt?.id) {
-    if (
-      km != null &&
-      Number.isFinite(km) &&
-      (existingBt.km == null || Number(km) > Number(existingBt.km || 0))
-    ) {
-      const { error: kmErr } = await supabase
-        .from("bons_travail")
-        .update({ km })
-        .eq("id", existingBt.id);
-      if (kmErr) throw kmErr;
-      return { bt: { ...existingBt, km }, created: false as const };
-    }
-    return { bt: existingBt, created: false as const };
-  }
-
-  const { data: createdBt, error: createBtErr } = await supabase
-    .from("bons_travail")
-    .insert({
-      unite_id: uniteId,
-      statut: "ouvert",
-      date_ouverture: dateOnlyToIsoMidday(datePep),
-      km,
-    })
-    .select("*")
-    .single();
-
-  if (createBtErr) throw createBtErr;
-
   const tauxHoraire = await resolvePepHourlyRate(uniteId);
   const mecanoNomFinal =
     String(mecanoNom || "").trim() || String(numMecano || "").trim() || "PEP";
 
-  const { error: moErr } = await supabase.from("bt_main_oeuvre").insert({
-    bt_id: createdBt.id,
-    mecano_nom: mecanoNomFinal,
-    description: null,
-    heures: 1,
-    taux_horaire: tauxHoraire,
-  });
-  if (moErr) throw moErr;
+  // Une fonction SQL transactionnelle réserve UN BT ordinaire par archive.
+  // Jamais de recherche de BT existant par unité/mois (qui pouvait trouver un CS).
+  const { data: liaison, error: liaisonErr } = await supabase.rpc(
+    "pep_obtenir_bt_dedie",
+    {
+      p_archive_id: pepArchiveId,
+      p_date_pep: dateOnlyOrToday(datePep),
+      p_km: km,
+      p_mecano_nom: mecanoNomFinal,
+      p_taux_horaire: tauxHoraire,
+    }
+  );
+  if (liaisonErr) throw new Error(`BT dédié au PEP : ${liaisonErr.message}`);
+  const info = Array.isArray(liaison) ? liaison[0] : liaison;
+  const btId = String(info?.bt_id || "").trim();
+  if (!btId) throw new Error("Le BT dédié n'a pas été créé ou retrouvé.");
 
-  return { bt: createdBt, created: true as const };
+  const { data: bt, error: btErr } = await supabase
+    .from("bons_travail").select("*").eq("id", btId).single();
+  if (btErr) throw btErr;
+  if (!bt || bt.unite_id !== uniteId || bt.type_bt === "centre_service") {
+    throw new Error("BT PEP invalide : impossible d'associer le PEP à un Centre de service.");
+  }
+  return { bt, created: Boolean(info?.bt_cree) };
 }
 
 async function syncPepTaskAndHistorique(btRow: any, datePep: string, km: number | null) {
@@ -1078,6 +1056,10 @@ export default function PepFinal() {
   const [archiveMessage, setArchiveMessage] = useState("");
   const [archiveChecklist, setArchiveChecklist] = useState<ArchiveChecklistItem[]>(freshArchiveChecklist());
   const [archiveContext, setArchiveContext] = useState<ArchiveContext | null>(null);
+  const [pepRepairItems, setPepRepairItems] = useState<PepReparationItem[]>([]);
+  const [pepRepairSelected, setPepRepairSelected] = useState<Set<string>>(() => new Set());
+  const [pepRepairSaving, setPepRepairSaving] = useState(false);
+  const [pepRepairMessage, setPepRepairMessage] = useState("");
 
   const signCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const isDrawingRef = useRef(false);
@@ -1247,7 +1229,7 @@ export default function PepFinal() {
 
 
   function closeArchiveModal() {
-    if (archiveBusy) return;
+    if (archiveBusy || pepRepairSaving) return;
     setArchiveModalOpen(false);
   }
 
@@ -1260,6 +1242,9 @@ export default function PepFinal() {
     setArchiveMessage("");
     setArchiveChecklist(freshArchiveChecklist());
     setArchiveContext(null);
+    setPepRepairItems([]);
+    setPepRepairSelected(new Set());
+    setPepRepairMessage("");
   }
 
   function setChecklistItem(
@@ -1277,7 +1262,7 @@ export default function PepFinal() {
   }
 
   function markRemainingPendingFrom(key: ArchiveChecklistKey) {
-    const order: ArchiveChecklistKey[] = ["archive", "bt", "entretien", "pdf", "upload", "attach"];
+    const order: ArchiveChecklistKey[] = ["archive", "bt", "entretien", "defauts", "pdf", "upload", "attach"];
     const start = order.indexOf(key);
     if (start < 0) return;
 
@@ -1384,6 +1369,9 @@ export default function PepFinal() {
     setArchiveMessage("Archivage du PEP en cours...");
     setArchiveChecklist(freshArchiveChecklist());
     setArchiveContext(null);
+    setPepRepairItems([]);
+    setPepRepairSelected(new Set());
+    setPepRepairMessage("");
 
     let contextForResume: ArchiveContext | null = null;
 
@@ -1433,6 +1421,7 @@ export default function PepFinal() {
       setChecklistItem("bt", "active", "Recherche ou création du BT");
 
       const { bt } = await getOrCreatePepBt(
+        pepArchiveId,
         payload.unite_id,
         datePep,
         km,
@@ -1456,6 +1445,17 @@ export default function PepFinal() {
       setChecklistItem("entretien", "active", "Mise à jour en cours");
       await syncPepTaskAndHistorique(bt, datePep, km);
       setChecklistItem("entretien", "done", "Entretien marqué effectué");
+
+      // Le serveur lit les défauts directement dans l'archive; un nouvel essai
+      // ne recrée pas les mêmes défectuosités ni les mêmes tâches.
+      setChecklistItem("defauts", "active", "Identification des mineures et majeures");
+      const { data: pepImport, error: pepImportError } = await supabase.rpc(
+        "pep_importer_defauts", { p_archive_id: pepArchiveId }
+      );
+      if (pepImportError) throw new Error(`Suivi des défauts PEP : ${pepImportError.message}`);
+      const detected = lireDefautsPep(pepImport);
+      setPepRepairItems(detected);
+      setChecklistItem("defauts", "done", `${detected.length} défectuosité(s) suivie(s)`);
       setArchivePhase1Done(true);
 
       setArchiveMessage("Vérification des étapes PDF déjà complétées...");
@@ -1529,6 +1529,32 @@ export default function PepFinal() {
       }
     } finally {
       setArchiveBusy(false);
+    }
+  }
+
+  async function handleSavePepRepairs() {
+    if (!archiveContext?.pepArchiveId || !archiveContext.btId || pepRepairSaving) return;
+    const ids = [...pepRepairSelected];
+    if (ids.length === 0) return;
+    setPepRepairSaving(true);
+    setPepRepairMessage("");
+    try {
+      const { data, error } = await supabase.rpc("pep_confirmer_reparations", {
+        p_archive_id: archiveContext.pepArchiveId,
+        p_bt_id: archiveContext.btId,
+        p_defaut_ids: ids,
+      });
+      if (error) throw error;
+      const updated = lireDefautsPep(data);
+      setPepRepairItems(updated);
+      setPepRepairSelected(new Set());
+      const count = typeof (data as { reparations?: unknown } | null)?.reparations === "number"
+        ? (data as { reparations: number }).reparations : 0;
+      setPepRepairMessage(`${count} réparation(s) confirmée(s) et enregistrée(s) dans le BT.`);
+    } catch (e) {
+      setPepRepairMessage(e instanceof Error ? `Échec : ${e.message}` : "Réparation non enregistrée.");
+    } finally {
+      setPepRepairSaving(false);
     }
   }
 
@@ -1799,6 +1825,48 @@ export default function PepFinal() {
 
             {archiveError ? <div style={styles.progressErrorText}>{archiveError}</div> : null}
 
+            {!archiveBusy && archivePhase1Done && pepRepairItems.length > 0 && (
+              <div style={styles.pepRepairBox}>
+                <div style={{ fontWeight: 800, fontSize: 16 }}>Réparations effectuées lors du PEP</div>
+                <div style={{ fontSize: 13, color: "#475569" }}>
+                  Coche seulement les défauts réellement réparés. La réparation sera consignée
+                  dans le BT {archiveContext?.btNumero ?? "associé"}.
+                </div>
+                {pepRepairItems.map((d) => {
+                  const repaired = Boolean(d.repaired_at);
+                  return (
+                    <label key={d.id} style={styles.pepRepairRow}>
+                      <input
+                        type="checkbox"
+                        checked={repaired || pepRepairSelected.has(d.id)}
+                        disabled={repaired || pepRepairSaving}
+                        onChange={(e) => setPepRepairSelected((current) => {
+                          const next = new Set(current);
+                          if (e.target.checked) next.add(d.id); else next.delete(d.id);
+                          return next;
+                        })}
+                      />
+                      <span style={{ flex: 1, minWidth: 0 }}>
+                        <strong>{d.description}</strong>
+                        <small style={{ display: "block", color: "#64748b" }}>
+                          {d.niveau === "majeur" ? "MAJEURE — hors service tant que non réparée" : "MINEURE — délai de 48 h"}
+                        </small>
+                      </span>
+                      <span style={{ color: repaired ? "#047857" : d.niveau === "majeur" ? "#b91c1c" : "#9a6700", fontWeight: 800, fontSize: 12 }}>
+                        {repaired ? "Réparée ✓" : d.niveau === "majeur" ? "Majeure" : "Mineure"}
+                      </span>
+                    </label>
+                  );
+                })}
+                {pepRepairMessage && <div style={{ fontSize: 13, fontWeight: 700 }}>{pepRepairMessage}</div>}
+                <button type="button" style={styles.btnPrimary}
+                  disabled={pepRepairSaving || pepRepairSelected.size === 0}
+                  onClick={() => void handleSavePepRepairs()}>
+                  {pepRepairSaving ? "Enregistrement..." : `Enregistrer les réparations (${pepRepairSelected.size})`}
+                </button>
+              </div>
+            )}
+
             {!archiveBusy && (
               <div style={styles.progressActions}>
                 {archiveStep === "ready_pdf" && archivePhase1Done && !archivePhase2Done ? (
@@ -2057,6 +2125,27 @@ const styles: Record<string, React.CSSProperties> = {
     border: "1px solid #fecaca",
     color: "#991b1b",
   },
+  pepRepairBox: {
+    width: "100%",
+    display: "grid",
+    gap: 12,
+    textAlign: "left",
+    padding: 14,
+    border: "1px solid #fcd34d",
+    borderRadius: 12,
+    background: "#fffbeb",
+    boxSizing: "border-box",
+  },
+  pepRepairRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    padding: 10,
+    border: "1px solid #e2e8f0",
+    borderRadius: 10,
+    background: "#ffffff",
+    cursor: "pointer",
+  },
   loadingOverlay: {
     position: "fixed",
     inset: 0,
@@ -2068,7 +2157,9 @@ const styles: Record<string, React.CSSProperties> = {
     padding: 20,
   },
   loadingCard: {
-    width: "min(460px, 100%)",
+    width: "min(620px, 100%)",
+    maxHeight: "92vh",
+    overflowY: "auto",
     background: "#ffffff",
     borderRadius: 16,
     border: "1px solid #d1d5db",
