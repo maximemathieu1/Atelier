@@ -1551,6 +1551,8 @@ export default function PepFinal() {
       const count = typeof (data as { reparations?: unknown } | null)?.reparations === "number"
         ? (data as { reparations: number }).reparations : 0;
       setPepRepairMessage(`${count} réparation(s) confirmée(s) et enregistrée(s) dans le BT.`);
+      // Fermer uniquement après confirmation réussie de la sauvegarde côté Supabase.
+      setArchiveModalOpen(false);
     } catch (e) {
       setPepRepairMessage(e instanceof Error ? `Échec : ${e.message}` : "Réparation non enregistrée.");
     } finally {
