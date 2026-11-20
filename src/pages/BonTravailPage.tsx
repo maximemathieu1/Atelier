@@ -37,9 +37,6 @@ type Client = {
   adresse_ville?: string | null;
   adresse_province?: string | null;
   adresse_code_postal?: string | null;
-  ville?: string | null;
-  province?: string | null;
-  code_postal?: string | null;
 };
 
 
@@ -1878,7 +1875,7 @@ export default function BonTravailPage() {
           supabase
             .from("clients")
             .select(
-              "id,nom,telephone,courriel,adresse,adresse_numero,adresse_rue,adresse_ville,adresse_province,adresse_code_postal,ville,province,code_postal",
+              "id,nom,telephone,courriel,adresse,adresse_numero,adresse_rue,adresse_ville,adresse_province,adresse_code_postal",
             )
             .eq("id", loadClientId)
             .maybeSingle(),
@@ -3173,10 +3170,6 @@ ${noms}`);
 
     const clientVillePrint =
       [client?.adresse_ville, client?.adresse_province, client?.adresse_code_postal]
-        .filter(Boolean)
-        .join(" ")
-        .trim() ||
-      [client?.ville, client?.province, client?.code_postal]
         .filter(Boolean)
         .join(" ")
         .trim();

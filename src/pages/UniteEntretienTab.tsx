@@ -224,7 +224,7 @@ export default function UniteEntretienTab({
 
         supabase
           .from("entretien_template_items")
-          .select("id,template_id,nom,description,frequence_km,frequence_jours,ordre,actif")
+          .select("id,template_id,nom,description,frequence_km:periodicite_km,frequence_jours:periodicite_jours,ordre,actif")
           .eq("actif", true)
           .order("ordre", { ascending: true })
           .order("nom", { ascending: true }),
