@@ -1114,7 +1114,7 @@ export default function DashboardAtelier() {
                 Number(lastDone.km_effectue) + Number(it.periodicite_km);
               const remainingKm = nextKm - Number(unite.km_actuel);
               parts.push(
-                remainingKm <= 0 ? "0 km" : `${fmtNumberLocal(remainingKm)} km`,
+                `${fmtNumberLocal(remainingKm)} km`,
               );
             } else if (it.periodicite_km != null) {
               parts.push(`${fmtNumberLocal(it.periodicite_km)} km`);
@@ -1128,9 +1128,7 @@ export default function DashboardAtelier() {
               if (dueDate) {
                 const remainingDays = daysBetween(today, dueDate);
                 parts.push(
-                  remainingDays <= 0
-                    ? "0 jour"
-                    : `${fmtNumberLocal(remainingDays)} jours`,
+                  `${fmtNumberLocal(remainingDays)} ${Math.abs(remainingDays) === 1 ? "jour" : "jours"}`,
                 );
               }
             } else if (it.periodicite_jours != null) {
@@ -1224,7 +1222,7 @@ export default function DashboardAtelier() {
           const nextKm = Number(lastDone.km_effectue) + Number(frequenceKm);
           const remainingKm = nextKm - Number(it.unites.km_actuel);
           parts.push(
-            remainingKm <= 0 ? "0 km" : `${fmtNumberLocal(remainingKm)} km`,
+            `${fmtNumberLocal(remainingKm)} km`,
           );
         } else if (frequenceKm != null) {
           parts.push(`${fmtNumberLocal(frequenceKm)} km`);
@@ -1238,9 +1236,7 @@ export default function DashboardAtelier() {
           if (dueDate) {
             const remainingDays = daysBetween(today, dueDate);
             parts.push(
-              remainingDays <= 0
-                ? "0 jour"
-                : `${fmtNumberLocal(remainingDays)} jours`,
+              `${fmtNumberLocal(remainingDays)} ${Math.abs(remainingDays) === 1 ? "jour" : "jours"}`,
             );
           }
         } else if (frequenceJours != null) {
@@ -2713,7 +2709,17 @@ function EntretienList({
               </div>
               <div style={styles.rowMeta}>
                 <span>
-                  Prochain dû : <strong>{item.prochainDuText}</strong>
+                  Prochain dû :{" "}
+                  <strong>
+                    {item.prochainDuText.split(" • ").map((part, index) => (
+                      <span key={index}>
+                        {index > 0 ? " • " : ""}
+                        <span style={part.trim().startsWith("-") ? { color: "#b91c1c" } : undefined}>
+                          {part}
+                        </span>
+                      </span>
+                    ))}
+                  </strong>
                 </span>
                 {item.templateNom ? (
                   <>
